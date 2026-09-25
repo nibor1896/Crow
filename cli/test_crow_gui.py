@@ -13503,11 +13503,8 @@ const flow=mk("div");
                   " fold(){}, bottom(){}, ctx(){},"
                   " turn(){ const t=mk('div'); flow.appendChild(t); return t; },\n"
                 + body + "};\n" + calls)
-        # FORCE_COLOR in the caller's environment makes node colour what
-        # console.log prints ("\x1b[33m1\x1b[39m" for 1); this reads text.
-        env = {k: v for k, v in os.environ.items() if k != "FORCE_COLOR"}
         done = subprocess.run([self.node, "-e", prog], capture_output=True,
-                              text=True, encoding="utf-8", timeout=30, env=env)
+                              text=True, encoding="utf-8", timeout=30)
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout.strip()
 

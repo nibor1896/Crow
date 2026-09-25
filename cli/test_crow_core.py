@@ -4469,13 +4469,6 @@ class AWriteParsesWhatItWroteTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, True)
         crow_core.set_root(self.root)
         self.addCleanup(crow_core.set_root, None)
-        # A cold node on a CI runner took past the 5 s clock (PR #307's push
-        # run and main's b3c5574, both "not finished within 5s"). These cases
-        # test what the check SAYS, not how fast node starts; the clock's own
-        # case (test_a_check_past_its_clock_says_so) mocks the run instead.
-        clock = mock.patch.object(crow_core, "SYNTAX_CHECK_SECONDS", 60.0)
-        clock.start()
-        self.addCleanup(clock.stop)
 
     def at(self, name):
         return os.path.join(self.root, name)

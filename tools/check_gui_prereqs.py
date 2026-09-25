@@ -190,31 +190,7 @@ RECORDED_RANGES = (
 # The declaration was not simply deleted alongside the edit: this checker went
 # red at it first ("no surface writes it any more - drop the declaration"),
 # which is the half of point (ii) that makes the other half worth reading.
-#
-# REFILLED 2026-09-25, and every entry is a real gap, not a silencer: point (ii)
-# went red on thirteen codepoints the window's page, the esbuild log reader and
-# the sentence splitter write, and which neither shipped Google Sans Code face
-# has. The window is a web view, so each one is drawn from the system's fallback
-# face -- the glyph shows, in another font. The markers came with the subtask
-# row (#224), the goal glyphs (#296), the tool-call and dictation marks; the
-# CJK punctuation is data in _STUB_TERMINAL (a sentence end the splitter must
-# recognise), never drawn. The symmetric rule above still holds: when a face
-# gains one of these, or no surface writes it any more, this goes red again.
-KNOWN_UNCOVERED = (
-    (0x22B8, "window marker, drawn from the fallback face"),
-    (0x2387, "window marker, drawn from the fallback face"),
-    (0x2442, "subtask row marker, drawn from the fallback face"),
-    (0x2443, "window marker, drawn from the fallback face"),
-    (0x25C8, "window marker, drawn from the fallback face"),
-    (0x25E6, "window marker, drawn from the fallback face"),
-    (0x2713, "check mark, drawn from the fallback face"),
-    (0x2717, "cross mark, drawn from the fallback face"),
-    (0x2718, "cross mark in the esbuild log reader, drawn from the fallback face"),
-    (0x3002, "CJK full stop in _STUB_TERMINAL, data, never drawn"),
-    (0xFF01, "fullwidth ! in _STUB_TERMINAL, data, never drawn"),
-    (0xFF1F, "fullwidth ? in _STUB_TERMINAL, data, never drawn"),
-    (0x1F3A4, "microphone emoji, drawn from the colour emoji face"),
-)
+KNOWN_UNCOVERED = ()
 
 
 def sfnt_tables(data):
