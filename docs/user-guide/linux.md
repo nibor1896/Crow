@@ -154,7 +154,18 @@ abort (upstream #28403, #25060).
 
 ## Start
 
-The server first, in its own terminal -- it loads for about a minute and prints
+**Default: crow-nest**, from the crow-nest repo root (build and container download:
+[install guide](install.md#the-model)):
+
+```bash
+cd ~/Projects/crow-nest && tools/serve-linux.sh --port 8099
+crow --base-url http://127.0.0.1:8099/v1
+```
+
+`serve-linux.sh` looks for the CUDA 13.3 runtime in `~/.local/share/crow/cuda/lib`; `CUDA_LIB`
+names another directory.
+
+**Second: llama.cpp.** The server first, in its own terminal -- it loads for about a minute and prints
 `listening on http://127.0.0.1:8083` when it is up:
 
 ```bash

@@ -17,7 +17,7 @@ the model — that is a separate line, printed at the end of the run.
 
 | | |
 |---|---|
-| **GPU** | NVIDIA. 32 GB for the default operating point. 16 GB is the installer's floor, unmeasured |
+| **GPU** | NVIDIA. The default operating point (crow-nest) needs Blackwell `sm_120` with 32 GB and 64 GB RAM. 16 GB is the installer's floor for the llama.cpp lines, unmeasured |
 | **System RAM** | 32 GB for the 27B. **64 GB for Flash-Next** — `-ncmoe 30` keeps the experts of 30 of 48 layers in system RAM |
 | **Disk** | ~2 GB for Crow, **73.45 GiB for the model** (3 shards) plus 0.9 GiB for the projector. The 27B is 16.35 GiB plus 0.9 |
 | **OS** | Windows x64 · Linux x86_64 (Arch/Omarchy is what it was ported on and measured on) |
@@ -113,7 +113,20 @@ no Linux release asset. Full page: [Linux](linux.md).
 
 ## The model
 
-Flash-Next, the default operating point. Windows:
+**crow-nest, the default operating point.** The engine is its own repository and the container
+one 104.7 GB file:
+
+```bash
+git clone https://github.com/nibor1896/crow-nest && cd crow-nest
+hf download nibor1896/Qwen3.8-Flash-Next-CNQ4.5-M Qwen3.8-Flash-Next-CNQ4.5-M.cnq --local-dir converter
+cd engine && cargo build --release --bin serve && cd ..
+```
+
+Start it with `cd ~/Projects/crow-nest && tools/serve-linux.sh --port 8099` (Windows: `engine\target\release\serve.exe --port 8099`)
+and point the window at it with `--base-url http://127.0.0.1:8099/v1`. Everything else:
+[crow-nest](https://github.com/nibor1896/crow-nest) and [operating points](../operating-points.md#crow-nest--the-rust-engine).
+
+Flash-Next GGUF on llama.cpp, the second operating point. Windows:
 
 ```powershell
 hf download unsloth/Qwen3.8-Flash-Next-GGUF --include "*UD-Q2_K_XL*" --local-dir $env:LOCALAPPDATA\Crow\models\qwen-next-gguf
@@ -129,7 +142,7 @@ hf download unsloth/Qwen3.8-Flash-Next-GGUF mmproj-F16.gguf --local-dir ~/Projec
 
 Three shards of 73.45 GiB total, plus 904,004,000 B for the projector.
 
-The 27B, the second operating point (Windows paths shown):
+The 27B, the third operating point (Windows paths shown):
 
 ```powershell
 hf download unsloth/Qwen3.8-27B-GGUF --include "*UD-Q4_K_XL*" --local-dir $env:LOCALAPPDATA\Crow\models\qwen38-gguf

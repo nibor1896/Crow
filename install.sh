@@ -1340,6 +1340,23 @@ final_screen() {
     local line
 
     printf '\n'
+    # THE DEFAULT OPERATING POINT IS crow-nest (Rust), port 8099. It is its own
+    # repository and its own build, so this installer prints the steps and runs
+    # none of them. Commands as in crow-nest's README.
+    printf '  %sDefault: crow-nest (Rust engine), port 8099%s\n\n' "$B" "$Z"
+    printf '  1. Engine and model. The container is 104.7 GB, one file:\n\n'
+    cmd "git clone https://github.com/nibor1896/crow-nest ~/Projects/crow-nest && cd ~/Projects/crow-nest"
+    cmd "hf download nibor1896/Qwen3.8-Flash-Next-CNQ4.5-M Qwen3.8-Flash-Next-CNQ4.5-M.cnq --local-dir converter"
+    cmd "cd engine && cargo build --release --bin serve && cd .."
+    printf '\n'
+    note "Needs an NVIDIA Blackwell card (sm_120, 32 GB), 64 GB RAM and the CUDA 13.3 runtime."
+    printf '\n'
+    printf '  2. Start the engine, then the window:\n\n'
+    cmd "cd ~/Projects/crow-nest && tools/serve-linux.sh --port 8099"
+    cmd "crow --base-url http://127.0.0.1:8099/v1"
+    printf '\n'
+
+    printf '  %sSecond: llama.cpp, port 8083%s\n\n' "$B" "$Z"
     printf '  1. The model. It is NOT part of this install: 73.45 GiB in 3 shards, plus\n'
     printf '     904,004,000 B for the vision projector, and it belongs to somebody else.\n\n'
     cmd "hf download unsloth/Qwen3.8-Flash-Next-GGUF --include '*UD-Q2_K_XL*' --local-dir $MODELS_DIR"
@@ -1371,7 +1388,7 @@ final_screen() {
     fi
 
     if [ -n "$HYPR_LINE" ]; then
-        printf '  3. Hyprland floats the window once this line is in %s:\n\n' "$HYPR_WHERE"
+        printf '  Hyprland floats the window once this line is in %s:\n\n' "$HYPR_WHERE"
         cmd "$HYPR_LINE"
         printf '\n'
         note "then, in a terminal:"

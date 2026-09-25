@@ -3,8 +3,9 @@
 # Operating points
 
 An operating point is one model on one engine at one measured placement. Crow ships four of
-them, and the window boots any of them from its model menu — the lines below are what it
-builds, written out for a shell.
+them. The default is crow-nest, the Rust engine: it is started from its own repository and the
+window connects with `--base-url http://127.0.0.1:8099/v1`. The window boots the llama.cpp lines
+from its model menu — the lines below are what it builds, written out for a shell.
 
 **Source of truth:** [`manifests/operating-point.json`](../manifests/operating-point.json).
 Every line on this page is held against it by
@@ -13,19 +14,23 @@ raw text. Editing a flag here without editing the manifest turns the checker red
 
 | | model | decode | port | engine |
 |---|---|---|---|---|
-| **Default, Windows** | `Qwen3.8-Flash-Next-UD-Q2_K_XL` | **41.76 tok/s** | 8083 | llama.cpp, local build |
-| **Default, Linux** | `Qwen3.8-Flash-Next-UD-Q2_K_XL` | **41.8 tok/s** | 8083 | llama.cpp, built here |
-| Second | `Qwen3.8-27B-UD-Q4_K_XL` | 123.05 / 133.18 tok/s | 8082 | llama.cpp, packaged |
-| Third (Rust) | `CNQ4.5-M` NVFP4 container | **45.1 tok/s** (Windows) · 36.8 tok/s at 16k context (Linux) | 8099 | crow-nest `v0.3.0`, Windows and Linux |
+| **Default, Windows** | `CNQ4.5-M` NVFP4 container | **45.1 tok/s** | 8099 | crow-nest (Rust) |
+| **Default, Linux** | `CNQ4.5-M` NVFP4 container | **36.8 tok/s** at 16k context | 8099 | crow-nest (Rust) |
+| Second, Windows | `Qwen3.8-Flash-Next-UD-Q2_K_XL` | 41.76 tok/s | 8083 | llama.cpp, local build |
+| Second, Linux | `Qwen3.8-Flash-Next-UD-Q2_K_XL` | 41.8 tok/s | 8083 | llama.cpp, built here |
+| Third | `Qwen3.8-27B-UD-Q4_K_XL` | 123.05 / 133.18 tok/s | 8082 | llama.cpp, packaged |
 
-`DEFAULT_BASE_URL` is `http://127.0.0.1:8083/v1`.
+crow-nest figures: measured on `v0.3.0` ([crow-nest — the Rust engine](#crow-nest--the-rust-engine)).
+
+`DEFAULT_BASE_URL` in the client is still `http://127.0.0.1:8083/v1`, so the crow-nest line is
+reached with `--base-url http://127.0.0.1:8099/v1`.
 
 A fourth server, DeepSeek-V4-Flash-0731 on `:8081`, is still set up by `install.ps1` and is
 [at the end of this page](#deepseek-v4-flash-0731).
 
 ---
 
-## Flash-Next on Windows — the default since 2.0.0
+## Flash-Next on Windows — the second operating point, default from 2.0.0 to 2.7.0
 
 | | |
 |---|---|
@@ -130,7 +135,7 @@ manifest instead of repeating it. `CROW_MODELS` points one shell at a model tree
 
 ---
 
-## Qwen3.8-27B — the second operating point
+## Qwen3.8-27B — the third operating point
 
 Still shipped, still measured, still bootable from the model menu. It is the faster one per
 token and the smaller download, and it runs on the **packaged** engine.

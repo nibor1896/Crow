@@ -1981,6 +1981,29 @@ Write-Step "What is left to do"
 # "Checking this machine" and the warnings Test-Preflight raises for them.
 
 Write-Host ""
+# THE DEFAULT OPERATING POINT IS crow-nest (Rust), port 8099. Its own repository
+# and its own build, so these steps are printed and none of them is run here.
+# Commands as in crow-nest's README. This block names no engine binary of the
+# llama.cpp line on purpose: tools/check_operating_point.py anchors on that name.
+Write-Host "  Default: crow-nest (Rust engine), port 8099" -ForegroundColor White
+Write-Host ""
+Write-Host "  1. Engine and model. The container is 104.7 GB, one file:" -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "    git clone https://github.com/nibor1896/crow-nest; cd crow-nest" -ForegroundColor White
+Write-Host "    hf download nibor1896/Qwen3.8-Flash-Next-CNQ4.5-M Qwen3.8-Flash-Next-CNQ4.5-M.cnq --local-dir converter" -ForegroundColor White
+Write-Host "    cd engine; cargo build --release --bin serve; cd .." -ForegroundColor White
+Write-Host ""
+Write-Host "     Needs an NVIDIA Blackwell card (sm_120, 32 GB), 64 GB RAM and the CUDA 13.3 runtime." -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "  2. Start the engine, then the window:" -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "    engine\target\release\serve.exe --port 8099" -ForegroundColor White
+Write-Host "    python $InstallTo\cli\crow.py --base-url http://127.0.0.1:8099/v1" -ForegroundColor White
+Write-Host "     or the window:" -ForegroundColor DarkGray
+Write-Host "    python $InstallTo\cli\crow_gui.py --base-url http://127.0.0.1:8099/v1" -ForegroundColor White
+Write-Host ""
+Write-Host "  Second: llama.cpp" -ForegroundColor White
+Write-Host ""
 Write-Host "  1. The model. It is NOT part of this install: 16.4 GiB, one file, and it" -ForegroundColor DarkGray
 Write-Host "     belongs to somebody else." -ForegroundColor DarkGray
 Write-Host ""
