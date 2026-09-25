@@ -2,13 +2,14 @@
 
 # Documentation
 
-The [README](../README.md) is the front page: install, start, and what Crow is. Everything else
-is here.
+The [README](../README.md) is the front page: one image, the install lines, and links here.
+Everything else is in this folder.
 
 ## User guide
 
 | | |
 |---|---|
+| [Overview](user-guide/overview.md) | start, the window part by part, features, tools, licences: what the front page used to carry |
 | [Install](user-guide/install.md) | requirements, both installers, the model download, updating, where everything lands; optional `--voice`, `--tailscale` / `-Tailscale`, `--pathtracer` / `-PathTracer` |
 | [Window](user-guide/window.md) | the client, panel by panel: pinned cards, selection and links, layout |
 | [Linux](user-guide/linux.md) | install, the paths table, the engine build, memory scopes for server, render and command, optional helpers, the window on Wayland, troubleshooting |
@@ -65,9 +66,10 @@ Raw rows that belong to the pages above: [`flash-next-placement-runs.csv`](measu
 
 ## Archive
 
-Kept for the measurements in them. Neither is current, and no checker holds them to the manifest.
+Kept for the measurements in them. None is current, and no checker holds them to the manifest.
 
 | | |
 |---|---|
+| [README v2.7.0](archive/README-v2.7.0.md) | the last text front page, before the image README |
 | [README v0.5.1, Qwen-first](archive/README-v0.5.1-qwen.md) | the page as it stood when Qwen3.8-27B was the operating point |
 | [README v0.5.1, the one before it](archive/README-v0.5.1-deepseek.md) | the DeepSeek-0731 page |

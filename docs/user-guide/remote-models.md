@@ -9,6 +9,10 @@ lands and on `ask again`. Nothing is asked of a provider while a window opens.
 <img src="../images/CrowAPI.png" alt="Settings, API Keys: one key per provider, shown as a mask once saved" width="900">
 </div>
 
+<div align="center">
+<img src="../images/CrowModelLocal.png" alt="Settings, Model page: this machine, OpenRouter, Anthropic and OpenAI as providers" width="900">
+</div>
+
 A key is kept in its own file that no view reads back — what the box shows afterwards is a mask.
 
 OpenRouter has its own page instead: switch, delegate favourites and model pick. **The page routes

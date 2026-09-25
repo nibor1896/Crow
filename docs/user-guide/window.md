@@ -6,6 +6,10 @@
 <img src="../images/window.png" alt="Crow window: chat rail, the wireframe over an empty chat, and the composer" width="920">
 </div>
 
+<div align="center">
+<img src="../images/CrowToolCallsAndTraceInChat.png" alt="A web_search turn: the Trace, the folded Thought, the answer, and two tool calls in the panel" width="920">
+</div>
+
 | | |
 |---|---|
 | Composer | model and reasoning level as one chip, context readout, working directory, release level, dictation |

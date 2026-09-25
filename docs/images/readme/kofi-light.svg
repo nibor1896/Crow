@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 232 44" width="232" height="44" role="img" aria-label="Support Crow on Ko-fi">
+<rect x="0.5" y="0.5" width="231" height="43" rx="22" fill="#ffffff" stroke="#d0d7de"/>
+<g transform="translate(20 11)">
+<path d="M1 4h17v8.5a7 7 0 0 1-7 7H8a7 7 0 0 1-7-7z" fill="#ff5e5b"/>
+<path d="M18 6.5h2.2a3.6 3.6 0 0 1 0 7.2H17.6" fill="none" stroke="#ff5e5b" stroke-width="2.4"/>
+<path d="M9.5 15.2l-3.3-3.1a2 2 0 0 1 3.3-2.3 2 2 0 0 1 3.3 2.3z" fill="#fff"/>
+</g>
+<text x="54" y="27.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif" font-size="14.5" font-weight="600" fill="#1f2328">Support Crow on Ko-fi</text>
+</svg>
