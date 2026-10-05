@@ -14,13 +14,15 @@ raw text. Editing a flag here without editing the manifest turns the checker red
 
 | | model | decode | port | engine |
 |---|---|---|---|---|
-| **Default, Windows** | `CNQ4.5-M` NVFP4 container | **45.1 tok/s** | 8099 | crow-nest (Rust) |
-| **Default, Linux** | `CNQ4.5-M` NVFP4 container | **36.8 tok/s** at 16k context | 8099 | crow-nest (Rust) |
+| **Default, Windows** | `CNQ4.5-M` NVFP4 container | 45.1 tok/s, before the PLE fix; not re-measured since | 8099 | crow-nest (Rust) |
+| **Default, Linux** | `CNQ4.5-M` NVFP4 container | **35.8 tok/s** at 122k context, after the PLE fix (36.8 at 16k, before it) | 8099 | crow-nest (Rust) |
 | Second, Windows | `Qwen3.8-Flash-Next-UD-Q2_K_XL` | 41.76 tok/s | 8083 | llama.cpp, local build |
 | Second, Linux | `Qwen3.8-Flash-Next-UD-Q2_K_XL` | 41.8 tok/s | 8083 | llama.cpp, built here |
 | Third | `Qwen3.8-27B-UD-Q4_K_XL` | 123.05 / 133.18 tok/s | 8082 | llama.cpp, packaged |
 
-crow-nest figures: measured on `v0.3.0` ([crow-nest — the Rust engine](#crow-nest--the-rust-engine)).
+crow-nest figures: measured on `v0.3.0` ([crow-nest — the Rust engine](#crow-nest--the-rust-engine)), except the Linux 35.8, which is
+the newest post-fix reading (2026-09-24, below). "The PLE fix" is crow-nest 85a48e7 (2026-09-23): until then the engine read the
+wrong per-layer-embedding rows, so every decode figure taken before it is stale.
 
 `DEFAULT_BASE_URL` in the client is still `http://127.0.0.1:8083/v1`, so the crow-nest line is
 reached with `--base-url http://127.0.0.1:8099/v1`.
@@ -55,7 +57,7 @@ A fourth server, DeepSeek-V4-Flash-0731 on `:8081`, is still set up by `install.
 
 Conditions: 2026-09-01, driver 616.56, one 33,494-token cold turn per boot, 200 tokens out,
 three rounds interleaved against the previous placement `-ncmoe 40 -ub 4096` (539.98 / 35.74);
-wall clock per turn 67.9 s → 51.3 s. Accepted live at 41.8 tok/s. Decode falls with context
+wall clock per turn 67.9 s → 51.3 s. Accepted live over `crow --serve flash-next-q2-k-xl` (#182): one goal run at 42.70 tok/s and two turns at 41.48. Decode falls with context
 depth: `ms/token = 24.06 + 0.0706 per 1,000 tokens` (r² 0.93), i.e. ~41 tok/s at 30k and ~28 at
 175k. Not measured: decode at a full 200k window, and whether an image prefill fits in the
 1,059 MiB left on the card.
@@ -243,9 +245,9 @@ the three things on it that Crow has to know about are under
 | Model | `CNQ4.5-M`, the project's own quant: one 104.7 GB NVFP4 container of `Qwen3.8-Flash-Next` ([package](https://huggingface.co/nibor1896/Qwen3.8-Flash-Next-CNQ4.5-M)) |
 | Context | 200,000, one slot |
 | Vision | yes. At v0.3.0 from the container's own `vit` section; since crow-nest #108 serve prefers the F16 projector `mmproj-F16.gguf` (904,004,000 B, `CROW_VIT_MMPROJ`) and falls back to that section without it |
-| Decode | Windows: **45.1 tok/s** (22.18 ms/token) vs llama.cpp 44.9 on the same prompt, greedy ids bit-identical. Linux: 36.8 tok/s at 16k context (the ten-task form, the same figure the Windows record of that form shows) |
-| Prefill | Windows: 771 tok/s default, **871 tok/s** with `CROW_PF_GEMM_B=1`, vs llama.cpp 922.5 (16k reference prompt). Linux: **968 tok/s** cold on the same 16k prompt, 740 tok/s on a cold 1024-token prompt, warm short turns 228 ms prefill / 247 ms to the first token |
-| Quality | ten-task suite unchanged (2/5/3) against the llama.cpp operating point's reading |
+| Decode | Newest reading, Linux, after the PLE fix: **35.8 tok/s at 122k context** (2026-09-24, crow-nest `decode_out/hotset-0924/speed.log`, hot set `crow0924`, three runs 35.6 / 35.8 / 35.8). Windows has not been re-measured since the fix. Before it: Windows 45.1 tok/s (22.18 ms/token, 2026-09-13, `decode_out/srv-62e-crow-N*`) vs llama.cpp 44.9 on the same prompt, with greedy ids identical from one run of crow-nest to the next (not a claim that they equal llama.cpp's ids); Linux 36.8 tok/s at 16k context (the ten-task form, the same figure the Windows record of that form shows) |
+| Prefill | Windows (16k reference prompt): 771 tok/s default (mean of the crow-nest `decode_out/10b` N1-3 runs; the 10c B2/B3 default of record reads 775), **871 tok/s** with `CROW_PF_GEMM_B=1`, vs llama.cpp 922.7 (mean of `srv-59` C1-3; `srv-59b` 923.8; crow-nest's docs quote 922.5). Linux: **968 tok/s** cold on the same 16k prompt, 740 tok/s on a cold 1024-token prompt, warm short turns 228 ms prefill / 247 ms to the first token |
+| Quality | ten-task suite, 2 Pass / 5 Partial / 3 Fail (2/5/3), against 2/6/2 for the llama.cpp operating point's reading (`runs/2026-09-10/crow-nest-tentask/judgement.txt`, B4 run 0) |
 | Port | 8099 |
 | Thinking | fixed: `high`, which serve maps to the template's xhigh, capped at 1024 reasoning tokens. Until 2026-09-22 Crow sent no level and serve read that as thinking **off**. See [thinking and sampling](#thinking-and-sampling-per-point) |
 | GPU | RTX 5090 class (Blackwell `sm_120` required), 62-64 GB host RAM class, CUDA driver + NVRTC 13.3 (Linux: the runtime libs on `LD_LIBRARY_PATH`, the container on a non-compressed path) |
@@ -292,7 +294,8 @@ process per run, W + 3N: **23.52 ms per decode token = 42.5 tok/s**, against the
 one drift chain (`c3-sdsd-61g`, four counted runs): **53.32 tok/s, within-arm spread 1.0038**,
 beside that chain's adjacent `decode run` arm at 42.56 tok/s and spread 1.0010. `CROW_ATTN_LUT=0`
 is the fallback of record. Linux only — Windows has not been rerun at this default, and the 45.1
-tok/s in the table above is the v0.2.0 Windows reading, not this one.
+tok/s in the table above is the v0.2.0 Windows reading, not this one. All figures in this paragraph
+(42.5, 42.56, 53.32) predate the PLE fix of 2026-09-23.
 
 **Every image but the first of a process was read as the previous image** (crow-nest `#73`,
 `bc9cd9b`, found and fixed 2026-09-18). The vision tower launched asynchronously and the blocking
