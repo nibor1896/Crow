@@ -5,6 +5,28 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 3.2.3 — 2026-10-05
+
+**Flash-Next boots on Windows again with crow-nest v0.9.1, and Crow's Flash-Next figures name the run they come from.** CrowSetup installs engine v0.9.1, which no longer takes `whisper-small`'s config for Flash-Next's, no longer runs a tool call the model only wrote inside its reasoning, and names the page file a Flash-Next boot needs on Windows. Windows assets only, as for v3.2.x.
+
+### Fixed
+
+- **CrowSetup installs crow-nest v0.9.1** (2026-10-05). Since the Media Stack put `models\whisper-small\config.json` beside the other models (2026-10-01), every Flash-Next boot on v0.8.0 ended with exit 101: the engine took the lone config under `models\` as the container's own and its metadata gate refused it. v0.9.1 fixes that, stops executing a `<tool_call>` written inside a think block, and refuses a cold tier past the Windows commit limit by name before it allocates it (crow-nest CHANGELOG v0.9.1).
+- **Context clearing counts an image the way crow-nest resizes it** (`768c299`, 2026-10-05). On the `flash-next` and `27b` points every picture costs the engine 1,024 to 1,280 visual tokens (crow-nest `vit.rs` `smart_resize`, factor 32, 1024..1280 tokens), while Crow counted one token per 32×32 px, so an 800×450 render was booked at 350 instead of 1,032. `_image_tokens` now follows the engine's rule when the served model is a crow-nest container; every other server keeps the 32×32 grid, and an unreadable image still counts 0. Six tests pin the engine's own grids.
+
+### Changed
+
+- **Flash-Next figures name their run and the PLE fix** (`6be0e03`, 2026-10-05). The README, its generated image and `docs/operating-points.md` headline the newest measurement after crow-nest's PLE fix of 2026-09-23 (`85a48e7`): 35.8 tok/s decode at 122k context (Linux, 2026-09-24, hot set `crow0924`, runs 35.6 / 35.8 / 35.8). The 45.1 tok/s Windows figure (2026-09-13) and the Linux 36.8 / 42.5 figures are kept only as "before the PLE fix". "Greedy ids bit-identical" now says it means run to run. The prefill default names its runs (771.3 = mean of three crow-nest runs; llama.cpp 922.7 from its raw records), the quality line reads 2/5/3 against llama.cpp's 2/6/2, and "accepted live at 41.8" is corrected to the recorded 42.70 and 41.48 (#182). `manifests/stack.json` cites crow-nest `geo.rs:233` for the context floor, and `manifests/operating-point.json` names the b10687 abort log that exists in crow-lab.
+
+### Measured
+
+- **Windows charges VRAM and pinned memory 1:1 against commit** (2026-10-05, robin's machine, RTX 5090, 63.38 GiB RAM, no page file): 20 × 1 GiB `cuMemAlloc` took 20 GiB of commit, 41 × 1 GiB pinned host blocks took 41 GiB. A Flash-Next boot needs about 95 GiB of commit, so on a 64 GB machine it needs a page file of about 40 GiB; the other operating points fit without one.
+
+### Known limitations
+
+- **Flash-Next on Windows needs a page file** of about 40 GiB on a 64 GB machine (see Measured). Without one, engine v0.9.1 refuses the boot by name instead of running out mid-load. The Windows boot with a page file is not yet verified live.
+- **Windows has no Flash-Next speed measured since the PLE fix**; the headline figure is Linux.
+
 ## 3.2.2 — 2026-10-03
 
 **CrowSetup carries its licence notices.** From v3.0.0 to v3.2.1 `CrowSetup.exe` shipped without the notices of the Rust crates compiled into it and of Microsoft's WebView2 loader it links statically. This release adds them, inside the exe (`CrowSetup --licenses`) and as `installer/THIRD-PARTY-NOTICES.txt`; installing works exactly as in v3.2.1. Windows assets only, as for v3.2.x.
