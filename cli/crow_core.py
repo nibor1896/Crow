@@ -3759,11 +3759,74 @@ def context_clear_share(remote: bool = False) -> float:
     return CONTEXT_CLEAR_AT if 0 < CONTEXT_CLEAR_AT < 1 else 0.0
 
 
-def _image_tokens(block: dict) -> int:
-    """Visual tokens of one PNG block, Qwen3-VL's grid (one per 32x32 px).
+# TWO ENGINES, TWO GRIDS. crow-nest's serve resizes every image into a window
+# of visual tokens (crow-nest#107, engine/src/vit.rs `VitBudget`, default
+# [1024, 1280]: `VIT_MIN_TOKENS_DEFAULT` / `VIT_MAX_TOKENS_DEFAULT`), so a
+# small render costs ~1,032 tokens there, not the 527-880 of its own size.
+# Neither point's stack.json engine env sets CROW_VIT_MIN/MAX_TOKENS, so the
+# defaults are the serving window. One rule for both points: the 27B's own
+# projector differs from Flash-Next's only in the merger's output width
+# (5120 vs 2560, `Geo::vision_out`); the resize (`resized_dims`) is shared.
+CROW_NEST_VIT_MIN_TOKENS = 1024
+CROW_NEST_VIT_MAX_TOKENS = 1280
+_VIT_PATCH = 16                 # vit.rs VIT_PATCH
+_VIT_FACTOR = 32                # patch * spatial merge: one token per 32x32 px
 
-    Checked against engine.log: 984x624 -> `grid (1, 40, 62), 620 visual
-    tokens`. An image this cannot read counts 0: an estimate that frees less.
+
+def crow_nest_visual_tokens(width: int, height: int,
+                            min_tokens: int = CROW_NEST_VIT_MIN_TOKENS,
+                            max_tokens: int = CROW_NEST_VIT_MAX_TOKENS) -> int:
+    """Visual tokens crow-nest gives a `width` x `height` image, or 0.
+
+    vit.rs `grid_for` -> `resized_dims` -> `smart_resize`, step for step and in
+    the same f64 order: HF smart_resize at factor 32 (Python's round is the
+    round-half-even the port replicates), min/max pixels = tokens * 1024, then
+    the patch-cap clamp. 0 where the engine refuses the image (a side under
+    32 px, an aspect ratio over 200): it never reaches the context.
+    """
+    import math
+    h, w = int(height), int(width)
+    f = _VIT_FACTOR
+    if h < f or w < f or max(h, w) // min(h, w) > 200:
+        return 0
+    min_pixels, max_pixels = min_tokens * f * f, max_tokens * f * f
+    h_bar, w_bar = round(h / f) * f, round(w / f) * f
+    if h_bar * w_bar > max_pixels:
+        beta = math.sqrt((h * w) / max_pixels)
+        rh = max(f, math.floor(h / beta / f) * f)
+        rw = max(f, math.floor(w / beta / f) * f)
+    elif h_bar * w_bar < min_pixels:
+        beta = math.sqrt(min_pixels / (h * w))
+        rh, rw = math.ceil(h * beta / f) * f, math.ceil(w * beta / f) * f
+    else:
+        rh, rw = h_bar, w_bar
+    cap = max_tokens * 4                    # patches: 2x2 per visual token
+    while (rh // _VIT_PATCH) * (rw // _VIT_PATCH) > cap:
+        beta = math.sqrt((rh * rw) / (cap * _VIT_PATCH * _VIT_PATCH)) * 1.06
+        nh = max(1, math.floor((rh / beta) / f)) * f
+        nw = max(1, math.floor((rw / beta) / f)) * f
+        if nh >= rh and nw >= rw:
+            break
+        rh, rw = nh, nw
+    return (rh // _VIT_PATCH) * (rw // _VIT_PATCH) // 4
+
+
+def serves_crow_nest(served: "str | None") -> bool:
+    """True when the name /props reported is one of crow-nest's containers
+    (`CROW_NEST_POINT_FILES`, the table `point_for_server` reads)."""
+    name = (served or "").replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return name in CROW_NEST_POINT_FILES
+
+
+def _image_tokens(block: dict, served: "str | None" = None) -> int:
+    """Visual tokens of one PNG block on the engine that has `served` open.
+
+    crow-nest (`serves_crow_nest`): its resize window, `crow_nest_visual_tokens`.
+    Anything else: Qwen3-VL's grid at the image's own size (one per 32x32 px).
+    The 984x624 -> `grid (1, 40, 62), 620 visual tokens` line this was checked
+    against is crow-nest's own, from before #107 (a 64-token floor), where the
+    two rules agree. An image this cannot read counts 0: an estimate that
+    frees less.
     """
     import base64
     import struct
@@ -3773,6 +3836,8 @@ def _image_tokens(block: dict) -> int:
         if raw[:8] != b"\x89PNG\r\n\x1a\n":
             return 0
         w, h = struct.unpack(">II", raw[16:24])
+        if serves_crow_nest(served):
+            return crow_nest_visual_tokens(w, h)
         return max(1, round(h / 32)) * max(1, round(w / 32))
     except Exception:                       # noqa: BLE001 - an estimate
         return 0
@@ -3861,14 +3926,16 @@ def clear_old_results(conversation: "Conversation", context_tokens: int, n_ctx: 
                       *, at: "float | None" = None, remote: bool = False,
                       keep_rounds: "int | None" = None,
                       at_least: "float | None" = None,
-                      path: "str | None" = None) -> "dict | None":
+                      path: "str | None" = None,
+                      served: "str | None" = None) -> "dict | None":
     """One batch of #263, or None when nothing was cleared.
 
     Fires at `at * n_ctx` (the endpoint default when None), clears every
     result `clearable_results` names, and only if the estimate frees at least
     `at_least * n_ctx` -- a batch that small would buy a re-prefill for almost
     nothing. Returns {"freed" (the safe, low estimate), "typical" (the median
-    one), "results", "before", "after", "path", "reads"}.
+    one), "results", "before", "after", "path", "reads"}. `served` is what
+    /props says the server has open: it picks the image grid (`_image_tokens`).
     """
     share = context_clear_share(remote) if at is None else at
     if n_ctx <= 0 or not share or share <= 0 or context_tokens < n_ctx * share:
@@ -3884,7 +3951,7 @@ def clear_old_results(conversation: "Conversation", context_tokens: int, n_ctx: 
     for i, name, args in picked:
         content = messages[i].get("content")
         text = message_text(content)
-        images = sum(_image_tokens(b) for b in message_images(content))
+        images = sum(_image_tokens(b, served) for b in message_images(content))
         tokens = int(len(text) / CONTEXT_CLEAR_CHARS_PER_TOKEN_TYPICAL) + images
         stub = CONTEXT_CLEAR_STUB.format(
             at=int(context_tokens), n_ctx=int(n_ctx), name=name,
@@ -3918,14 +3985,16 @@ def clear_old_results(conversation: "Conversation", context_tokens: int, n_ctx: 
 
 
 def clear_before_roll(conversation: "Conversation", context_tokens: int, n_ctx: int,
-                      *, remote: bool = False, forget_reads: bool = True) -> int:
+                      *, remote: bool = False, forget_reads: bool = True,
+                      served: "str | None" = None) -> int:
     """The turn loop's call: one batch if due, the log line, the new estimate.
 
     A cleared `read_file` is a file the model no longer holds, which is the
     moment #215-H empties the read-state for; its path is forgotten here so a
     write after the clear reads first. Only by the thread that owns `_READ`.
     """
-    done = clear_old_results(conversation, context_tokens, n_ctx, remote=remote)
+    done = clear_old_results(conversation, context_tokens, n_ctx, remote=remote,
+                             served=served)
     if done is None:
         return context_tokens
     if forget_reads:
@@ -25720,7 +25789,8 @@ def run_turn(
     # answer last turn) clears before its first request, not after it.
     context_tokens = clear_before_roll(conversation, context_tokens, n_ctx,
                                        remote=remote,
-                                       forget_reads=owns_turn_state)
+                                       forget_reads=owns_turn_state,
+                                       served=served_name or model)
     for round_no in range(budget + 3):
         # #310: A STOP BETWEEN ROUNDS SENDS NOTHING. Without this the next
         # request went out and only the stream reader dropped it -- 535
@@ -26340,7 +26410,8 @@ def run_turn(
         # a tenth of it; below that this is a no-op that reads no file.
         context_tokens = clear_before_roll(conversation, context_tokens, n_ctx,
                                            remote=remote,
-                                           forget_reads=owns_turn_state)
+                                           forget_reads=owns_turn_state,
+                                           served=served_name or model)
         if should_roll(context_tokens, n_ctx, rollover_at):
             if rolled:
                 # Twice in one turn means the question itself does not fit.

@@ -22973,6 +22973,89 @@ class ToolResultClearingTests(unittest.TestCase):
         self.assertTrue(os.path.exists(first["path"]))
 
 
+class ImageTokensByEngineTests(unittest.TestCase):
+    """An image costs what the SERVING engine makes of it: crow-nest resizes
+    into [1024, 1280] visual tokens (vit.rs `VitBudget`), other servers get
+    the grid at the image's own size."""
+
+    FLASH_NEXT = "Qwen3.8-Flash-Next-CNQ4.5-M.cnq"
+    DENSE_27B = "Qwen3.8-27B-CNQ4.5.cnq"
+
+    def _block(self, w, h):
+        return {"type": "image_url", "image_url": {"url": _png_url(w, h)}}
+
+    def test_a_small_render_on_crow_nest_is_lifted_to_the_floor(self):
+        # vit.rs smart_resize: 450x800 -> h_bar*w_bar = 448*800 under the
+        # 1024-token floor, beta = 1024/600, ceil -> 768x1376 = (1, 48, 86),
+        # 48*86/4 = 1032 -- the 2026-09-24 preflight's 800x450 count
+        self.assertEqual(crow_core.crow_nest_visual_tokens(800, 450), 1032)
+        for served in (self.FLASH_NEXT, self.DENSE_27B,
+                       "C:/models/Qwen3.8-27B-CNQ4.5/" + self.DENSE_27B.upper()):
+            self.assertEqual(crow_core._image_tokens(self._block(800, 450), served),
+                             1032, served)
+
+    def test_the_grids_of_record_in_vit_rs(self):
+        # vit.rs budget_and_mmproj: grid_for(h, w) at the default window
+        for (w, h), want in (((1000, 560), 1032), ((1280, 720), 1032),
+                             ((992, 544), 1056), ((1097, 380), 1045),
+                             ((1024, 1024), 1024)):
+            self.assertEqual(crow_core.crow_nest_visual_tokens(w, h), want, (w, h))
+        # and at the old 64..1024 window, which logged 984x624 -> 620
+        for (w, h), want in (((1280, 720), 880), ((1000, 560), 558),
+                             ((992, 544), 527), ((984, 624), 620)):
+            self.assertEqual(crow_core.crow_nest_visual_tokens(w, h, 64, 1024), want, (w, h))
+
+    def test_a_large_image_on_crow_nest_is_cut_to_the_cap(self):
+        # over 1280 tokens: downscaled into the cap, (1, 52, 94) = 1222
+        for w, h in ((1920, 1080), (3840, 2160)):
+            self.assertEqual(crow_core._image_tokens(self._block(w, h), self.FLASH_NEXT),
+                             1222, (w, h))
+        self.assertLessEqual(crow_core.crow_nest_visual_tokens(5000, 4000), 1280)
+
+    def test_every_other_server_keeps_the_grid_at_the_images_own_size(self):
+        for served in (None, "", "Qwen3.8-Flash-Next", "Qwen3.8-27B", "crow"):
+            self.assertEqual(crow_core._image_tokens(self._block(984, 624), served), 620)
+            self.assertEqual(crow_core._image_tokens(self._block(800, 450), served),
+                             14 * 25)
+            self.assertEqual(crow_core._image_tokens(self._block(3840, 2160), served),
+                             68 * 120)
+
+    def test_an_unreadable_or_refused_image_counts_zero_on_both_paths(self):
+        jpeg = {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,/9j/4AAQ"}}
+        for served in (None, self.FLASH_NEXT):
+            self.assertEqual(crow_core._image_tokens(jpeg, served), 0)
+            self.assertEqual(crow_core._image_tokens({}, served), 0)
+        # crow-nest refuses a side under 32 px and an aspect ratio over 200
+        self.assertEqual(crow_core._image_tokens(self._block(800, 20), self.FLASH_NEXT), 0)
+        self.assertEqual(crow_core._image_tokens(self._block(9000, 40), self.FLASH_NEXT), 0)
+
+    def test_the_clear_batch_counts_the_image_on_the_served_engine(self):
+        tmp = tempfile.mkdtemp(prefix="crow-imgtok-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        self.addCleanup(setattr, crow_core, "SESSION_DIR", crow_core.SESSION_DIR)
+        crow_core.SESSION_DIR = os.path.join(tmp, "session")
+        self.addCleanup(setattr, crow_core, "_GOAL_REBASE", crow_core._GOAL_REBASE)
+
+        def stub(served):
+            talk = crow_core.Conversation("SYS")
+            talk.append("user", "look")
+            talk.append("assistant", "", tool_calls=[
+                {"id": "c0", "name": "read_image", "arguments": json.dumps({"path": "a.png"})}])
+            talk.append("tool", [{"type": "text", "text": "a.png -- 9 bytes"},
+                                 self._block(800, 450)], tool_call_id="c0")
+            for _ in range(5):
+                talk.append("assistant", "next")
+                talk.append("user", "go on")
+            done = crow_core.clear_old_results(talk, 900, 1000, at=0.5, at_least=0.0,
+                                               served=served)
+            self.assertIsNotNone(done)
+            return talk.payload()[3]["content"]
+
+        text = int(len("a.png -- 9 bytes") / crow_core.CONTEXT_CLEAR_CHARS_PER_TOKEN_TYPICAL)
+        self.assertIn("~{:,} tokens".format(text + 1032), stub(self.FLASH_NEXT))
+        self.assertIn("~{:,} tokens".format(text + 350), stub(None))
+
+
 class ToolResultClearingInTheTurnTests(TurnLoopCase):
     """#263 inside `run_turn`: the batch lands before the next request and
     before the rollover check, and it says nothing in the chat."""
