@@ -2,7 +2,7 @@
   <source media="(max-width: 700px) and (prefers-color-scheme: dark)" srcset="docs/images/readme/crow-mobile-dark.svg">
   <source media="(max-width: 700px)" srcset="docs/images/readme/crow-mobile-light.svg">
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/crow-dark.svg">
-  <img src="docs/images/readme/crow-light.svg" width="100%" alt="Crow: an agent, not a chat box. A local model at 200k context with 30 tools and MCP, memory, skills, goals, subagents, a browser panel and vision. It makes and edits images with Qwen-Image 2.1 beside crow-nest's 27B on one 32 GB card. Default engine crow-nest (Rust), 45.1 tok/s.">
+  <img src="docs/images/readme/crow-light.svg" width="100%" alt="Crow: an agent, not a chat box. A local model at 200k context with 30 tools and MCP, memory, skills, goals, subagents, a browser panel and vision. It makes and edits images with Qwen-Image 2.1 beside crow-nest's 27B on one 32 GB card. Default engine crow-nest (Rust), 35.8 tok/s decode at 122k context on Linux.">
 </picture>
 
 **Linux**

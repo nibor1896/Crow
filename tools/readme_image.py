@@ -74,7 +74,7 @@ def mark():
     return g.replace("#64faf2", C["mark"]).replace("#04837d", C["mark"])
 
 
-STATS = [("200k", "context, one slot"), ("45.1", "tok/s decode"), ("771", "tok/s prefill, 16k prompt"),
+STATS = [("200k", "context, one slot"), ("35.8", "tok/s decode, 122k, Linux"), ("771", "tok/s prefill, 16k prompt"),
          ("512 / 10", "MoE experts, active"), (NTOOLS, "tools built in"), ("16", "subagents at once")]
 
 FEATURES = [
@@ -130,14 +130,14 @@ IMAGES_TEXT = ("In the chat an animated square in the theme's colours stands whe
 IMAGES_NOTE = ("RTX 5090; pictures beside the 27B, 40 steps, 2026-09-27/28; the clip: median of 5, 2026-10-02. "
                "Source: docs/")
 
-OPS = [("Default, Windows", "CNQ4.5-M NVFP4 container", "45.1", "crow-nest"),
-       ("Default, Linux", "CNQ4.5-M NVFP4 container", "36.8*", "crow-nest"),
+OPS = [("Default, Windows", "CNQ4.5-M NVFP4 container", "45.1†", "crow-nest"),
+       ("Default, Linux", "CNQ4.5-M NVFP4 container", "35.8*", "crow-nest"),
        ("Second, Windows", "Qwen3.8-Flash-Next UD-Q2_K_XL", "41.76", "llama.cpp"),
        ("Second, Linux", "Qwen3.8-Flash-Next UD-Q2_K_XL", "41.8", "llama.cpp"),
        ("Third", "Qwen3.8-27B UD-Q4_K_XL", "123.05", "llama.cpp"),
        ("Media Stack, Windows", "Qwen3.5-9B Q8_0 + Qwen-Image + LTX-2.5", "—", "llama.cpp")]
-STATS_NOTE = "Decode and prefill: crow-nest v0.3.0, CNQ4.5-M NVFP4, one RTX 5090, Windows, 2026-09-13/14. Conditions: docs/operating-points.md"
-OPS_NOTE = "* at 16k context. — not measured. crow-nest: Windows 2026-09-13/14, Linux 2026-09-17. llama.cpp: Windows 2026-09-01 (#182), Linux 2026-09-16."
+STATS_NOTE = "crow-nest CNQ4.5-M, RTX 5090. Decode: Linux 2026-09-24, after the PLE fix. Prefill: Windows 2026-09-13/14. Source: docs/operating-points.md"
+OPS_NOTE = "* at 122k context. † before the PLE fix, not re-measured. — not measured. Dates and sources: docs/operating-points.md"
 INTRO_LINES = (
     f"A local model at 200k context with {NTOOLS} tools and MCP, persistent memory, its own skills,",
     "a browser panel, eyes, and subagents it can send out while it keeps working.",
