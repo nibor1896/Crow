@@ -5,7 +5,7 @@
   "_source_of_truth": "This file. README.md and install.ps1 are renderings of it for humans; the measurement scripts take their defaults from it.",
   "measured_on": "2026-08-10",
 
-  "version": "3.2.2",
+  "version": "3.2.3",
 
   "model": {
     "quant": "UD-IQ2_XXS",
