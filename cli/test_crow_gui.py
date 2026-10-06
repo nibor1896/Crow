@@ -11985,7 +11985,10 @@ class TheWindowIsCalledCrowTests(unittest.TestCase):
         except Exception:                  # noqa: BLE001
             self.skipTest("kein PyGObject auf dieser Maschine")
         before = GLib.get_prgname()
-        self.addCleanup(GLib.set_prgname, before)
+        # GLib refuses None: nothing to restore when no one had set a name yet
+        # (on CI no earlier case loads the real GTK since 14dc2c1)
+        if before is not None:
+            self.addCleanup(GLib.set_prgname, before)
         self.assertTrue(crow_gui.name_this_process("crow"))
         self.assertEqual(GLib.get_prgname(), "crow")
 
