@@ -179,6 +179,19 @@ def fixture(tmp, readme=None, install=None, manifest_patch=None, client=None,
         manifest_patch(src)
     with open(os.path.join(root, "manifests", "operating-point.json"), "w", encoding="utf-8") as fh:
         json.dump(src, fh, indent=1)
+    # THE THINKING ROWS, 2026-10-06. check_thinking (297a05b, #225) holds every entry
+    # that declares `reasoning_fixed` to a row '| `<key>` | `<word>` |' in
+    # docs/operating-points.md, and this fixture wrote no such page -- so every
+    # positive control read one source short from the day that check landed. The rows
+    # are READ from the manifest (after manifest_patch), the same mirror rule as the
+    # command lines above. The page carries no command line, so the docs cases are
+    # still decided on the README.
+    os.makedirs(os.path.join(root, "docs"), exist_ok=True)
+    entries = (src.get("models") or {}).get("entries") or {}
+    with open(os.path.join(root, "docs", "operating-points.md"), "w", encoding="utf-8") as fh:
+        for key, entry in sorted(entries.items()):
+            if (entry or {}).get("reasoning_fixed") is not None:
+                fh.write("| `%s` | `%s` |\n" % (key, entry["reasoning_fixed"]))
     ver = src["version"]
     with open(os.path.join(root, "README.md"), "w", encoding="utf-8") as fh:
         fh.write("version-%s-brightgreen\n\n```\n%s%s```\n"
@@ -215,7 +228,7 @@ def main():
         # 1 - positive control on a fixture, so a red real repo cannot mask a
         #     checker that says no to everything.
         code, out = run(fixture(tmp, ))
-        check("1 a repo that agrees passes", code == 0 and "9 of 9" in out, out.strip()[-200:])
+        check("1 a repo that agrees passes", code == 0 and "10 of 10" in out, out.strip()[-200:])
         shutil.rmtree(os.path.join(tmp, "repo"))
 
         # 2 - a changed value must be named, not just counted.
@@ -337,7 +350,7 @@ def main():
         #      applied to the rule that counts - a sentence is not a copy.
         code, out = run(fixture(tmp, client=client_source(samp, prose=True)))
         check("14 prose quoting the value is not a second copy",
-              code == 0 and "9 of 9" in out, out.strip()[-300:])
+              code == 0 and "10 of 10" in out, out.strip()[-300:])
         shutil.rmtree(os.path.join(tmp, "repo"))
 
         # 15 - written exactly once, but in the wrong file. "Exactly one" alone
@@ -370,7 +383,7 @@ def main():
         #      the real files take, but one is -- and one was enough to break it.
         code, out = run(fixture(tmp, sep="\n"))
         check("17 commands one blank line apart do not borrow each other's flags",
-              code == 0 and "9 of 9" in out, out.strip()[-300:])
+              code == 0 and "10 of 10" in out, out.strip()[-300:])
         shutil.rmtree(os.path.join(tmp, "repo"))
 
         # 18 - the Linux copy is held to the MERGED line. Before 2026-09-16 a
@@ -382,7 +395,7 @@ def main():
         wrong = FLASH_LINUX_LINE.replace("-ncmoe 31 -t 24", "-ncmoe 30")
         code, out = run(fixture(tmp, linux_line=wrong))
         check("18 a Linux copy at the Windows placement is red",
-              code != 0 and "on linux]" in out and "8 of 9" in out, out.strip()[-300:])
+              code != 0 and "on linux]" in out and "9 of 10" in out, out.strip()[-300:])
         shutil.rmtree(os.path.join(tmp, "repo"))
 
         # 19 - ONE FLAG AT A TIME, because case 18 drops two (-ncmoe 31 AND
