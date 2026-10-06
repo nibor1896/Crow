@@ -62,8 +62,9 @@ sudo tailscale up                        # prints a login URL -> browser; kb/103
 tailscale status                         # the PC and the phone are listed
 ```
 
-Windows: Tailscale runs as a Windows service and starts with the machine — **not verified** against
-a KB page (kb/1022 does not say).
+Windows: Tailscale runs as the Windows service `Tailscale` with start type **Automatic**, so it starts with the
+machine (checked 2026-10-06 with `Get-Service Tailscale` on robin's PC, Tailscale 1.102.4; kb/1022 does not say).
+The serve command in section 5 runs in a normal PowerShell, without elevation (same day).
 
 ## 4. Admin console
 

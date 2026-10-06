@@ -14,7 +14,7 @@ raw text. Editing a flag here without editing the manifest turns the checker red
 
 | | model | decode | port | engine |
 |---|---|---|---|---|
-| **Default, Windows** | `CNQ4.5-M` NVFP4 container | 45.1 tok/s, before the PLE fix; not re-measured since | 8099 | crow-nest (Rust) |
+| **Default, Windows** | `CNQ4.5-M` NVFP4 container | 46.0 tok/s at 32k, engine 0.9.4, 2026-10-06 (43.1 with 0.9.3) | 8099 | crow-nest (Rust) |
 | **Default, Linux** | `CNQ4.5-M` NVFP4 container | **35.8 tok/s** at 122k context, after the PLE fix (36.8 at 16k, before it) | 8099 | crow-nest (Rust) |
 | Second, Windows | `Qwen3.8-Flash-Next-UD-Q2_K_XL` | 41.76 tok/s | 8083 | llama.cpp, local build |
 | Second, Linux | `Qwen3.8-Flash-Next-UD-Q2_K_XL` | 41.8 tok/s | 8083 | llama.cpp, built here |
@@ -245,7 +245,7 @@ the three things on it that Crow has to know about are under
 | Model | `CNQ4.5-M`, the project's own quant: one 104.7 GB NVFP4 container of `Qwen3.8-Flash-Next` ([package](https://huggingface.co/nibor1896/Qwen3.8-Flash-Next-CNQ4.5-M)) |
 | Context | 200,000, one slot |
 | Vision | yes. At v0.3.0 from the container's own `vit` section; since crow-nest #108 serve prefers the F16 projector `mmproj-F16.gguf` (904,004,000 B, `CROW_VIT_MMPROJ`) and falls back to that section without it |
-| Decode | Newest reading, Linux, after the PLE fix: **35.8 tok/s at 122k context** (2026-09-24, crow-nest `decode_out/hotset-0924/speed.log`, hot set `crow0924`, three runs 35.6 / 35.8 / 35.8). Windows has not been re-measured since the fix. Before it: Windows 45.1 tok/s (22.18 ms/token, 2026-09-13, `decode_out/srv-62e-crow-N*`) vs llama.cpp 44.9 on the same prompt, with greedy ids identical from one run of crow-nest to the next (not a claim that they equal llama.cpp's ids); Linux 36.8 tok/s at 16k context (the ten-task form, the same figure the Windows record of that form shows) |
+| Decode | Newest reading, Linux, after the PLE fix: **35.8 tok/s at 122k context** (2026-09-24, crow-nest `decode_out/hotset-0924/speed.log`, hot set `crow0924`, three runs 35.6 / 35.8 / 35.8). Windows, 2026-10-06, after the fix: **45.97 tok/s** at a 31,827-token prompt with engine 0.9.4 (`CROW_STAGE_PAR` on, 43.08 without; serve, greedy, 1,024 tokens, 6 runs per arm, `crow-lab/runs/fn-flags-win-20261006`), and 39.3–48.1 tok/s from 100k to 175k context with engine 0.9.3 (cold prefill 775.6–788.5 tok/s, `crow-lab/runs/fn-c-b-win-20261006`). Before the fix: Windows 45.1 tok/s (22.18 ms/token, 2026-09-13, `decode_out/srv-62e-crow-N*`) vs llama.cpp 44.9 on the same prompt, with greedy ids identical from one run of crow-nest to the next (not a claim that they equal llama.cpp's ids); Linux 36.8 tok/s at 16k context (the ten-task form, the same figure the Windows record of that form shows) |
 | Prefill | Windows (16k reference prompt): 771 tok/s default (mean of the crow-nest `decode_out/10b` N1-3 runs; the 10c B2/B3 default of record reads 775), **871 tok/s** with `CROW_PF_GEMM_B=1`, vs llama.cpp 922.7 (mean of `srv-59` C1-3; `srv-59b` 923.8; crow-nest's docs quote 922.5). Linux: **968 tok/s** cold on the same 16k prompt, 740 tok/s on a cold 1024-token prompt, warm short turns 228 ms prefill / 247 ms to the first token |
 | Quality | ten-task suite, 2 Pass / 5 Partial / 3 Fail (2/5/3), against 2/6/2 for the llama.cpp operating point's reading (`runs/2026-09-10/crow-nest-tentask/judgement.txt`, B4 run 0) |
 | Port | 8099 |
@@ -293,8 +293,7 @@ process per run, W + 3N: **23.52 ms per decode token = 42.5 tok/s**, against the
 `CROW_ATTN_LUT=0` fallback run at 25.20 ms = 39.68. The `serve` figure of record, an arm mean in
 one drift chain (`c3-sdsd-61g`, four counted runs): **53.32 tok/s, within-arm spread 1.0038**,
 beside that chain's adjacent `decode run` arm at 42.56 tok/s and spread 1.0010. `CROW_ATTN_LUT=0`
-is the fallback of record. Linux only — Windows has not been rerun at this default, and the 45.1
-tok/s in the table above is the v0.2.0 Windows reading, not this one. All figures in this paragraph
+is the fallback of record. Linux only — the Windows figure in the table above is the 2026-10-06 `serve` reading, not this one. All figures in this paragraph
 (42.5, 42.56, 53.32) predate the PLE fix of 2026-09-23.
 
 **Every image but the first of a process was read as the previous image** (crow-nest `#73`,

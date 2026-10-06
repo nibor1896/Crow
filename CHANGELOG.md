@@ -5,6 +5,25 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 3.2.6 — 2026-10-06
+
+**Flash-Next decodes 6.7 % faster on Windows: CrowSetup installs engine v0.9.4.** The phone over Tailscale is set up and checked on Windows. Windows assets only, as for v3.2.x.
+
+### Changed
+
+- **CrowSetup installs engine v0.9.4** (crow-nest, 2026-10-06): `serve` stages cold experts on a side stream by default (`CROW_STAGE_PAR`). Measured on Windows (Flash-Next, 31,827-token prompt, greedy, 1,024 tokens, 6 runs per arm): 43.08 -> 45.97 tok/s decode, the same answer text in all runs.
+- **Flash-Next's reasoning budget stays 1024, now measured** (#245, 2026-10-06): `flash-next-cnq45-m._reasoning_budget_status` holds the series. 36 rounds per arm on robin's 2026-09-15 session: no-call 0 / 0, corrupt 0 / 0, median 26.5 s per round at 1024 against 34.7 s at 2048 (1.31x). Owner decision: 1024 stays, 2048 is slower and fixes nothing.
+- **Operating-point figures for Windows after the PLE fix** in `docs/operating-points.md` and the README image: 46.0 tok/s at 32k with engine 0.9.4, 39.3–48.1 tok/s from 100k to 175k with 0.9.3, cold prefill 775.6–788.5 tok/s (2026-10-06).
+- **Version 3.2.6** in `cli/crow_core.py`, `install.ps1` and `manifests/operating-point.json`; README image regenerated.
+
+### Measured
+
+- **The phone over Tailscale works on Windows** (#249, 2026-10-06): Tailscale 1.102.4 on robin's Windows PC `zephirot` in the tailnet `tail77dcd2.ts.net`, `tailscale serve --bg --https=443 http://127.0.0.1:8765`; Crow's `tailscale_state` reads `ready`; robin opened the mirror on the iPhone and reported it working. No code change: the guide in `docs/user-guide/remote-tailscale.md` held as written.
+
+### Known limitations
+
+- **No Linux assets**, as for v3.2.5.
+
 ## 3.2.5 — 2026-10-06
 
 **CrowSetup stops instead of starting over when it cannot read its state file, installing on Windows accepts Microsoft's terms for the Visual C++ runtime, and the engine no longer refuses a start over a reused PID.** CrowSetup installs engine v0.9.3. Windows assets only, as for v3.2.x.
