@@ -5,6 +5,8 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 3.2.4 — 2026-10-06
+
 **Crow ships no NVIDIA file; the installers fetch NVIDIA's CUDA libraries from NVIDIA's own wheels.** The Windows package no longer carries `cublas64_13.dll` and `cublasLt64_13.dll` (≈516 MB unpacked), the Linux package no longer carries `cuda/lib/`, and the CUDA-EULA redistribution question is gone with them.
 
 ### Changed
@@ -13,10 +15,18 @@ The reasoning is in the commit and on the issue.
 - **`install.ps1` fetches cuBLAS the same way** (`e2a128a`): the pinned Windows `nvidia-cublas` wheel, verified before anything under the install folder is touched. `install.sh` needs nothing: it builds from source against NVIDIA's redist archives.
 - **`pack-release.ps1` / `.sh` / `repack-release.py` stage no NVIDIA library** (`a059909`). The import-closure check accepts exactly `cublas64_13.dll` and `cublasLt64_13.dll` as provided at install time and still refuses any other missing DLL; staging an NVIDIA file refuses. `NOTICE` and `docs/user-guide/install.md` say where the libraries come from, with the `pip download` line for a manual install.
 
+- **CrowSetup installs engine v0.9.2**, the crow-nest package without NVRTC (3.5 MB instead of 48.9 MB).
+- **Version 3.2.4** in `cli/crow_core.py`, `install.ps1` and `manifests/operating-point.json`; README image regenerated.
+
+### Measured
+
+- **A real CrowSetup run fetched the wheels** (2026-10-06, headless, `--points 27b,media-stack`, over the live install with the four NVIDIA DLLs removed from `bin\` first): `nvidia-cuda-nvrtc` 13.3.33 (3 files written: both DLLs and the EULA) and `nvidia-cublas` 13.6.0.2 (2 written, 1 already in place) came from files.pythonhosted.org, both wheels were deleted after extraction, `licenses\NVIDIA-CUDA-EULA.txt` (59,262 B) landed, the check passed ("Landed. Crow is ready."), and all four DLLs are byte-identical to the ones removed.
+- **Older release assets are deleted** (owner decision 2026-10-06): every earlier `crow-*-win-x64.zip` and the v3.1.0 Linux package carried NVIDIA libraries.
+
 ### Known limitations
 
 - **The `#[cfg(unix)]` paths of the new installer step are not compiled** (2026-10-06): the Linux target check stops at `zstd-sys` and `ring` for want of a cross-gcc. They need a build on Linux.
-- **No real CrowSetup run fetched the wheels yet.** The step is covered by 20 Rust tests on synthetic wheels; crow-nest's `fetch-nvrtc.ps1` fetched and verified the real NVRTC wheel.
+- **No Linux assets.** The v3.1.0 Linux package carried `cuda/lib/` and is withdrawn with the other old packages (owner decision 2026-10-06); a Linux package needs a build on Linux. Windows assets only, as for v3.2.x.
 
 ## 3.2.3 — 2026-10-05
 
