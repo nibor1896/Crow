@@ -74,7 +74,7 @@ def mark():
     return g.replace("#64faf2", C["mark"]).replace("#04837d", C["mark"])
 
 
-STATS = [("200k", "context, one slot"), ("46.0", "tok/s decode, 32k, Windows"), ("780", "tok/s prefill, 100k–175k"),
+STATS = [("200k", "context, one slot"), ("40", "tok/s decode in Crow, 8k, Windows"), ("780", "tok/s prefill, 100k–175k"),
          ("512 / 10", "MoE experts, active"), (NTOOLS, "tools built in"), ("16", "subagents at once")]
 
 FEATURES = [
@@ -130,14 +130,14 @@ IMAGES_TEXT = ("In the chat an animated square in the theme's colours stands whe
 IMAGES_NOTE = ("RTX 5090; pictures beside the 27B, 40 steps, 2026-09-27/28; the clip: median of 5, 2026-10-02. "
                "Source: docs/")
 
-OPS = [("Default, Windows", "CNQ4.5-M NVFP4 container", "46.0‡", "crow-nest"),
+OPS = [("Default, Windows", "CNQ4.5-M NVFP4 container", "40‡", "crow-nest"),
        ("Default, Linux", "CNQ4.5-M NVFP4 container", "35.8*", "crow-nest"),
        ("Second, Windows", "Qwen3.8-Flash-Next UD-Q2_K_XL", "41.76", "llama.cpp"),
        ("Second, Linux", "Qwen3.8-Flash-Next UD-Q2_K_XL", "41.8", "llama.cpp"),
        ("Third", "Qwen3.8-27B UD-Q4_K_XL", "123.05", "llama.cpp"),
        ("Media Stack, Windows", "Qwen3.5-9B Q8_0 + Qwen-Image + LTX-2.5", "—", "llama.cpp")]
-STATS_NOTE = "crow-nest CNQ4.5-M, RTX 5090, Windows 2026-10-06, after the PLE fix: decode engine 0.9.4, prefill cold. Source: docs/operating-points.md"
-OPS_NOTE = "‡ at 32k, engine 0.9.4, 2026-10-06. * at 122k context, 2026-09-24. — not measured. Dates and sources: docs/operating-points.md"
+STATS_NOTE = "crow-nest CNQ4.5-M, RTX 5090, Windows 2026-10-06, after the PLE fix: decode in a live Crow session, prefill cold. Source: docs/operating-points.md"
+OPS_NOTE = "‡ live Crow session at 8k, 2026-10-06. * at 122k context, 2026-09-24. — not measured. Dates and sources: docs/operating-points.md"
 INTRO_LINES = (
     f"A local model at 200k context with {NTOOLS} tools and MCP, persistent memory, its own skills,",
     "a browser panel, eyes, and subagents it can send out while it keeps working.",
