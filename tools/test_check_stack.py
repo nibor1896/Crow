@@ -255,6 +255,38 @@ class Platforms(Base):
         self.red("platforms", "is not a list of ${INSTALL}/ folders")
 
 
+class PackageLicenses(Base):
+    """Third-party files inside Crow's own package: the five MSVC runtime DLLs of the
+    Windows package, under Microsoft's end-user terms, accepted with Install."""
+
+    def test_the_real_entry_is_green(self):
+        self.assertEqual(C.check_package_licenses(self.doc), [])
+        r = C.run(self.doc)
+        self.assertTrue([ln for ln in r.lines if ln.startswith("  OK") and "package licences" in ln], r.lines)
+
+    def test_an_undeclared_licence(self):
+        # run() stops at the schema first: the declared licence then has no text either
+        self.doc["package_licenses"][0]["license"] = "msvc-eula"
+        self.assertEqual(C.check_package_licenses(self.doc), ["package licence msvc-eula is not declared"])
+
+    def test_a_licence_not_shown_at_install(self):
+        self.doc["licenses"]["msvc-v14-runtime"]["show_at_install"] = False
+        self.red("package licences", "package licence msvc-v14-runtime is not shown at install")
+
+    def test_an_unknown_platform(self):
+        self.doc["package_licenses"][0]["platforms"] = ["windows", "macos"]
+        self.red("package licences", "package licence msvc-v14-runtime platforms")
+
+    def test_a_url_only_text_needs_an_https_url(self):
+        self.doc["licenses"]["msvc-v14-runtime"]["url"] = "http://example.com/terms"
+        self.red("schema", "licence msvc-v14-runtime text_file None is not a file with role license")
+
+    def test_a_url_only_text_is_for_package_licences_only(self):
+        """NEGATIVE: without the package entry the licence names no text Crow can point at."""
+        self.doc["package_licenses"] = []
+        self.red("schema", "licence msvc-v14-runtime text_file None is not a file with role license")
+
+
 class Cli(unittest.TestCase):
     def cli(self, *args):
         return subprocess.run([sys.executable, os.path.join(HERE, "check_stack.py"), *args],

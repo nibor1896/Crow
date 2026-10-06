@@ -273,6 +273,8 @@ def check_schema(doc) -> "list[str]":
         if lic.get("text_file") is None and "text_file" in lic \
                 and nvidia_licence_text(doc, name, lic.get("text_dest")):
             continue  # the text comes out of NVIDIA's wheels (nvidia_files)
+        if lic.get("text_file") is None and "text_file" in lic                 and str(lic.get("url") or "").startswith("https://")                 and name in package_licence_ids(doc):
+            continue  # a file inside Crow's package; the owner publishes the text at url
         tf = ids.get(lic.get("text_file"))
         if tf is None or tf.get("role") != "license":
             p.append("licence %s text_file %r is not a file with role license"
@@ -342,6 +344,31 @@ def member_name_is_safe(name) -> bool:
     empty, `.` or `..` part, no backslash, no drive."""
     return (isinstance(name, str) and bool(name) and not name.startswith("/") and "\\" not in name
             and all(part not in ("", ".", "..") and ":" not in part for part in name.split("/")))
+
+
+def package_licence_ids(doc) -> "set[str]":
+    return {e.get("license") for e in doc.get("package_licenses") or [] if isinstance(e, dict)}
+
+
+def check_package_licenses(doc) -> "list[str]":
+    """Licences of third-party files inside Crow's own package (the Windows package's
+    MSVC runtime DLLs): declared, shown on the selection page, on a known platform."""
+    p = []
+    entries = doc.get("package_licenses")
+    if not isinstance(entries, list):
+        return ["package_licenses must be a list"]
+    for e in entries:
+        name = e.get("license") if isinstance(e, dict) else None
+        lic = (doc.get("licenses") or {}).get(name)
+        if lic is None:
+            p.append("package licence %s is not declared" % name)
+            continue
+        if not lic.get("show_at_install"):
+            p.append("package licence %s is not shown at install" % name)
+        plats = e.get("platforms")
+        if not isinstance(plats, list) or not plats or set(plats) - set(PLATFORMS):
+            p.append("package licence %s platforms %r is not a list of %s" % (name, plats, " / ".join(PLATFORMS)))
+    return p
 
 
 def check_nvidia_files(doc) -> "list[str]":
@@ -1049,6 +1076,9 @@ def run(doc, online=False) -> Report:
     wheels = [w for w in doc.get("nvidia_files") or [] if isinstance(w, dict)]
     r.check("nvidia files", check_nvidia_files(doc), "%d wheels from PyPI, %d members"
             % (len(wheels), sum(len(w.get("extract") or []) for w in wheels)))
+    pkg = [e for e in doc.get("package_licenses") or [] if isinstance(e, dict)]
+    r.check("package licences", check_package_licenses(doc), "; ".join(
+        "%s on %s" % (e.get("license"), "/".join(e.get("platforms") or [])) for e in pkg) or "none")
     lists, n_lists = check_point_lists(doc)
     r.check("point lists", lists, "%d lists, %d points" % (n_lists, len(doc["points"])))
     if crow_problems:

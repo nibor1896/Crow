@@ -58,6 +58,17 @@ pip download nvidia-cublas==13.6.0.2 nvidia-cuda-runtime==13.3.29 nvidia-cuda-nv
 
 A wheel is a zip file: open it and copy the files out.
 
+### Microsoft Visual C++ runtime
+
+The Windows package carries five unmodified Microsoft DLLs in `bin\` (`msvcp140.dll`,
+`msvcp140_codecvt_ids.dll`, `vcomp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`), which the
+llama.cpp and stable-diffusion.cpp builds import. They are Distributable Code of Visual Studio 2026,
+and you use them under the
+[Microsoft Visual C++ v14 Redistributable and Runtime license terms](https://visualstudio.microsoft.com/license-terms/vs2026-ga-visualcpp-v14-redist-runtime/).
+`CrowSetup` names them under Crow on the selection page (the name opens the terms in your browser),
+and Install accepts them with the other licences shown there; `--headless` and `install.ps1` print
+them before anything is written. The Linux package carries none.
+
 Every check that can reject the machine runs **before** the 506 MB download starts. Finding out
 afterwards that the card is too small is the most expensive possible failure.
 

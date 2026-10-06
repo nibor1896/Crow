@@ -62,8 +62,27 @@
    "_text_file": "The text is the License.txt every NVIDIA wheel carries in its dist-info (59,262 B, the same bytes in all five); CrowSetup writes it to text_dest from the wheel, like the libraries. It is no entry of files: nvidia_files are not fetched from a repo at a commit.",
    "text_dest": "${INSTALL}/licenses/NVIDIA-CUDA-EULA.txt",
    "summary": "Crow ships no NVIDIA file: CrowSetup downloads NVRTC, cuBLAS and the CUDA runtime from NVIDIA's own wheels on PyPI, so you receive them from NVIDIA under its CUDA Toolkit End User License Agreement."
+  },
+  "msvc-v14-runtime": {
+   "name": "Microsoft Visual C++ v14 Redistributable and Runtime license terms",
+   "url": "https://visualstudio.microsoft.com/license-terms/vs2026-ga-visualcpp-v14-redist-runtime/",
+   "covers": "Microsoft Visual C++ runtime (bin/msvcp140.dll, msvcp140_codecvt_ids.dll, vcomp140.dll, vcruntime140.dll, vcruntime140_1.dll)",
+   "non_commercial": false,
+   "show_at_install": true,
+   "text_file": null,
+   "_text_file": "Microsoft publishes the text at url (last updated October 1, 2025); Crow does not copy it. The five DLLs are Distributable Code of Visual Studio 2026, and its licence requires that end users agree to terms that protect them at least as much: these are Microsoft's own end-user terms for exactly these files.",
+   "summary": "The Windows package carries five unmodified Microsoft runtime DLLs the llama.cpp and stable-diffusion.cpp builds import. Installing Crow means you accept Microsoft's licence terms for them."
   }
  },
+ "_package_licenses": "Licences of third-party files inside Crow's own package, shown on the selection page under Crow and accepted with Install. platforms names where the package carries them.",
+ "package_licenses": [
+  {
+   "license": "msvc-v14-runtime",
+   "platforms": [
+    "windows"
+   ]
+  }
+ ],
  "files": [
   {
    "id": "fn-cnq",
