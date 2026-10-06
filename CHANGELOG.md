@@ -5,6 +5,19 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 3.2.8 — 2026-10-06
+
+**The README no longer offers a Linux download that does not exist; Crow behaves exactly as v3.2.7.** CrowSetup still installs engine v0.9.5. Windows assets only, as for v3.2.x.
+
+### Fixed
+
+- **No Linux one-window download in the README** (`ce61afe`, 2026-10-06). The "Linux, one window" command fetched `releases/latest/download/CrowSetup-linux-x64`, which answers 404 since v3.2.0: the releases carry Windows assets only. The block is gone and Linux keeps `install.sh`. `docs/user-guide/install.md` and the README image say that `CrowSetup-linux-x64` is built on Linux ([Build it (Linux)](docs/user-guide/install.md#build-it-linux)) and run with `--package-source` on the two packages built beside it.
+- **Version 3.2.8** in `cli/crow_core.py`, `install.ps1` and `manifests/operating-point.json`; README image regenerated.
+
+### Added
+
+- **Measurement harnesses for #339 and #346, prepared before any GPU run** (`31bcbe6`, `039ea02`, 2026-10-06). No user-visible change, and none of it ships in the package. #339: `tools/measure_negative_cfg.py` and `runs/339-negative-cfg/PREREG.md` for a negative prompt and `txt_cfg` above 1.0 in `generate_image`. #346: `tools/enhance_ab.py`, `runs/340-enhance-ab/PREREG.md` and three arm workflows for LTX prompt enhance in `animate_image`. The GPU runs and the blind judging wait for the owner's go.
+
 ## 3.2.7 — 2026-10-06
 
 **v3.2.6 made Flash-Next half as fast in Crow; CrowSetup now installs engine v0.9.5, which undoes it.** Windows assets only, as for v3.2.x.
