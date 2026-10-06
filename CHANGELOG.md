@@ -12,6 +12,7 @@ The reasoning is in the commit and on the issue.
 ### Fixed
 
 - **No Linux one-window download in the README** (`ce61afe`, 2026-10-06). The "Linux, one window" command fetched `releases/latest/download/CrowSetup-linux-x64`, which answers 404 since v3.2.0: the releases carry Windows assets only. The block is gone and Linux keeps `install.sh`. `docs/user-guide/install.md` and the README image say that `CrowSetup-linux-x64` is built on Linux ([Build it (Linux)](docs/user-guide/install.md#build-it-linux)) and run with `--package-source` on the two packages built beside it.
+- **The README image's alt text counts 31 tools**, as the image and `crow_core.BUILTIN_TOOLS` do; it said 30 (2026-10-06).
 - **Version 3.2.8** in `cli/crow_core.py`, `install.ps1` and `manifests/operating-point.json`; README image regenerated.
 
 ### Added
