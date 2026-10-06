@@ -95,7 +95,7 @@ python3 cli/crow_boot.py --gui --models ~/Projects/models/crow-stack
 | | Linux (#341) |
 |---|---|
 | Binaries | `<install>/bin/serve`, `<install>/bin/sd-server` (`binary.linux` in `stack.json`) |
-| Libraries | `<install>/bin` (NVRTC beside `serve`) and `<install>/cuda/lib` (CUDA runtime and cuBLAS for `sd-server`) go in front of `LD_LIBRARY_PATH` (`lib_path.linux` in `stack.json`) |
+| Libraries | `<install>/bin` (NVRTC beside `serve`) and `<install>/cuda/lib` (CUDA runtime and cuBLAS for `sd-server`, downloaded from NVIDIA's wheels by CrowSetup: [Install](install.md#nvidia-libraries)) go in front of `LD_LIBRARY_PATH` (`lib_path.linux` in `stack.json`) |
 | Memory scope | `serve` and `sd-server` start in `systemd-run --user --scope` with the bounds the llama.cpp lines get ([Linux](linux.md#start)); `CROW_SERVER_SCOPE=0` starts the bare process |
 | Install root | `~/.local/share/crow` (`$XDG_DATA_HOME/crow`) |
 | Contract file | `~/.config/crow/active-point.json` |
