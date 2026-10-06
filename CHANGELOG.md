@@ -5,6 +5,19 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+**Crow ships no NVIDIA file; the installers fetch NVIDIA's CUDA libraries from NVIDIA's own wheels.** The Windows package no longer carries `cublas64_13.dll` and `cublasLt64_13.dll` (≈516 MB unpacked), the Linux package no longer carries `cuda/lib/`, and the CUDA-EULA redistribution question is gone with them.
+
+### Changed
+
+- **CrowSetup downloads the CUDA libraries from PyPI** (`78de323`, `956ff4c`, 2026-10-06). `manifests/stack.json` gains `nvidia_files`: `nvidia-cuda-nvrtc` 13.3.33, `nvidia-cublas` 13.6.0.2 and, on Linux, `nvidia-cuda-runtime` 13.3.29, each pinned by URL on files.pythonhosted.org, bytes and sha256. A wheel is fetched when a selected point runs one of its servers: `serve` needs NVRTC, `llama-server` and `sd-server` need cuBLAS. A new `nvidia` step extracts only the named members into the paths the packages used (`bin/`; Linux `cuda/lib/`), checks each against the wheel's `RECORD` and the pinned sha256, refuses member paths that leave the wheel or targets outside the install root, writes NVIDIA's licence text to `licenses/NVIDIA-CUDA-EULA.txt`, and deletes the wheel. Every pinned member sha256 equals the DLL that shipped up to v3.2.3. The install page shows the NVIDIA CUDA EULA as a licence the user accepts. Older packages that still contain the files install unchanged. `tools/check_stack.py` validates the new section (127 tests).
+- **`install.ps1` fetches cuBLAS the same way** (`e2a128a`): the pinned Windows `nvidia-cublas` wheel, verified before anything under the install folder is touched. `install.sh` needs nothing: it builds from source against NVIDIA's redist archives.
+- **`pack-release.ps1` / `.sh` / `repack-release.py` stage no NVIDIA library** (`a059909`). The import-closure check accepts exactly `cublas64_13.dll` and `cublasLt64_13.dll` as provided at install time and still refuses any other missing DLL; staging an NVIDIA file refuses. `NOTICE` and `docs/user-guide/install.md` say where the libraries come from, with the `pip download` line for a manual install.
+
+### Known limitations
+
+- **The `#[cfg(unix)]` paths of the new installer step are not compiled** (2026-10-06): the Linux target check stops at `zstd-sys` and `ring` for want of a cross-gcc. They need a build on Linux.
+- **No real CrowSetup run fetched the wheels yet.** The step is covered by 20 Rust tests on synthetic wheels; crow-nest's `fetch-nvrtc.ps1` fetched and verified the real NVRTC wheel.
+
 ## 3.2.3 — 2026-10-05
 
 **Flash-Next boots on Windows again with crow-nest v0.9.1, and Crow's Flash-Next figures name the run they come from.** CrowSetup installs engine v0.9.1, which no longer takes `whisper-small`'s config for Flash-Next's, no longer runs a tool call the model only wrote inside its reasoning, and names the page file a Flash-Next boot needs on Windows. Windows assets only, as for v3.2.x.
