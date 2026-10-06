@@ -10,7 +10,7 @@ the model — that is a separate line, printed at the end of the run.
 | Windows | `install.ps1` — five steps, no elevation, everything under `%LOCALAPPDATA%\Crow` |
 | Windows, one window | `CrowSetup.exe` from the [latest release](https://github.com/nibor1896/Crow/releases/latest): Crow, the crow-nest engine and the operating points you pick, with resume. See [CrowSetup.exe](#crowsetupexe-windows) |
 | Linux | `install.sh` — five steps, no root, everything under `${XDG_DATA_HOME:-~/.local/share}/crow` |
-| Linux, one window | `CrowSetup-linux-x64` from the [latest release](https://github.com/nibor1896/Crow/releases/latest): the same installer as `CrowSetup.exe`, for Linux. See [CrowSetup (Linux)](#crowsetup-linux) |
+| Linux, one window | `CrowSetup-linux-x64`, built on Linux from this repository ([Build it (Linux)](#build-it-linux)); no release carries it since v3.2.0. The same installer as `CrowSetup.exe`, for Linux. See [CrowSetup (Linux)](#crowsetup-linux) |
 | The model | `hf download`, separately, 73.45 GiB + 0.9 GiB for the projector |
 
 ---
@@ -260,9 +260,14 @@ no Linux release asset. Full page: [Linux](linux.md).
 `CrowSetup-linux-x64` is `CrowSetup.exe` built for Linux: the same window, the same points, the
 same resume, verify and retry rules as [CrowSetup.exe](#crowsetupexe-windows).
 
+It is built, not downloaded: since v3.2.0 the releases carry Windows assets only, neither
+`CrowSetup-linux-x64` nor the two Linux packages it installs. Build all three on Linux
+([Build it (Linux)](#build-it-linux)) and point the binary at the folder that holds the two
+packages with `--package-source`:
+
 ```bash
-chmod +x CrowSetup-linux-x64 && ./CrowSetup-linux-x64
-./CrowSetup-linux-x64 --headless --points 27b,image-stack
+./installer/dist/CrowSetup-linux-x64 --package-source <dir>
+./installer/dist/CrowSetup-linux-x64 --headless --points 27b,image-stack --package-source <dir>
 ```
 
 | needs | |

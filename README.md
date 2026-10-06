@@ -11,12 +11,6 @@
 curl -fsSL https://raw.githubusercontent.com/nibor1896/Crow/main/install.sh | bash
 ```
 
-**Linux, one window** (Crow, the crow-nest engine and the operating points you pick)
-
-```bash
-curl -fLO https://github.com/nibor1896/Crow/releases/latest/download/CrowSetup-linux-x64 && chmod +x CrowSetup-linux-x64 && ./CrowSetup-linux-x64
-```
-
 **Image tools, Linux** (optional: builds sd-server, ~3 min)
 
 ```bash
