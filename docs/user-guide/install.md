@@ -39,8 +39,10 @@ the model — that is a separate line, printed at the end of the run.
 The packages carry no NVIDIA file. `CrowSetup` downloads cuBLAS/cuBLASLt (and on Linux the CUDA
 runtime, plus NVRTC for the engine) from NVIDIA's own PyPI wheels at install time and puts them at
 `<install>\bin\` (Windows) and `<install>/cuda/lib/` (Linux), under NVIDIA's licence, which you
-accept there (see [NOTICE](../../NOTICE)). Without CrowSetup (the zip or tarball unpacked by
-hand, or `install.ps1`/`install.sh` alone) fetch the same wheels and copy the named files:
+accept there (see [NOTICE](../../NOTICE)). `install.ps1` fetches the Windows cuBLAS wheel itself
+(size and sha256 pinned, each file checked against the wheel's `RECORD`, before `bin\` is touched);
+`install.sh` builds from source and unpacks NVIDIA's own CUDA toolkit archives. Without any of them
+(the zip or tarball unpacked by hand) fetch the same wheels and copy the named files:
 
 ```
 pip download nvidia-cublas==13.6.0.2 nvidia-cuda-runtime==13.3.29 nvidia-cuda-nvrtc==13.3.33 --no-deps --only-binary=:all:
@@ -51,7 +53,8 @@ pip download nvidia-cublas==13.6.0.2 nvidia-cuda-runtime==13.3.29 nvidia-cuda-nv
 | `cublas64_13.dll`, `cublasLt64_13.dll` | `nvidia-cublas` 13.6.0.2 | `<install>\bin\` |
 | `libcublas.so.13`, `libcublasLt.so.13` | `nvidia-cublas` 13.6.0.2 | `<install>/cuda/lib/` |
 | `libcudart.so.13` | `nvidia-cuda-runtime` 13.3.29 | `<install>/cuda/lib/` |
-| the NVRTC library | `nvidia-cuda-nvrtc` 13.3.33 | beside the engine's `serve` (`<install>/bin/` on Linux) |
+| NVRTC: `nvrtc64_130_0.dll`, `nvrtc-builtins64_133.dll` | `nvidia-cuda-nvrtc` 13.3.33 | `<install>\bin\`, beside `serve.exe` |
+| NVRTC: `libnvrtc.so.13` (saved as `libnvrtc.so`), `libnvrtc-builtins.so.13.3` | `nvidia-cuda-nvrtc` 13.3.33 | `<install>/bin/`, beside `serve` |
 
 A wheel is a zip file: open it and copy the files out.
 

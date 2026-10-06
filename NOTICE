@@ -69,8 +69,8 @@ Crow does not distribute any NVIDIA file. No package of this project contains
 one.
 
 The CUDA backend is built against NVIDIA's CUDA Toolkit (version 13.3 on the
-development machine) and needs NVIDIA's libraries at runtime. The installer,
-CrowSetup, downloads them at install time from NVIDIA's own PyPI wheels and puts
+development machine) and needs NVIDIA's libraries at runtime. The installers
+(CrowSetup; install.ps1 for the Windows cuBLAS files) download them at install time from NVIDIA's own PyPI wheels and puts
 them next to the binaries that import them:
 
   - cublas64_13.dll and cublasLt64_13.dll in bin/ on Windows, and

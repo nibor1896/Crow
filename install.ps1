@@ -24,6 +24,16 @@ LAST step, after the 506 MB had already been fetched. "Your client will not star
 is the same sentence before the download and after it, and only one of the two
 costs the user half a gigabyte to hear.
 
+NO NVIDIA FILE IS IN THE PACKAGE. llama-server.exe and sd-server.exe import cublas64_13.dll
+and cublasLt64_13.dll, which are NVIDIA's. This script downloads them from NVIDIA's own
+PyPI wheel (nvidia-cublas 13.6.0.2, pinned by URL, size and sha256 in $NVIDIA_WHEELS),
+extracts only the two named members, checks each against the wheel's dist-info\RECORD
+sha256, and puts them in bin\ -- under NVIDIA's licence
+(https://docs.nvidia.com/cuda/eula/index.html), see NOTICE. The wheel is fetched and
+verified BEFORE anything is written to the install directory, after every check that
+can reject the machine. This script does not install crow-nest's engine, so it needs
+no NVRTC.
+
 Crow has ONE client, the window: cli\crow_gui.py. The terminal client is gone
 (#187), so the last step prints one start line. It is not started here.
 
@@ -438,6 +448,10 @@ function Exit-Run {
     #>
     param([int] $Code = 0)
 
+    # The staging folder of NVIDIA's libraries (Get-NvidiaLibraries), whichever way the run ends.
+    if ($script:NvStage -and (Test-Path -LiteralPath $script:NvStage)) {
+        Remove-Item -LiteralPath $script:NvStage -Recurse -Force -ErrorAction SilentlyContinue
+    }
     if (Test-CanExitProcess $PSCommandPath) { exit $Code }
     $global:LASTEXITCODE = $Code
 }
@@ -798,6 +812,136 @@ function Expand-WithProgress {
         Write-Host ("`r      {0} files extracted{1}" -f $entries.Count, (" " * 60))
         return $entries.Count
     } finally { $zip.Dispose() }
+}
+
+# ---------------------------------------------------------------------------
+# NVIDIA's libraries: not in the package, taken from NVIDIA's own wheel
+# ---------------------------------------------------------------------------
+#
+# Exactly what this path needs and the package no longer carries: llama-server.exe
+# and sd-server.exe import cublas64_13.dll, which imports cublasLt64_13.dll. A wheel is
+# a zip; the URL, the size and the sha256 are the PyPI release's (read 2026-10-06), and
+# only the named members leave it. No crow-nest engine is installed here, so no NVRTC.
+$script:NvStage = $null
+$NVIDIA_WHEELS = @(
+    @{ Name    = 'nvidia-cublas 13.6.0.2'
+       Url     = 'https://files.pythonhosted.org/packages/08/8f/890a96ea1ff615100296977cce23296052dcb8c114d4e451201ec39df9bf/nvidia_cublas-13.6.0.2-py3-none-win_amd64.whl'
+       Bytes   = 394568225
+       Sha256  = '3b5bcd6bfb6f65010ebf195851bcb9b2aa34b9fe08479432002991c1fe84b67d'
+       Members = @(
+           @{ Member = 'nvidia/cu13/bin/x86_64/cublas64_13.dll';   Dest = 'bin\cublas64_13.dll' },
+           @{ Member = 'nvidia/cu13/bin/x86_64/cublasLt64_13.dll'; Dest = 'bin\cublasLt64_13.dll' }
+       ) }
+)
+
+function Test-WheelFile {
+    <# $null when the file is the pinned wheel, else the reason it is not. #>
+    param([string] $Path, [long] $Bytes, [string] $Sha256)
+    if (-not (Test-Path -LiteralPath $Path)) { return "not found" }
+    $len = (Get-Item -LiteralPath $Path).Length
+    if ($len -ne $Bytes) { return "$len bytes, expected $Bytes" }
+    $h = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+    if ($h -ne $Sha256.ToUpperInvariant()) { return "sha256 $h, expected $($Sha256.ToUpperInvariant())" }
+    return $null
+}
+
+function ConvertFrom-RecordHash {
+    # RECORD writes a hash as unpadded URL-safe base64; this is the lower-case hex of it.
+    param([string] $B64)
+    $t = $B64.Replace('-', '+').Replace('_', '/')
+    while ($t.Length % 4) { $t += '=' }
+    $bytes = [Convert]::FromBase64String($t)
+    return ([BitConverter]::ToString($bytes) -replace '-', '').ToLowerInvariant()
+}
+
+function Expand-WheelMembers {
+    <#
+    Extracts ONLY the named members of a wheel into $Destination and returns their relative
+    destinations. Each member is hashed while it is copied and compared with the sha256 the
+    wheel's own <name>.dist-info/RECORD lists for it; a member that is absent, not in RECORD
+    or different, a RECORD that is not exactly one, and a name or destination that would
+    leave $Destination are all refusals (a thrown error, nothing left behind for that member).
+    $Members: @{ Member = 'path/in/the/wheel'; Dest = 'relative\path\under\Destination' }.
+    #>
+    param([string] $Wheel, [object[]] $Members, [string] $Destination)
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $root = [IO.Path]::GetFullPath($Destination).TrimEnd('\') + '\'
+    $zip  = [IO.Compression.ZipFile]::OpenRead($Wheel)
+    try {
+        $recs = @($zip.Entries | Where-Object { $_.FullName -match '^[^/]+\.dist-info/RECORD$' })
+        if ($recs.Count -ne 1) { throw "the wheel has $($recs.Count) dist-info/RECORD files, expected exactly one" }
+        $record = @{}
+        $rd = New-Object IO.StreamReader($recs[0].Open())
+        try {
+            while ($null -ne ($line = $rd.ReadLine())) {
+                if ($line -match '^(.*),sha256=([A-Za-z0-9_-]+),(\d*)$') {
+                    $record[$Matches[1]] = @{ Hash = (ConvertFrom-RecordHash $Matches[2]); Size = $Matches[3] }
+                }
+            }
+        } finally { $rd.Dispose() }
+
+        $done = @()
+        foreach ($m in $Members) {
+            $name = [string]$m.Member
+            if ($name.StartsWith('/') -or $name.Contains('\') -or $name -match '(^|/)\.\.(/|$)' -or $name -match '^[A-Za-z]:') {
+                throw "wheel member name '$name' is not a plain relative path"
+            }
+            $target = [IO.Path]::GetFullPath((Join-Path $Destination ([string]$m.Dest)))
+            if (-not $target.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "destination '$($m.Dest)' would leave $Destination"
+            }
+            $entry = $zip.GetEntry($name)
+            if (-not $entry -or $entry.FullName -ne $name) { throw "$name is not in the wheel" }
+            if (-not $record.ContainsKey($name)) { throw "$name is not listed in the wheel's RECORD" }
+            $want = $record[$name]
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+            $part = $target + '.part'
+            $sha  = [Security.Cryptography.SHA256]::Create()
+            $src  = $entry.Open()
+            $dst  = [IO.File]::Create($part)
+            $ok   = $false
+            try {
+                $buf = New-Object byte[] 1048576
+                $len = 0L
+                while (($n = $src.Read($buf, 0, $buf.Length)) -gt 0) {
+                    $dst.Write($buf, 0, $n); [void]$sha.TransformBlock($buf, 0, $n, $null, 0); $len += $n
+                }
+                [void]$sha.TransformFinalBlock($buf, 0, 0)
+                $have = ([BitConverter]::ToString($sha.Hash) -replace '-', '').ToLowerInvariant()
+                $ok = ($have -eq $want.Hash) -and (-not $want.Size -or [long]$want.Size -eq $len)
+            } finally { $dst.Dispose(); $src.Dispose(); $sha.Dispose() }
+            if (-not $ok) {
+                Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
+                throw "$name does not match the sha256 in the wheel's RECORD"
+            }
+            Move-Item -LiteralPath $part -Destination $target -Force
+            $done += [string]$m.Dest
+        }
+        return ,@($done)
+    } finally { $zip.Dispose() }
+}
+
+function Get-NvidiaLibraries {
+    <#
+    Downloads every wheel of $NVIDIA_WHEELS, checks its size and sha256, extracts the named
+    members into $Stage (verified against RECORD) and deletes the wheel. Returns the staged
+    relative paths. Throws on any failure. Touches nothing but $Stage and the TEMP folder.
+    #>
+    param([string] $Stage, [object[]] $Wheels = $NVIDIA_WHEELS)
+    $staged = @()
+    foreach ($w in $Wheels) {
+        $file = Join-Path $env:TEMP ([IO.Path]::GetFileName(([Uri]$w.Url).AbsolutePath))
+        Write-Item "NVIDIA" "$($w.Name), from NVIDIA's own wheel on PyPI (the package carries no NVIDIA file)"
+        $null = Get-FileWithProgress -Uri $w.Url -OutFile $file -Label ([IO.Path]::GetFileName($file))
+        try {
+            $why = Test-WheelFile -Path $file -Bytes $w.Bytes -Sha256 $w.Sha256
+            if ($why) { throw "$($w.Name): the downloaded wheel is not the pinned one ($why)" }
+            $staged += Expand-WheelMembers -Wheel $file -Members $w.Members -Destination $Stage
+        } finally { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
+        Write-Item "NVIDIA" "$($w.Name): size, sha256 and RECORD match for $(($w.Members | ForEach-Object { Split-Path $_.Dest -Leaf }) -join ', ')" "ok"
+    }
+    return ,@($staged)
 }
 
 # ---------------------------------------------------------------------------
@@ -1606,6 +1750,88 @@ function Invoke-Selftest {
             $me.Contains('[switch] $PathTracer') -and $me.Contains('.PARAMETER PathTracer'))
     }
 
+    # NVIDIA's libraries (offline: a synthetic wheel; the pins are checked as data and as text).
+    $nvTmp = Join-Path $env:TEMP ("crow-selftest-nv-" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $nvTmp | Out-Null
+    try {
+        $mk = {
+            param([string] $Path, [hashtable] $Files, [switch] $NoRecord, [string] $BadRecordFor, [string] $OmitFromRecord)
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
+            $z = [IO.Compression.ZipFile]::Open($Path, 'Create')
+            try {
+                $rec = ""
+                foreach ($k in $Files.Keys) {
+                    $e = $z.CreateEntry($k); $st = $e.Open(); $b = $Files[$k]; $st.Write($b, 0, $b.Length); $st.Dispose()
+                    if ($k -eq $OmitFromRecord) { continue }
+                    $h = [Security.Cryptography.SHA256]::Create().ComputeHash($b)
+                    if ($k -eq $BadRecordFor) { $h = [Security.Cryptography.SHA256]::Create().ComputeHash([byte[]](1, 2, 3)) }
+                    $b64 = [Convert]::ToBase64String($h).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+                    $rec += "$k,sha256=$b64,$($b.Length)`n"
+                }
+                if (-not $NoRecord) {
+                    $e = $z.CreateEntry("nvidia_cublas-1.0.dist-info/RECORD"); $st = $e.Open()
+                    $rb = [Text.Encoding]::UTF8.GetBytes($rec + "nvidia_cublas-1.0.dist-info/RECORD,,`n"); $st.Write($rb, 0, $rb.Length); $st.Dispose()
+                }
+            } finally { $z.Dispose() }
+        }
+        $dllA = [Text.Encoding]::ASCII.GetBytes("MZ cublas")
+        $dllB = [Text.Encoding]::ASCII.GetBytes("MZ cublasLt")
+        $files = @{ 'nvidia/cu13/bin/x86_64/cublas64_13.dll' = $dllA; 'nvidia/cu13/bin/x86_64/cublasLt64_13.dll' = $dllB
+                    'nvidia/cu13/bin/x86_64/other.dll' = [byte[]](9, 9) }
+        $mem = @(@{ Member = 'nvidia/cu13/bin/x86_64/cublas64_13.dll';   Dest = 'bin\cublas64_13.dll' },
+                 @{ Member = 'nvidia/cu13/bin/x86_64/cublasLt64_13.dll'; Dest = 'bin\cublasLt64_13.dll' })
+        $whl = Join-Path $nvTmp "w.whl"
+        & $mk -Path $whl -Files $files
+        $out = Join-Path $nvTmp "out"
+        $got = Expand-WheelMembers -Wheel $whl -Members $mem -Destination $out
+        C "nvidia: the named members are extracted to their destinations, byte for byte" (
+            $got.Count -eq 2 -and ([IO.File]::ReadAllBytes((Join-Path $out 'bin\cublas64_13.dll')) -join ',') -eq ($dllA -join ',') -and
+            ([IO.File]::ReadAllBytes((Join-Path $out 'bin\cublasLt64_13.dll')) -join ',') -eq ($dllB -join ','))
+        C "nvidia: ONLY the named members leave the wheel" (@(Get-ChildItem -LiteralPath $out -Recurse -File).Count -eq 2)
+        $thrown = { param($sb) try { & $sb; $null } catch { $_.Exception.Message } }
+        $e1 = & $thrown { Expand-WheelMembers -Wheel $whl -Members @(@{ Member = 'nvidia/cu13/bin/x86_64/nope.dll'; Dest = 'bin\nope.dll' }) -Destination (Join-Path $nvTmp 'o1') }
+        C "NEGATIVE: a member that is not in the wheel is refused" ($e1 -like '*is not in the wheel*')
+        $e2 = & $thrown { Expand-WheelMembers -Wheel $whl -Members @(@{ Member = 'nvidia/cu13/bin/x86_64/cublas64_13.dll'; Dest = '..\escape.dll' }) -Destination (Join-Path $nvTmp 'o2') }
+        C "NEGATIVE: a destination that leaves the target directory is refused, nothing written" ($e2 -like '*would leave*' -and -not (Test-Path -LiteralPath (Join-Path $nvTmp 'escape.dll')))
+        $e3 = & $thrown { Expand-WheelMembers -Wheel $whl -Members @(@{ Member = 'nvidia/cu13/../x.dll'; Dest = 'bin\x.dll' }) -Destination (Join-Path $nvTmp 'o3') }
+        C "NEGATIVE: a member name with .. is refused" ($e3 -like '*not a plain relative path*')
+        $whlBad = Join-Path $nvTmp "bad.whl"
+        & $mk -Path $whlBad -Files $files -BadRecordFor 'nvidia/cu13/bin/x86_64/cublasLt64_13.dll'
+        $e4 = & $thrown { Expand-WheelMembers -Wheel $whlBad -Members $mem -Destination (Join-Path $nvTmp 'o4') }
+        C "NEGATIVE: a member that differs from its RECORD sha256 is refused, and leaves no .part" (
+            $e4 -like '*does not match the sha256 in the wheel*' -and -not (Test-Path -LiteralPath (Join-Path $nvTmp 'o4\bin\cublasLt64_13.dll.part')))
+        $whlNo = Join-Path $nvTmp "norec.whl"
+        & $mk -Path $whlNo -Files $files -NoRecord
+        $e5 = & $thrown { Expand-WheelMembers -Wheel $whlNo -Members $mem -Destination (Join-Path $nvTmp 'o5') }
+        C "NEGATIVE: a wheel without a RECORD is refused" ($e5 -like '*RECORD*')
+        $whlUn = Join-Path $nvTmp "unlisted.whl"
+        & $mk -Path $whlUn -Files $files -OmitFromRecord 'nvidia/cu13/bin/x86_64/cublasLt64_13.dll'
+        $e6 = & $thrown { Expand-WheelMembers -Wheel $whlUn -Members $mem -Destination (Join-Path $nvTmp 'o6') }
+        C "NEGATIVE: a member that is in the wheel but not in its RECORD is refused" ($e6 -like '*not listed in the wheel*')
+        $wh = (Get-FileHash -LiteralPath $whl -Algorithm SHA256).Hash
+        $wl = (Get-Item -LiteralPath $whl).Length
+        C "the wheel check accepts the right size and sha256" ($null -eq (Test-WheelFile -Path $whl -Bytes $wl -Sha256 $wh.ToLowerInvariant()))
+        C "NEGATIVE: and refuses a wrong size" ($null -ne (Test-WheelFile -Path $whl -Bytes ($wl + 1) -Sha256 $wh))
+        C "NEGATIVE: and a wrong sha256" ($null -ne (Test-WheelFile -Path $whl -Bytes $wl -Sha256 ('0' * 64)))
+        C "NEGATIVE: and a missing file" ($null -ne (Test-WheelFile -Path (Join-Path $nvTmp 'none.whl') -Bytes 1 -Sha256 ('0' * 64)))
+        C "RECORD hashes decode from unpadded URL-safe base64 to hex" ((ConvertFrom-RecordHash '-_8') -eq 'fbff')
+    } finally {
+        Remove-Item -LiteralPath $nvTmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    C "nvidia: exactly the cublas wheel, pinned by https URL on files.pythonhosted.org, size and sha256" (
+        $NVIDIA_WHEELS.Count -eq 1 -and $NVIDIA_WHEELS[0].Url -like 'https://files.pythonhosted.org/packages/*nvidia_cublas-13.6.0.2-py3-none-win_amd64.whl' -and
+        $NVIDIA_WHEELS[0].Bytes -eq 394568225 -and $NVIDIA_WHEELS[0].Sha256 -match '^[0-9a-f]{64}$')
+    C "nvidia: it takes exactly cublas64_13.dll and cublasLt64_13.dll, into bin\" (
+        (($NVIDIA_WHEELS[0].Members | ForEach-Object { $_.Dest } | Sort-Object) -join ',') -eq 'bin\cublas64_13.dll,bin\cublasLt64_13.dll')
+    if ($PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath)) {
+        $me2 = Get-Content -LiteralPath $PSCommandPath -Raw
+        C "nvidia: the wheel is fetched and verified before the install directory is created" (
+            $me2 -match '(?s)\$nvFiles = Get-NvidiaLibraries -Stage.*?New-Item -ItemType Directory -Force -Path \$InstallTo \| Out-Null')
+        C "nvidia: and it is put into bin only after the removal of dropped files" (
+            $me2 -match '(?s)\$drop = Find-DroppedFiles.*?foreach \(\$rel in \$nvFiles\)')
+    }
+
     Write-Host ""
     $total = $script:sOk + $script:sRed
     if ($script:sRed -gt 0) { Write-Host "RESULT: $($script:sRed) of $total FAILED" -ForegroundColor Red; return 1 }
@@ -1743,6 +1969,22 @@ if (Test-Path $InstallTo) {
 # would throw that away and re-download it over the user's connection. Files
 # that a newer package no longer ships are therefore left behind; the manifest
 # check below verifies what SHOULD be there, and says nothing about extras.
+
+# NVIDIA's libraries, fetched and verified BEFORE the install directory is touched: a wheel
+# that cannot be had, or does not match its pin or its RECORD, ends the run here with
+# nothing changed. They are put into bin\ only after the extraction and the removal of
+# dropped files below, because the previous package listed these two names and the
+# removal step would otherwise delete them again.
+$script:NvStage = Join-Path $env:TEMP ("crow-nvidia-" + [guid]::NewGuid().ToString("N"))
+try {
+    $nvFiles = Get-NvidiaLibraries -Stage $script:NvStage
+} catch {
+    Write-Item "cannot install:" "NVIDIA's libraries: $($_.Exception.Message)" "fail"
+    Write-Host ""
+    Write-Host "  The install directory was not touched." -ForegroundColor DarkGray
+    Exit-Run 1
+    return
+}
 New-Item -ItemType Directory -Force -Path $InstallTo | Out-Null
 
 # Windows locks a running executable and its loaded DLLs. An update started
@@ -1892,6 +2134,21 @@ if (Test-Path -LiteralPath $binDir) {
         Write-Item "still held" "$($swept.Kept.Count) .old files stay until llama-server stops" "warn"
     }
 }
+
+# NVIDIA's two libraries, verified above, into bin\ beside the binaries that import them.
+foreach ($rel in $nvFiles) {
+    $dest = Join-Path $InstallTo $rel
+    try {
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
+        Move-Item -LiteralPath (Join-Path $script:NvStage $rel) -Destination $dest -Force
+    } catch {
+        Write-Item "could not write" "$rel : $($_.Exception.Message)" "fail"
+        Write-Item "stop llama-server and sd-server and run this again" "a loaded DLL cannot be replaced" "fail"
+        Exit-Run 1
+        return
+    }
+}
+Write-Item "NVIDIA libraries" "$($nvFiles.Count) files in bin\, from NVIDIA's wheel" "ok"
 
 # --slot-save-path refuses to start against a path that is not an existing
 # directory, so the server would fail on the very command this script prints.
