@@ -57,6 +57,8 @@ button:disabled{cursor:default}
 .row b{font-weight:600}
 .row .d{color:var(--dim)}
 .row .lic{color:var(--dimmer);font-size:11.5px}
+.lk{background:none;border:0;padding:0;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}
+.accept{width:100%;max-width:var(--bar);color:var(--dimmer);font-size:11.5px;text-align:center;margin-top:8px}
 .d.ok{color:var(--ok)} .d.warn{color:var(--warn)} .d.bad{color:var(--bad)}
 .row.off b,.row.off .d{color:var(--dimmer)}
 .row.na b{color:var(--dimmer)} .row.na .d{color:var(--warn)}
@@ -151,6 +153,7 @@ button.sec:hover{color:var(--soft)}
   // ------------------------------------------------------------ manifests
   function deriveInfo(init) {
     var st = init.stack || {}, bytes = {}, lic = st.licenses || {};
+    Object.keys(lic).forEach(function (k) { lic[k].id = k; });
     (st.files || []).concat(st.crow_files || []).forEach(function (f) { bytes[f.id] = f.bytes; });
     var fileLic = {}, gate = {};
     (st.files || []).forEach(function (f) { fileLic[f.id] = f.license; if (f.gated) gate[f.id] = f.repo; });
@@ -175,9 +178,7 @@ button.sec:hover{color:var(--soft)}
         id: p.id, title: p.menu.title, files: p.files, derived: p.bytes.derived, disk: p.bytes.disk, gated: gated,
         // #340: a video runtime is unpacked after the downloads (step "runtime")
         runtime: !!(p.video_server && p.video_server.runtime && Object.keys(p.video_server.runtime).length),
-        licence: shown.map(function (l) {
-          return l.covers + ': ' + l.name + (l.non_commercial ? ', non-commercial use only.' : '.');
-        }).join(' ')
+        licence: shown
       };
     });
     var servers = (init.op && init.op.servers) || {}, entries = (init.op && init.op.models && init.op.models.entries) || {};
@@ -189,7 +190,11 @@ button.sec:hover{color:var(--soft)}
       };
     });
     var crowFiles = sum((st.crow_files || []).map(function (f) { return f.bytes; }));
-    return { bytes: bytes, points: points, llama: llama, crowFiles: crowFiles };
+    // third-party files inside Crow's own package (the Windows package's MSVC runtime)
+    var pkgLic = (st.package_licenses || []).filter(function (e) {
+      return (e.platforms || []).indexOf(init.platform || 'windows') >= 0 && lic[e.license];
+    }).map(function (e) { return lic[e.license]; });
+    return { bytes: bytes, points: points, llama: llama, crowFiles: crowFiles, pkgLic: pkgLic };
   }
   function point(id) { return S.info.points.filter(function (p) { return p.id === id; })[0]; }
   function title(id) { var p = S.info && point(id); return p ? p.title : id; }
@@ -237,7 +242,15 @@ button.sec:hover{color:var(--soft)}
   function row(o) {
     return '<div class="row' + (o.cls ? ' ' + o.cls : '') + '"><div class="tx"><b>' + esc(o.title) + '</b>' +
       '<div class="d' + (o.dcls ? ' ' + o.dcls : '') + '">' + esc(o.desc) + '</div>' +
-      (o.lic ? '<div class="lic">' + esc(o.lic) + '</div>' : '') + '</div>' + (o.tail || '') + '</div>';
+      (o.lic ? '<div class="lic">' + o.lic + '</div>' : '') + '</div>' + (o.tail || '') + '</div>';
+  }
+  // "<covers>: <name>." per licence; a name with a url opens it in the browser
+  function licHtml(list) {
+    return (list || []).map(function (l) {
+      var name = l.url ? '<button class="lk" data-act="licence" data-id="' + esc(l.id) + '">' + esc(l.name) + '</button>'
+        : esc(l.name);
+      return esc(l.covers) + ': ' + name + (l.non_commercial ? ', non-commercial use only.' : '.');
+    }).join(' ');
   }
   function sz(t) { return '<span class="sz">' + esc(t) + '</span>'; }
   function toggle(id, on, kind) {
@@ -259,14 +272,14 @@ button.sec:hover{color:var(--soft)}
         bar(S.rootLabel, '<button class="chip" disabled>change</button><button class="btn" disabled>Install</button>');
     }
     h += '<div class="list">' + row({ title: 'Crow', desc: 'Required. The window, the boot menu, Python if missing.',
-      tail: sz(size((pk.crow || 0) + S.info.crowFiles)) + toggle('crow', true, 'lock') }) + '</div>';
+      lic: licHtml(S.info.pkgLic), tail: sz(size((pk.crow || 0) + S.info.crowFiles)) + toggle('crow', true, 'lock') }) + '</div>';
     h += '<div class="sec">Models</div><div class="list">';
     h += row({ title: 'crow-nest engine', desc: 'Required. Every model below runs on it.',
       tail: sz(size(pk.engine || 0)) + toggle('engine', true, 'lock') });
     S.info.points.forEach(function (p) {
       var b = blocked(p.id), on = S.sel[p.id] && !b;
       h += row({
-        title: p.title, desc: b ? b.reason : (DESC[p.id] || ''), lic: b ? '' : p.licence,
+        title: p.title, desc: b ? b.reason : (DESC[p.id] || ''), lic: b ? '' : licHtml(p.licence),
         cls: b ? 'na' : (on ? '' : 'off'),
         tail: sz(marginal(p)) + toggle(p.id, on, b ? 'dis' : '')
       });
@@ -293,6 +306,8 @@ button.sec:hover{color:var(--soft)}
     var free = S.free != null ? S.free : (r ? r.disk_free_bytes : null), need = peak(), none = selected().length === 0;
     var note = '';
     if (free && need > free) note = '<p class="note">Needs ' + size(need) + ' free here. This drive has ' + size(free) + ' free.</p>';
+    var named = S.info.pkgLic.length || selected().some(function (p) { return p.licence.length; });
+    if (named) note += '<p class="accept">Install means you accept the licence terms named above.</p>';
     return '<div class="scroll">' + h + '</div>' + note +
       bar(S.rootLabel, '<button class="chip" data-act="root">change</button><button class="btn" data-act="install"' +
         (none ? ' disabled' : '') + '>Install</button>');
@@ -361,6 +376,12 @@ button.sec:hover{color:var(--soft)}
     if (ck.status === 'ok') return row({ title: t, desc: 'Checked. Writing the shortcuts.', dcls: 'ok' });
     return row({ title: t, desc: 'After the downloads.', cls: 'off' });
   }
+  // #338: the state file cannot be written; the run goes on, but says so.
+  function stateRow() {
+    var st = step('state');
+    if (st.status !== 'warning') return '';
+    return '<div class="list">' + row({ title: 'Progress file', desc: st.detail, dcls: 'warn' }) + '</div>';
+  }
   function planPoints() {
     var seen = [];
     S.info.points.forEach(function (p) {
@@ -381,8 +402,11 @@ button.sec:hover{color:var(--soft)}
       planPoints().map(pointRow).join('') + configsRow() + '</div>';
     var voiceErr = jobsWhere(function (j) { return j.kind === 'Whisper' && S.files[j.id] && S.files[j.id].error; })[0];
     if (voiceErr) h += '<div class="list">' + row({ title: 'Voice model', desc: S.files[voiceErr.id].error, dcls: 'bad', cls: 'err', tail: retry(voiceErr.id) }) + '</div>';
+    h += stateRow();
     return '<div class="scroll">' + h + '</div>' +
-      bar('You can close this window. The next start picks up where it stopped.',
+      bar(step('state').status === 'warning'
+        ? 'Keep this window open. Progress is not being saved.'
+        : 'You can close this window. The next start picks up where it stopped.',
         '<button class="chip" data-act="pause">' + (S.paused ? 'Resume' : 'Pause') + '</button>');
   }
 
@@ -407,7 +431,7 @@ button.sec:hover{color:var(--soft)}
       tail: '<button class="chip" data-act="shortcut">change</button>' + toggle('', true, 'static') });
     h += row({ title: S.init.launcher_label || 'Start menu entry', desc: 'Crow', tail: toggle('', true, 'static') });
     h += row({ title: 'Installed', desc: (d.installed || []).map(title).join(', ') });
-    h += '</div>';
+    h += '</div>' + stateRow();
     var note = bm.status === 'failed' ? '<p class="note">' + esc(bm.detail) + '</p>' : '';
     return '<div class="scroll">' + h + '</div>' + note +
       bar('The boot menu starts a model, then Crow.', '<button class="btn" data-act="boot">Open boot menu</button>');
@@ -446,6 +470,7 @@ button.sec:hover{color:var(--soft)}
       case 'close': send({ type: 'close' }); break;
       case 'toggle': S.sel[el.dataset.id] = !S.sel[el.dataset.id]; render(); break;
       case 'opt': S.optOpen = !S.optOpen; render(); break;
+      case 'licence': send({ type: 'open_licence', id: el.dataset.id }); break;
       case 'root': send({ type: 'pick_folder', for: 'install', current: S.root }); break;
       case 'shortcut': send({ type: 'pick_folder', for: 'shortcut', current: S.shortcutDir || S.init.desktop }); break;
       case 'install':

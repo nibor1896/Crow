@@ -373,8 +373,9 @@ class EndToEndTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         zpath = os.path.join(self.out, "crow-9.9.9-win-x64.zip")
         with zipfile.ZipFile(zpath) as z:
-            names = z.namelist()
-        # Backslash names, the shape pack-release.ps1 writes and v3.0.0 shipped.
+            # zipfile turns a backslash into "/" on Windows (the ZIP spec's separator)
+            # and keeps it on Linux, so the names are compared in one form.
+            names = [n.replace("/", "\\") for n in z.namelist()]
         self.assertIn("cli\\crow_core.py", names)
         self.assertIn("kits\\pathtracer\\kit.json", names)
         self.assertFalse([n for n in names if n.endswith(".log") or "\\runs\\" in n.replace("/", "\\")

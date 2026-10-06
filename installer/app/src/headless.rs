@@ -14,6 +14,9 @@ pub fn main(steps: &mut dyn Steps, opts: &RunOptions, sel: Option<Selection>) ->
     }
     // No one can send Retry or Resume later: a failure ends the run.
     drop(tx);
+    for line in package_licence_lines(crowsetup_core::STACK_JSON, if cfg!(windows) { "windows" } else { "linux" }) {
+        println!("{line}");
+    }
     let mut printer = Printer::default();
     let out = run::run(steps, opts, &mut |e| printer.print(&e), rx);
     match out {
@@ -26,6 +29,25 @@ pub fn main(steps: &mut dyn Steps, opts: &RunOptions, sel: Option<Selection>) ->
             2
         }
     }
+}
+
+/// The licences of third-party files inside Crow's own package on `platform`
+/// (stack.json `package_licenses`), one line each: what the window shows under Crow.
+fn package_licence_lines(stack: &str, platform: &str) -> Vec<String> {
+    let v: serde_json::Value = serde_json::from_str(stack).unwrap_or_default();
+    let mut out = Vec::new();
+    for e in v["package_licenses"].as_array().into_iter().flatten() {
+        let on = e["platforms"].as_array().is_some_and(|p| p.iter().any(|x| x == platform));
+        let lic = &v["licenses"][e["license"].as_str().unwrap_or("")];
+        if let (true, Some(name)) = (on, lic["name"].as_str()) {
+            out.push(format!(
+                "Licence: {}: {name} ({}). Installing means you accept them.",
+                lic["covers"].as_str().unwrap_or(""),
+                lic["url"].as_str().unwrap_or("")
+            ));
+        }
+    }
+    out
 }
 
 #[derive(Default)]
@@ -100,5 +122,19 @@ impl Printer {
             }
             Event::Fatal { message } => println!("FATAL: {message}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::package_licence_lines;
+
+    #[test]
+    fn the_windows_package_names_microsofts_terms_and_linux_none() {
+        let win = package_licence_lines(crowsetup_core::STACK_JSON, "windows");
+        assert_eq!(win.len(), 1, "{win:?}");
+        assert!(win[0].starts_with("Licence: Microsoft Visual C++ runtime (bin/msvcp140.dll"), "{}", win[0]);
+        assert!(win[0].contains("(https://visualstudio.microsoft.com/license-terms/vs2026-ga-visualcpp-v14-redist-runtime/)"));
+        assert!(package_licence_lines(crowsetup_core::STACK_JSON, "linux").is_empty());
     }
 }

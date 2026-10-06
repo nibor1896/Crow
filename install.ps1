@@ -75,7 +75,7 @@ A local package is never deleted afterwards; a downloaded one is.
 #>
 [CmdletBinding()]
 param(
-    [string] $Version   = "3.2.4",
+    [string] $Version   = "3.2.5",
     [string] $InstallTo = "$env:LOCALAPPDATA\Crow",
     [string] $SourceUrl = "",
     [switch] $Force,
@@ -1975,6 +1975,13 @@ if (Test-Path $InstallTo) {
 # nothing changed. They are put into bin\ only after the extraction and the removal of
 # dropped files below, because the previous package listed these two names and the
 # removal step would otherwise delete them again.
+# The package's bin\ carries Microsoft's Visual C++ runtime, Distributable Code of Visual
+# Studio 2026, whose licence requires that the user agrees to Microsoft's terms for those
+# files (manifests/stack.json licenses.msvc-v14-runtime). Named before anything lands.
+Write-Item "licence terms" ("bin\ holds Microsoft's Visual C++ runtime under the Microsoft Visual C++ v14 " +
+    "Redistributable and Runtime license terms (https://visualstudio.microsoft.com/license-terms/" +
+    "vs2026-ga-visualcpp-v14-redist-runtime/) and NVIDIA's CUDA libraries under the NVIDIA CUDA Toolkit " +
+    "EULA (https://docs.nvidia.com/cuda/eula/index.html). Installing means you accept them.")
 $script:NvStage = Join-Path $env:TEMP ("crow-nvidia-" + [guid]::NewGuid().ToString("N"))
 try {
     $nvFiles = Get-NvidiaLibraries -Stage $script:NvStage

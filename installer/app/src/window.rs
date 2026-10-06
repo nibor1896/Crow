@@ -136,8 +136,35 @@ fn init_json(s: &Setup) -> String {
         "desktop": s.desktop,
         "desktop_label": s.desktop.as_deref().map(crate::folders::label),
         "launcher_label": crate::folders::LAUNCHER_LABEL,
+        // which `package_licenses` of stack.json apply to the package this exe installs
+        "platform": if cfg!(windows) { "windows" } else { "linux" },
     })
     .to_string()
+}
+
+/// The `url` of licence `id` in `stack` (stack.json), the only addresses the page may
+/// open: https, and nothing a command line could split.
+fn licence_url(stack: &str, id: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(stack).ok()?;
+    let url = v["licenses"][id]["url"].as_str()?;
+    let plain = !url.chars().any(|c| c.is_whitespace() || c == '"' || c.is_control());
+    (url.starts_with("https://") && plain).then(|| url.to_string())
+}
+
+/// Open `url` in the user's browser, so a licence can be read before Install accepts it.
+fn open_in_browser(url: &str) {
+    #[cfg(windows)]
+    let child = std::process::Command::new("rundll32.exe").args(["url.dll,FileProtocolHandler", url]).spawn();
+    #[cfg(not(windows))]
+    let child = std::process::Command::new("xdg-open").arg(url).spawn();
+    match child {
+        Ok(mut c) => {
+            std::thread::spawn(move || {
+                let _ = c.wait();
+            });
+        }
+        Err(e) => eprintln!("crowsetup: cannot open {url}: {e}"),
+    }
 }
 
 enum UserEvent {
@@ -305,6 +332,10 @@ impl App {
             // #340: the user's Hugging Face token for a gated repo; held by
             // the fetcher for this run only, never logged or written.
             "hf_token" => crowsetup_core::fetch::set_hf_token(v["token"].as_str().map(str::to_string)),
+            "open_licence" => match licence_url(crowsetup_core::STACK_JSON, v["id"].as_str().unwrap_or("")) {
+                Some(url) => open_in_browser(&url),
+                None => eprintln!("crowsetup: no licence url for {}", v["id"]),
+            },
             "pick_folder" => {
                 let purpose = v["for"].as_str().unwrap_or("install").to_string();
                 self.pick_folder(&purpose, v["current"].as_str());
@@ -430,6 +461,22 @@ pub fn main(s: Setup) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_licence_url_of_the_stack_opens() {
+        let stack = crowsetup_core::STACK_JSON;
+        assert_eq!(
+            licence_url(stack, "msvc-v14-runtime").as_deref(),
+            Some("https://visualstudio.microsoft.com/license-terms/vs2026-ga-visualcpp-v14-redist-runtime/")
+        );
+        assert_eq!(licence_url(stack, "no-such-licence"), None);
+        assert_eq!(licence_url(stack, ""), None);
+        let fake = r#"{"licenses":{"a":{"url":"file:///C:/Windows/notepad.exe"},
+            "b":{"url":"https://x.example/a b"},"c":{"url":"https://x.example/\"q"}}}"#;
+        assert_eq!(licence_url(fake, "a"), None);
+        assert_eq!(licence_url(fake, "b"), None);
+        assert_eq!(licence_url(fake, "c"), None);
+    }
 
     #[test]
     fn a_token_message_never_reaches_the_log() {

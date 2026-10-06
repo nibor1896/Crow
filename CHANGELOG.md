@@ -5,6 +5,26 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 3.2.5 — 2026-10-06
+
+**CrowSetup stops instead of starting over when it cannot read its state file, installing on Windows accepts Microsoft's terms for the Visual C++ runtime, and the engine no longer refuses a start over a reused PID.** CrowSetup installs engine v0.9.3. Windows assets only, as for v3.2.x.
+
+### Changed
+
+- **Installing Crow on Windows accepts Microsoft's terms for the Visual C++ runtime it carries** (2026-10-06). The package has shipped five unmodified Microsoft DLLs in `bin\` since v2.0.0 (`msvcp140`, `msvcp140_codecvt_ids`, `vcomp140`, `vcruntime140`, `vcruntime140_1`). The Visual Studio 2026 licence (last updated October 1, 2025, "Distribution Requirements") lets them be redistributed only if end users agree to terms that protect them at least as much; until now `NOTICE` only said so. CrowSetup's selection page now names the Microsoft Visual C++ v14 Redistributable and Runtime license terms under Crow, every licence name with a URL opens it in the browser (`open_licence`, only URLs from `stack.json`), and a line above Install says that Install accepts the terms named on the page. `--headless` and `install.ps1` print the terms before anything is written. `manifests/stack.json` gains the licence `msvc-v14-runtime` and `package_licenses` (Windows only); `tools/check_stack.py` checks them (new check "package licences", 6 tests). `NOTICE` and `docs/user-guide/install.md` say the same.
+
+- **CrowSetup installs engine v0.9.3** (crow-nest, 2026-10-06): the engine lock is an OS file lock that Windows releases with the process, so a `serve` stopped with `taskkill /F` no longer blocks the next start once its PID is reused (robin's Flash-Next start at 11:40 exited with code 101, "another engine (pid 29192)", while no engine ran); `CROW_RAM_MARGIN_GB` defaults to 1 GiB.
+- **Version 3.2.5** in `cli/crow_core.py`, `install.ps1` and `manifests/operating-point.json`; README image regenerated.
+
+### Fixed
+
+- **CrowSetup no longer starts over silently when it cannot read its state file** (#338, 2026-10-06). Up to v3.2.4 an I/O error on `setup\state.json` became an empty state without a message, and a failed save was dropped: on 2026-10-01 two window runs against a valid prepared `state.json` fetched the 27B projector again (927,607,488 B, already verified) and demanded convert inputs the done convert step had deleted. Now a `state.json` that exists but cannot be read stops the run with its path and the OS error; a corrupt one is still set aside as `state.json.bad`. A failed save keeps the run going and shows one warning, "Progress is not being saved to <path>: <error>"; the window shows it as a "Progress file" row and asks to keep the window open. Both lines are appended with a UTC timestamp to `setup\setup.log`. Why the 2026-10-01 runs could not use the file is still not found; the log is the evidence the next such run leaves.
+
+### Known limitations
+
+- **No Linux assets**, as for v3.2.4: a Linux package needs a build on Linux. The `#[cfg(unix)]` paths of CrowSetup's `nvidia` step are still not compiled.
+- **Not checked live: the "Progress is not being saved" warning** (#338), which only appears once Install has started downloads; covered by `failed_save_warns_once_and_still_lands`.
+
 ## 3.2.4 — 2026-10-06
 
 **Crow ships no NVIDIA file; the installers fetch NVIDIA's CUDA libraries from NVIDIA's own wheels.** The Windows package no longer carries `cublas64_13.dll` and `cublasLt64_13.dll` (≈516 MB unpacked), the Linux package no longer carries `cuda/lib/`, and the CUDA-EULA redistribution question is gone with them.

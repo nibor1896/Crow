@@ -104,6 +104,15 @@ the MIT grant above. Microsoft's Distributable Code list for Visual Studio
 a program, subject to the Visual Studio licence terms (read at
 learn.microsoft.com/visualstudio/releases/2026/redistribution on 2026-10-03).
 
+Your use of these five files is subject to the Microsoft Visual C++ v14
+Redistributable and Runtime license terms (last updated October 1, 2025):
+https://visualstudio.microsoft.com/license-terms/vs2026-ga-visualcpp-v14-redist-runtime/
+By installing or using the Windows package you accept those terms for them.
+The Visual Studio 2026 licence requires this of everyone who distributes the
+files ("Distribution Requirements"), so if you pass the package on, the people
+you give it to must accept them too. CrowSetup.exe names the terms under Crow
+on its selection page, and install.ps1 prints them, before anything is written.
+
 
 --------------------------------------------------------------------------------
 Google Sans Code -- cli/fonts/

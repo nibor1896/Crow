@@ -11327,7 +11327,9 @@ class TheWindowAsksThePlatformSeamTests(unittest.TestCase):
         alte Formel -- genau derselbe Ordner."""
         if not crow_platform.IS_WINDOWS:
             self.skipTest("die Gleichheit gilt fuer die Windows-Antwort")
-        old = os.path.dirname(crow_core.SESSION_DIR)
+        # DIE FORMEL, NICHT DER WERT: der Kopf dieser Datei biegt SESSION_DIR
+        # auf den Sandkasten um; crow_core bildet ihn aus state_dir().
+        old = os.path.dirname(os.path.join(crow_platform.state_dir(), "session"))
         self.assertEqual(os.path.normcase(crow_platform.config_dir()),
                          os.path.normcase(old))
         self.assertEqual(os.path.normcase(crow_platform.data_dir()),
@@ -11434,10 +11436,27 @@ class TheCompositorMovesTheWindowTests(unittest.TestCase):
         return seen, drag
 
     def test_the_bridge_offers_both_gestures(self):
+        # GTK STANDS IN, as in the cases below: on Windows there is no `gi`,
+        # and `_native_drag` would answer False for that reason alone.
+        class _GLib:
+            idle_add = staticmethod(lambda func: func())
+
+        class _Gdk:
+            class Display:
+                @staticmethod
+                def get_default():
+                    raise RuntimeError("no display in the suite")
+
+            WindowEdge = staticmethod(lambda n: n)
+
+        modules = {"gi": mock.Mock(),
+                   "gi.repository": mock.Mock(GLib=_GLib, Gdk=_Gdk, Gtk=mock.Mock())}
         native = _FakeGtkWindow()
         api = self._api(native)
-        self.assertTrue(api.begin_move())
-        self.assertTrue(api.begin_resize("se"))
+        with mock.patch.dict(sys.modules, modules):
+            self.assertTrue(api.begin_move())
+            self.assertTrue(api.begin_resize("se"))
+        self.assertEqual([c[0] for c in native.calls], ["move", "resize"])
 
     def test_an_unknown_edge_is_refused_rather_than_guessed(self):
         """NEGATIV. Die Seite kennt acht Namen; ein neunter heisst, dass die
@@ -11966,7 +11985,10 @@ class TheWindowIsCalledCrowTests(unittest.TestCase):
         except Exception:                  # noqa: BLE001
             self.skipTest("kein PyGObject auf dieser Maschine")
         before = GLib.get_prgname()
-        self.addCleanup(GLib.set_prgname, before)
+        # GLib refuses None: nothing to restore when no one had set a name yet
+        # (on CI no earlier case loads the real GTK since 14dc2c1)
+        if before is not None:
+            self.addCleanup(GLib.set_prgname, before)
         self.assertTrue(crow_gui.name_this_process("crow"))
         self.assertEqual(GLib.get_prgname(), "crow")
 
@@ -15911,7 +15933,9 @@ globalThis.fetch = (url, o) => { fetched.push([url, o.method, o.headers["Content
               + self.PRELUDE.replace("__TEXT__", json.dumps(crow_core.REMOTE_PHONE_TEXT))
                             .replace("__HEARD__", self.heard_method())
               + crow_gui.REMOTE_JS + (probe or self.PROBE))
-        done = subprocess.run([node, "-e", js], capture_output=True, text=True,
+        # ON STDIN (`node -`), not `-e`: the script is past 33,000 characters,
+        # and Windows refuses a command line over 32,767 (WinError 206).
+        done = subprocess.run([node, "-"], input=js, capture_output=True, text=True,
                               encoding="utf-8", timeout=30)
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout.strip().splitlines()[-1])
@@ -16283,7 +16307,7 @@ class EveryImageActionReVetsItsPathTests(ApiCase):
     def test_the_desktop_gets_a_file_url(self):
         self.announce()
         with mock.patch.object(crow_platform, "IS_WINDOWS", False):
-            self.assertEqual(self.api_.image_full(self.png), "file://" + self.png)
+            self.assertEqual(self.api_.image_full(self.png), Path(self.png).as_uri())
 
     def test_the_preview_is_a_png_no_longer_than_512(self):
         self.announce()
@@ -16317,7 +16341,8 @@ class EveryImageActionReVetsItsPathTests(ApiCase):
         self.announce()
         with mock.patch.object(crow_platform, "IS_WINDOWS", False):
             self.assertEqual(self.api_.image_open(self.png), "")
-        self.assertEqual(self.ran, [("popen", crow_platform.opener_command(self.png))])
+            want = crow_platform.opener_command(self.png)
+        self.assertEqual(self.ran, [("popen", want)])
 
     def test_save_as_copies_byte_for_byte(self):
         self.announce()

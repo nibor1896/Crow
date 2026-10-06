@@ -1,6 +1,6 @@
 // A stand-in for the exe's bridge, for looking at the page in a browser:
 //   python -m http.server (in the repo root), then
-//   /installer/ui/index.html?mock=selection|blocked|hardblock|installing|error|welcome|done
+//   /installer/ui/index.html?mock=selection|blocked|hardblock|installing|error|nosave|welcome|done
 // It reads the real manifests and plays the events the core would send.
 // Never embedded in the exe.
 (async function () {
@@ -70,6 +70,7 @@
       break;
     case 'installing':
     case 'error':
+    case 'nosave':
       ev(report); await install(); ev(p);
       verify(p, function (j) { return j.kind !== 'Model'; });
       step('crow', 'ok', 'Installed. Version 3.0.0.'); step('engine', 'ok', 'Installed. Version 0.9.0.');
@@ -83,6 +84,9 @@
       if (mode === 'error') {
         ev({ type: 'file_error', id: 'fn-cnq', retryable: false,
           message: '404 Not Found from huggingface.co. The file may have moved.' });
+      }
+      if (mode === 'nosave') {
+        step('state', 'warning', 'Progress is not being saved to ' + root + '\\setup\\state.json: Access is denied. (os error 5)');
       }
       break;
     case 'welcome':

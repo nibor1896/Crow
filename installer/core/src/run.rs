@@ -74,6 +74,9 @@ pub trait Steps {
     /// A missing file is an empty store with `path` set.
     fn load_state(&mut self, path: &Path) -> std::io::Result<StateStore>;
     fn save_state(&mut self, state: &StateStore) -> std::io::Result<()>;
+    /// #338: add one line to `log` (`setup\setup.log`), best effort: what
+    /// the window only showed stays on disk as evidence. Default: nothing.
+    fn note(&mut self, _log: &Path, _line: &str) {}
     /// Whether a fetched file is still on disk (its final `dest`).
     fn present(&mut self, job: &FileJob) -> bool;
     /// Delete a fetched file that is no longer needed (the package zips after Done).
@@ -174,6 +177,22 @@ pub fn default_install_root() -> PathBuf {
 #[cfg(not(windows))]
 pub fn default_install_root() -> PathBuf {
     crate::finish::default_install_root().unwrap_or_else(|| std::env::temp_dir().join("crow"))
+}
+
+/// `2026-10-06T09:41:07Z` for seconds since the Unix epoch (UTC; days to
+/// civil date after H. Hinnant, "chrono-Compatible Low-Level Date Algorithms").
+pub fn utc_stamp(secs: u64) -> String {
+    let (days, rem) = ((secs / 86_400) as i64, secs % 86_400);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3_600, rem / 60 % 60, rem % 60)
 }
 
 /// `<launch root>\setup\state.json` (see the module docs).
@@ -324,6 +343,8 @@ struct Runner<'a> {
     runtimes: Vec<RuntimeJob>,
     /// The NVIDIA wheels this selection extracts (they are deleted too).
     nvidia: Vec<NvidiaJob>,
+    /// #338: a failed save was reported once this run.
+    save_warned: bool,
 }
 
 /// Run the whole install. Returns when Done was emitted and the input channel
@@ -332,7 +353,7 @@ pub fn run(steps: &mut dyn Steps, opts: &RunOptions, on: &mut dyn FnMut(Event), 
     let ctl = Arc::new(Control { cancel: AtomicBool::new(false), ctl: Mutex::default(), cv: Condvar::new() });
     ctl.listen(inputs);
     let state = StateStore { path: opts.state_path.clone(), ..StateStore::default() };
-    let mut r = Runner { steps, on, opts, ctl, state, inputs: Default::default(), runtimes: Vec::new(), nvidia: Vec::new() };
+    let mut r = Runner { steps, on, opts, ctl, state, inputs: Default::default(), runtimes: Vec::new(), nvidia: Vec::new(), save_warned: false };
     match r.go() {
         Ok(()) => Outcome::Done,
         Err(Stop::Quit) => {
@@ -358,8 +379,22 @@ impl Runner<'_> {
         if self.state.selection.is_none() {
             return;
         }
-        // A failed checkpoint costs at most a re-hash on the next start.
-        let _ = self.steps.save_state(&self.state);
+        // A failed checkpoint costs at most a re-hash on the next start, so
+        // the run goes on; but it says so, once (#338).
+        if let Err(e) = self.steps.save_state(&self.state)
+            && !self.save_warned
+        {
+            self.save_warned = true;
+            let m = format!("Progress is not being saved to {}: {e}", self.opts.state_path.display());
+            self.note(&m);
+            self.step_event("state", StepStatus::Warning, m);
+        }
+    }
+
+    /// One line in `setup.log` next to the state file (#338).
+    fn note(&mut self, line: &str) {
+        let log = self.opts.state_path.with_file_name("setup.log");
+        self.steps.note(&log, line);
     }
 
     fn done(&self, step: &str) -> bool {
@@ -425,9 +460,18 @@ impl Runner<'_> {
         let report = self.steps.preflight(&self.opts.launch_root);
         self.emit(Event::Preflight(report.clone()));
 
+        // An unreadable state is a stop with the path and the OS error, not a
+        // silent start from nothing that fetches everything again (#338).
         self.state = match self.steps.load_state(&self.opts.state_path) {
             Ok(s) => s,
-            Err(_) => StateStore { path: self.opts.state_path.clone(), ..StateStore::default() },
+            Err(e) => {
+                let m = format!(
+                    "Cannot read {}: {e}. Close what holds it and start again.",
+                    self.opts.state_path.display()
+                );
+                self.note(&m);
+                return Err(Stop::Fatal(m));
+            }
         };
         let saved = self.state.selection.clone().filter(|_| !self.done("done"));
         let resumable = match &saved {
@@ -1046,6 +1090,17 @@ impl Steps for RealSteps {
     fn save_state(&mut self, state: &StateStore) -> std::io::Result<()> {
         state.save()
     }
+    fn note(&mut self, log: &Path, line: &str) {
+        use std::io::Write;
+        // the log is evidence, not part of the install: a failure is dropped
+        if let Some(dir) = log.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log) {
+            let _ = writeln!(f, "{} {line}", utc_stamp(secs));
+        }
+    }
     fn present(&mut self, job: &FileJob) -> bool {
         job.dest.is_file()
     }
@@ -1172,6 +1227,12 @@ pub mod testing {
         pub nvidia: bool,
         /// The libraries taken out of the fake wheel are gone again.
         pub nvidia_gone: bool,
+        /// #338: `load_state` fails with this error kind.
+        pub fail_load: Option<std::io::ErrorKind>,
+        /// #338: every `save_state` fails with this error kind.
+        pub fail_save: Option<std::io::ErrorKind>,
+        /// #338: the lines `note` was given, as `<log file name>: <line>`.
+        pub notes: Vec<String>,
     }
 
     #[derive(Clone, Default)]
@@ -1288,6 +1349,9 @@ pub mod testing {
             Ok(plan(sel))
         }
         fn load_state(&mut self, path: &Path) -> std::io::Result<StateStore> {
+            if let Some(kind) = self.shared.lock().unwrap().fail_load {
+                return Err(std::io::Error::new(kind, "fake load failure"));
+            }
             let saved = self.shared.lock().unwrap().saved.clone().unwrap_or_default();
             Ok(StateStore {
                 path: path.to_path_buf(),
@@ -1297,12 +1361,19 @@ pub mod testing {
             })
         }
         fn save_state(&mut self, state: &StateStore) -> std::io::Result<()> {
+            if let Some(kind) = self.shared.lock().unwrap().fail_save {
+                return Err(std::io::Error::new(kind, "fake save failure"));
+            }
             self.shared.lock().unwrap().saved = Some(Saved {
                 selection: state.selection.clone(),
                 files: state.files.clone(),
                 steps_done: state.steps_done.clone(),
             });
             Ok(())
+        }
+        fn note(&mut self, log: &Path, line: &str) {
+            let name = log.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            self.shared.lock().unwrap().notes.push(format!("{name}: {line}"));
         }
         fn present(&mut self, job: &FileJob) -> bool {
             self.shared.lock().unwrap().present.contains(&job.id)
