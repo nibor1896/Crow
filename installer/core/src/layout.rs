@@ -42,6 +42,13 @@
 //! written beside its target and renamed over it, so a running serve or
 //! sd-server keeps its old inode and nothing is moved aside; the tar entry's
 //! mode is kept (serve and sd-server are executables).
+//!
+//! NVIDIA FILES: neither package needs to carry NVRTC, cuBLAS or the CUDA
+//! runtime; the `nvidia` step (crate::nvidia) puts them in place from NVIDIA's
+//! wheels after both packages are installed. An older package that still
+//! carries them installs as before (the bytes are NVIDIA's, identical), and an
+//! update that drops them from its manifest removes them like any dropped
+//! file; the `nvidia` step that follows puts them back.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;

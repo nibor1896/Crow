@@ -7,7 +7,7 @@
   "INSTALL": "the install root (Windows: %LOCALAPPDATA%\\Crow; Linux: $XDG_DATA_HOME/crow, by default .local/share/crow in the home folder)",
   "MODELS": "the models root: $CROW_MODELS when set, else ${INSTALL}/models (Crow cli/crow_platform.py models_dir)"
  },
- "_lib_path": "Folders Boot puts in front of LD_LIBRARY_PATH for serve and sd-server, per platform (cli/crow_boot.py plan_point; #341). Linux: ${INSTALL}/bin holds the NVRTC libraries beside serve (crow-nest's Linux pack; libnvrtc has no RUNPATH and cudarc dlopens bare names), ${INSTALL}/cuda/lib the CUDA runtime and cuBLAS that sd-server links. Windows: none; a program finds its DLLs beside it.",
+ "_lib_path": "Folders Boot puts in front of LD_LIBRARY_PATH for serve and sd-server, per platform (cli/crow_boot.py plan_point; #341). Linux: ${INSTALL}/bin holds the NVRTC libraries beside serve (CrowSetup takes them from NVIDIA's wheel, nvidia_files; libnvrtc has no RUNPATH and cudarc dlopens bare names), ${INSTALL}/cuda/lib the CUDA runtime and cuBLAS that sd-server links (also from NVIDIA's wheels). Windows: none; a program finds its DLLs beside it.",
  "lib_path": {
   "linux": [
    "${INSTALL}/bin",
@@ -51,6 +51,17 @@
    "show_at_install": false,
    "text_file": "comfyui-license",
    "summary": "ComfyUI's licence. Crow does not redistribute ComfyUI: the installer fetches ComfyUI's own portable release and unpacks it."
+  },
+  "nvidia-cuda-eula": {
+   "name": "NVIDIA CUDA Toolkit End User License Agreement",
+   "url": "https://docs.nvidia.com/cuda/eula/index.html",
+   "covers": "NVIDIA CUDA libraries (NVRTC, cuBLAS, CUDA runtime)",
+   "non_commercial": false,
+   "show_at_install": true,
+   "text_file": null,
+   "_text_file": "The text is the License.txt every NVIDIA wheel carries in its dist-info (59,262 B, the same bytes in all five); CrowSetup writes it to text_dest from the wheel, like the libraries. It is no entry of files: nvidia_files are not fetched from a repo at a commit.",
+   "text_dest": "${INSTALL}/licenses/NVIDIA-CUDA-EULA.txt",
+   "summary": "Crow ships no NVIDIA file: CrowSetup downloads NVRTC, cuBLAS and the CUDA runtime from NVIDIA's own wheels on PyPI, so you receive them from NVIDIA under its CUDA Toolkit End User License Agreement."
   }
  },
  "files": [
@@ -637,6 +648,186 @@
    "status": "upstream",
    "license": "mit",
    "role": "dictation"
+  }
+ ],
+ "_nvidia_files": "NVIDIA CUDA libraries the servers load, which neither Crow's package nor crow-nest's engine package carries: Crow redistributes no NVIDIA file. CrowSetup fetches NVIDIA's own wheel from PyPI (url, pinned by bytes and sha256) into setup/downloads, takes ONLY the members under extract, each checked against the wheel's *.dist-info/RECORD and against the bytes and sha256 pinned here, writes each to its dest and deletes the wheel. The dests are the paths the packages used to carry them at, so Boot, lib_path and the check step see the same files. A wheel is installed on its platform when a selected point runs one of its servers: the point's engine (engine.kind, default serve), and sd-server when the point has an image_server or sets CROW_IMAGE_MODEL_DIR in crow_env (Crow starts it on demand). Windows needs no CUDA runtime file: llama.cpp and sd-server link it statically there. The versions are the CUDA 13.3 toolkit the binaries are built with; the libraries are byte-identical to what the packages shipped before.",
+ "nvidia_files": [
+  {
+   "id": "nvrtc-windows",
+   "package": "nvidia-cuda-nvrtc",
+   "version": "13.3.33",
+   "platform": "windows",
+   "servers": [
+    "serve"
+   ],
+   "url": "https://files.pythonhosted.org/packages/a1/42/edce72f2c5a0f587168109c867f25f4a9a6cd7289ecf0d68ed2b1070f273/nvidia_cuda_nvrtc-13.3.33-py3-none-win_amd64.whl",
+   "bytes": 45319163,
+   "sha256": "7d2af818851c0c224d5f92221e9226e51ee23c236df4b51f9194563979c888be",
+   "dest": "${INSTALL}/setup/downloads/nvidia_cuda_nvrtc-13.3.33-py3-none-win_amd64.whl",
+   "status": "upstream",
+   "license": "nvidia-cuda-eula",
+   "role": "cuda-library",
+   "extract": [
+    {
+     "member": "nvidia/cu13/bin/x86_64/nvrtc64_130_0.dll",
+     "dest": "${INSTALL}/bin/nvrtc64_130_0.dll",
+     "bytes": 101385328,
+     "sha256": "c7af6b5dbd001852d1b4a18effc6fbcfc94787eddadffea629a8333cb25b05fe"
+    },
+    {
+     "member": "nvidia/cu13/bin/x86_64/nvrtc-builtins64_133.dll",
+     "dest": "${INSTALL}/bin/nvrtc-builtins64_133.dll",
+     "bytes": 6684784,
+     "sha256": "82c703802846329d3bab3d8df06f8c956516a0eeec568033092d6c0a69b2733a"
+    },
+    {
+     "member": "nvidia_cuda_nvrtc-13.3.33.dist-info/licenses/License.txt",
+     "dest": "${INSTALL}/licenses/NVIDIA-CUDA-EULA.txt",
+     "bytes": 59262,
+     "sha256": "ad6f5853fba0ca0d159d0f58d49ae49830c2f8c93f7a92648b9ce90adb4c6ccd"
+    }
+   ]
+  },
+  {
+   "id": "nvrtc-linux",
+   "package": "nvidia-cuda-nvrtc",
+   "version": "13.3.33",
+   "platform": "linux",
+   "servers": [
+    "serve"
+   ],
+   "url": "https://files.pythonhosted.org/packages/8b/2c/86916c8a34dcdb0c3ddd1c0e30545041bd781184e437b9cb76fcda70560b/nvidia_cuda_nvrtc-13.3.33-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl",
+   "bytes": 51110910,
+   "sha256": "82530788b8c6164a54d3fd9ae8bcca8893d397c4aeb998861982a03bbe41e204",
+   "dest": "${INSTALL}/setup/downloads/nvidia_cuda_nvrtc-13.3.33-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl",
+   "status": "upstream",
+   "license": "nvidia-cuda-eula",
+   "role": "cuda-library",
+   "extract": [
+    {
+     "member": "nvidia/cu13/lib/libnvrtc.so.13",
+     "dest": "${INSTALL}/bin/libnvrtc.so",
+     "bytes": 120080992,
+     "sha256": "e51d197b3b0d2d9d850d29977423e6ac60661d429a59c440fc04e52b6fc6750a"
+    },
+    {
+     "member": "nvidia/cu13/lib/libnvrtc-builtins.so.13.3",
+     "dest": "${INSTALL}/bin/libnvrtc-builtins.so.13.3",
+     "bytes": 6555592,
+     "sha256": "7394c640e5761d13d2bbcdbc4b4c5dbac7cb53cd5bc732d78f8a5cb38638e913"
+    },
+    {
+     "member": "nvidia_cuda_nvrtc-13.3.33.dist-info/licenses/License.txt",
+     "dest": "${INSTALL}/licenses/NVIDIA-CUDA-EULA.txt",
+     "bytes": 59262,
+     "sha256": "ad6f5853fba0ca0d159d0f58d49ae49830c2f8c93f7a92648b9ce90adb4c6ccd"
+    }
+   ]
+  },
+  {
+   "id": "cublas-windows",
+   "package": "nvidia-cublas",
+   "version": "13.6.0.2",
+   "platform": "windows",
+   "servers": [
+    "llama-server",
+    "sd-server"
+   ],
+   "url": "https://files.pythonhosted.org/packages/08/8f/890a96ea1ff615100296977cce23296052dcb8c114d4e451201ec39df9bf/nvidia_cublas-13.6.0.2-py3-none-win_amd64.whl",
+   "bytes": 394568225,
+   "sha256": "3b5bcd6bfb6f65010ebf195851bcb9b2aa34b9fe08479432002991c1fe84b67d",
+   "dest": "${INSTALL}/setup/downloads/nvidia_cublas-13.6.0.2-py3-none-win_amd64.whl",
+   "status": "upstream",
+   "license": "nvidia-cuda-eula",
+   "role": "cuda-library",
+   "extract": [
+    {
+     "member": "nvidia/cu13/bin/x86_64/cublas64_13.dll",
+     "dest": "${INSTALL}/bin/cublas64_13.dll",
+     "bytes": 52697712,
+     "sha256": "8c6bac24474af29627ec96500025a5d410a1b7e8ffa00e1fe13b1781fc6b3ddc"
+    },
+    {
+     "member": "nvidia/cu13/bin/x86_64/cublasLt64_13.dll",
+     "dest": "${INSTALL}/bin/cublasLt64_13.dll",
+     "bytes": 463655536,
+     "sha256": "e323abd89e0f03c1db91a09d7aeb1928de08e1f86192cc713b335fefe3e368a9"
+    },
+    {
+     "member": "nvidia_cublas-13.6.0.2.dist-info/licenses/License.txt",
+     "dest": "${INSTALL}/licenses/NVIDIA-CUDA-EULA.txt",
+     "bytes": 59262,
+     "sha256": "ad6f5853fba0ca0d159d0f58d49ae49830c2f8c93f7a92648b9ce90adb4c6ccd"
+    }
+   ]
+  },
+  {
+   "id": "cublas-linux",
+   "package": "nvidia-cublas",
+   "version": "13.6.0.2",
+   "platform": "linux",
+   "servers": [
+    "llama-server",
+    "sd-server"
+   ],
+   "url": "https://files.pythonhosted.org/packages/fd/6c/173c7a3db77a6592210f73f194f0f8ed5e51b6ec61cfed7b1eee06ac5fd3/nvidia_cublas-13.6.0.2-py3-none-manylinux_2_27_x86_64.whl",
+   "bytes": 410473152,
+   "sha256": "b82c80c886cea6da6e149a5c3bdba274f12b7e4ec4b00a050b916b0446fb4153",
+   "dest": "${INSTALL}/setup/downloads/nvidia_cublas-13.6.0.2-py3-none-manylinux_2_27_x86_64.whl",
+   "status": "upstream",
+   "license": "nvidia-cuda-eula",
+   "role": "cuda-library",
+   "extract": [
+    {
+     "member": "nvidia/cu13/lib/libcublas.so.13",
+     "dest": "${INSTALL}/cuda/lib/libcublas.so.13",
+     "bytes": 55354008,
+     "sha256": "c13e3af56f07357b3419f01f183013577274709637b8a35aec008c3fe6ab6102"
+    },
+    {
+     "member": "nvidia/cu13/lib/libcublasLt.so.13",
+     "dest": "${INSTALL}/cuda/lib/libcublasLt.so.13",
+     "bytes": 516598272,
+     "sha256": "362e239322fd0989f2657db065615262add7e7a3b6f222070be2a05ecc8d586b"
+    },
+    {
+     "member": "nvidia_cublas-13.6.0.2.dist-info/licenses/License.txt",
+     "dest": "${INSTALL}/licenses/NVIDIA-CUDA-EULA.txt",
+     "bytes": 59262,
+     "sha256": "ad6f5853fba0ca0d159d0f58d49ae49830c2f8c93f7a92648b9ce90adb4c6ccd"
+    }
+   ]
+  },
+  {
+   "id": "cudart-linux",
+   "package": "nvidia-cuda-runtime",
+   "version": "13.3.29",
+   "platform": "linux",
+   "servers": [
+    "llama-server",
+    "sd-server"
+   ],
+   "url": "https://files.pythonhosted.org/packages/97/be/5699b6e642b372f7d24c59c2f41383e2696825e20bab85f7399c7c6a56f7/nvidia_cuda_runtime-13.3.29-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+   "bytes": 2339786,
+   "sha256": "e04420616e72f563167a7733272992d7e6df6dc5cb54b2f94f9f1520ea9e30c1",
+   "dest": "${INSTALL}/setup/downloads/nvidia_cuda_runtime-13.3.29-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+   "status": "upstream",
+   "license": "nvidia-cuda-eula",
+   "role": "cuda-library",
+   "extract": [
+    {
+     "member": "nvidia/cu13/lib/libcudart.so.13",
+     "dest": "${INSTALL}/cuda/lib/libcudart.so.13",
+     "bytes": 782080,
+     "sha256": "9f92e4c3f7e14d0fed69ef876a45d4255a2dc88cb552a673a90ce881c26282fe"
+    },
+    {
+     "member": "nvidia_cuda_runtime-13.3.29.dist-info/licenses/License.txt",
+     "dest": "${INSTALL}/licenses/NVIDIA-CUDA-EULA.txt",
+     "bytes": 59262,
+     "sha256": "ad6f5853fba0ca0d159d0f58d49ae49830c2f8c93f7a92648b9ce90adb4c6ccd"
+    }
+   ]
   }
  ],
  "points": [

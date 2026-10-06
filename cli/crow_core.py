@@ -12520,9 +12520,11 @@ def image_server_command(port: int) -> "list[str]":
 
 
 def _image_server_env() -> dict:
-    """The process environment plus the CUDA runtime Crow ships (Linux).
+    """The process environment plus the CUDA runtime in `<data>/cuda/lib` (Linux).
 
-    sd-server links libcudart/libcublas from `<data>/cuda/lib`, which is on
+    Crow ships no NVIDIA file: CrowSetup takes libcudart/libcublas from
+    NVIDIA's own wheels into that folder (stack.json `nvidia_files`).
+    sd-server links them from `<data>/cuda/lib`, which is on
     no loader path; measured 2026-09-27, it starts only with
     LD_LIBRARY_PATH set to that folder.
     """
