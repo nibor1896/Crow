@@ -143,7 +143,7 @@ INTRO_LINES = (
     "a browser panel, eyes, and subagents it can send out while it keeps working.",
     "It makes and edits images beside crow-nest's 27B, on one 32 GB card.",
     "Runs on this machine, or on a provider you choose.")
-INSTALL_TEXT = "One line, Windows or Linux. Preflight, download, a per-file sha256 against the release manifest. No root, no elevation. One window, Windows or Linux: CrowSetup from the release installs Crow, the crow-nest engine and the operating points you pick."
+INSTALL_TEXT = "One line, Windows or Linux. Preflight, download, a per-file sha256 against the release manifest. No root, no elevation. One window: CrowSetup, from the release on Windows and built from the repo on Linux, installs Crow, the crow-nest engine and the operating points you pick."
 
 
 def desktop():
@@ -247,7 +247,7 @@ def desktop():
     card(X0, y, 800, 118, C["term"], C["bevel"], 12)
     t(X0 + 24, y + 38, "One line, Windows or Linux. Copy it right below this picture.", 16, C["text"], weight=600)
     t(X0 + 24, y + 66, "Preflight, download, a per-file sha256 against the release manifest. No root, no elevation.", 13, C["faint"])
-    t(X0 + 24, y + 90, "One window, Windows or Linux: CrowSetup installs Crow, the engine and the operating points.", 13, C["faint"])
+    t(X0 + 24, y + 90, "One window: CrowSetup installs Crow, the engine and the operating points; on Linux you build it.", 13, C["faint"])
     t(X1 - 30, y + 66, "↓", 40, C["ok"], anchor="end")
     y += 158
 
