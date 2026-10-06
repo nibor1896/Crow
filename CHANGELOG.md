@@ -5,6 +5,16 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 3.2.7 — 2026-10-06
+
+**v3.2.6 made Flash-Next half as fast in Crow; CrowSetup now installs engine v0.9.5, which undoes it.** Windows assets only, as for v3.2.x.
+
+### Fixed
+
+- **Flash-Next is back to full speed** (2026-10-06). Engine v0.9.4, which CrowSetup v3.2.6 installed, set `CROW_STAGE_PAR=1` by default and halved Flash-Next on Crow's requests on Windows: decode 20.4–24.1 tok/s and cold prefill 256–297 tok/s at 7.5–9.3k context, against 39.0–41.1 tok/s and 554 tok/s that morning. With the flag off, the same engine read 39.3–41.4 tok/s. CrowSetup installs engine v0.9.5, which no longer sets it. The "+6.7 %" in v3.2.6 came from a greedy test without streaming and tools and did not hold in Crow.
+- **README image and `docs/operating-points.md`** show the decode of a live Crow session (≈40 tok/s at 8k) instead of that test figure.
+- **Version 3.2.7** in `cli/crow_core.py`, `install.ps1` and `manifests/operating-point.json`.
+
 ## 3.2.6 — 2026-10-06
 
 **Flash-Next decodes 6.7 % faster on Windows: CrowSetup installs engine v0.9.4.** The phone over Tailscale is set up and checked on Windows. Windows assets only, as for v3.2.x.
