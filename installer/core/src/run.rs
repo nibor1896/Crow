@@ -3,9 +3,18 @@
 //!
 //! THE ORDER: preflight, (welcome-back replay), wait for Start or Resume, plan,
 //! the two packages, install Crow, install the engine, ensure Python, the model
-//! files (whisper included, in the plan's order), convert (when the plan
-//! carries derived files: the image stack), check every selected point,
-//! shortcuts, Done. Every module call goes through [`Steps`], so the order,
+//! files (whisper and the NVIDIA wheels included, in the plan's order), the
+//! NVIDIA libraries out of their wheels (`nvidia`), the video runtime, convert
+//! (when the plan carries derived files: the image stack), check every
+//! selected point, shortcuts, Done.
+//!
+//! THE NVIDIA WHEELS (crate::nvidia): the plan of [`Steps::plan`] is the
+//! stack's; the run adds the wheels [`Steps::nvidia`] names for the selection
+//! (after whisper, before the models) and their extracted size to the disk.
+//! A wheel is deleted once its libraries are out (`nvidia:<sha256>` in
+//! `steps_done`). After the package steps, a done wheel whose libraries are no
+//! longer all in place (an update of an older package removes the copies its
+//! manifest listed) is fetched and extracted again. Every module call goes through [`Steps`], so the order,
 //! resume and pause logic is tested with a fake and runs unchanged on
 //! [`RealSteps`].
 //!
@@ -47,6 +56,7 @@
 
 use crate::api::{Command, Event, FileJob, FileKind, Packages, Plan, PreflightReport, Selection, Source, StepStatus};
 use crate::fetch::{FetchError, FetchOptions};
+use crate::nvidia::NvidiaJob;
 use crate::python::PythonInfo;
 use crate::runtime::RuntimeJob;
 use crate::state::{FileState, StateStore};
@@ -106,6 +116,18 @@ pub trait Steps {
         false
     }
     /// Unpack one runtime; the summary is the step's detail.
+    /// NVIDIA's CUDA libraries the selection needs on this platform.
+    fn nvidia(&mut self, _sel: &Selection) -> Result<Vec<NvidiaJob>, String> {
+        Ok(Vec::new())
+    }
+    /// Every library of the wheel is in place with its bytes.
+    fn nvidia_current(&mut self, _job: &NvidiaJob) -> bool {
+        true
+    }
+    /// Take the libraries out of the downloaded wheel.
+    fn unpack_nvidia(&mut self, _job: &NvidiaJob, _cancel: &AtomicBool) -> Result<String, String> {
+        Ok(String::new())
+    }
     fn unpack_runtime(&mut self, _job: &RuntimeJob, _cancel: &AtomicBool) -> Result<String, String> {
         Err("this installer cannot unpack a runtime".into())
     }
@@ -300,6 +322,8 @@ struct Runner<'a> {
     inputs: std::collections::BTreeSet<String>,
     /// #340: the runtimes this selection unpacks (their archives are deleted).
     runtimes: Vec<RuntimeJob>,
+    /// The NVIDIA wheels this selection extracts (they are deleted too).
+    nvidia: Vec<NvidiaJob>,
 }
 
 /// Run the whole install. Returns when Done was emitted and the input channel
@@ -308,7 +332,7 @@ pub fn run(steps: &mut dyn Steps, opts: &RunOptions, on: &mut dyn FnMut(Event), 
     let ctl = Arc::new(Control { cancel: AtomicBool::new(false), ctl: Mutex::default(), cv: Condvar::new() });
     ctl.listen(inputs);
     let state = StateStore { path: opts.state_path.clone(), ..StateStore::default() };
-    let mut r = Runner { steps, on, opts, ctl, state, inputs: Default::default(), runtimes: Vec::new() };
+    let mut r = Runner { steps, on, opts, ctl, state, inputs: Default::default(), runtimes: Vec::new(), nvidia: Vec::new() };
     match r.go() {
         Ok(()) => Outcome::Done,
         Err(Stop::Quit) => {
@@ -348,10 +372,31 @@ impl Runner<'_> {
     }
 
     /// A file a done step has used up and deleted: a convert input once the
-    /// convert is done, a runtime archive once it is unpacked (#340).
+    /// convert is done, a runtime archive once it is unpacked (#340), an
+    /// NVIDIA wheel once its libraries are out.
     fn consumed(&self, job: &FileJob) -> bool {
         (self.done("convert") && self.inputs.contains(&job.id))
             || self.runtimes.iter().any(|r| r.file_id == job.id && self.done(&Self::runtime_key(r)))
+            || self.nvidia.iter().any(|w| w.file.id == job.id && self.done(&Self::nvidia_key(w)))
+    }
+
+    /// `nvidia:<sha256>`: the wheel the libraries were taken from.
+    fn nvidia_key(w: &NvidiaJob) -> String {
+        format!("nvidia:{}", w.file.sha256)
+    }
+
+    /// The stack's plan plus the NVIDIA wheels: downloaded after whisper and
+    /// before the models; on disk only their libraries stay.
+    fn full_plan(&mut self, sel: &Selection) -> Result<(Plan, Vec<NvidiaJob>), String> {
+        let mut plan = self.steps.plan(sel)?;
+        let wheels = self.steps.nvidia(sel)?;
+        let at = plan.jobs.iter().position(|j| j.kind == FileKind::Model).unwrap_or(plan.jobs.len());
+        for (i, w) in wheels.iter().enumerate() {
+            plan.jobs.insert(at + i, w.file.clone());
+            plan.download_bytes += w.file.bytes;
+            plan.disk_bytes += w.extracted_bytes();
+        }
+        Ok((plan, wheels))
     }
 
     /// `runtime:<sha256>`: the archive the runtime folder was unpacked from.
@@ -386,8 +431,8 @@ impl Runner<'_> {
         };
         let saved = self.state.selection.clone().filter(|_| !self.done("done"));
         let resumable = match &saved {
-            Some(sel) => match self.steps.plan(sel) {
-                Ok(plan) => {
+            Some(sel) => match self.full_plan(sel) {
+                Ok((plan, _)) => {
                     self.replay(&plan);
                     true
                 }
@@ -421,7 +466,8 @@ impl Runner<'_> {
         self.state.selection = Some(sel.clone());
         self.save();
 
-        let plan = self.steps.plan(&sel).map_err(Stop::Fatal)?;
+        let (plan, wheels) = self.full_plan(&sel).map_err(Stop::Fatal)?;
+        self.nvidia = wheels;
         self.inputs = plan.derived.iter().flat_map(|d| d.inputs.iter().cloned()).collect();
         // A runtime folder that no longer holds its archive is unpacked again,
         // so its archive is fetched again (#340).
@@ -472,6 +518,15 @@ impl Runner<'_> {
             })?;
             self.mark(&key);
         }
+        // A package step may have removed a library an older package carried
+        // (its manifest listed it): such a wheel is fetched and extracted again.
+        for w in self.nvidia.clone() {
+            let key = Self::nvidia_key(&w);
+            if self.done(&key) && !self.steps.nvidia_current(&w) {
+                self.state.steps_done.retain(|s| s != &key);
+                self.save();
+            }
+        }
 
         let mut py = None;
         let root2 = root.clone();
@@ -491,9 +546,25 @@ impl Runner<'_> {
         })?;
         let py = py.expect("python step succeeded");
 
-        let models_jobs: Vec<&FileJob> =
-            plan.jobs.iter().filter(|j| matches!(j.kind, FileKind::Model | FileKind::Whisper)).collect();
+        let models_jobs: Vec<&FileJob> = plan
+            .jobs
+            .iter()
+            .filter(|j| matches!(j.kind, FileKind::Model | FileKind::Whisper | FileKind::NvidiaWheel))
+            .collect();
         self.fetch_all(&models_jobs)?;
+
+        // NVIDIA's libraries out of each wheel, which is then deleted.
+        for w in self.nvidia.clone() {
+            let key = Self::nvidia_key(&w);
+            if self.done(&key) {
+                self.step_event("nvidia", StepStatus::Ok, "NVIDIA libraries in place.");
+                continue;
+            }
+            let ctl = Arc::clone(&self.ctl);
+            self.step("nvidia", &mut |s| s.unpack_nvidia(&w, &ctl.cancel).map(|d| sentence(&d)))?;
+            self.mark(&key);
+            self.steps.discard(&w.file);
+        }
 
         // #340: each runtime unpacked from its archive, which is then deleted.
         for r in self.runtimes.clone() {
@@ -565,8 +636,10 @@ impl Runner<'_> {
     /// (`text_encoder/`) and its output exist side by side until convert
     /// deletes the inputs. What is already on disk counts as had.
     fn disk_check(&mut self, plan: &Plan, root: &Path) -> Result<(), Stop> {
-        // #340: a runtime still to unpack lands beside its archive.
-        let unpack: u64 = self.runtimes.iter().filter(|r| !self.done(&Self::runtime_key(r))).map(|r| r.bytes).sum();
+        // #340: a runtime still to unpack lands beside its archive; so do the
+        // NVIDIA libraries beside their wheel.
+        let unpack: u64 = self.runtimes.iter().filter(|r| !self.done(&Self::runtime_key(r))).map(|r| r.bytes).sum::<u64>()
+            + self.nvidia.iter().filter(|w| !self.done(&Self::nvidia_key(w))).map(NvidiaJob::extracted_bytes).sum::<u64>();
         let peak = plan.download_bytes + plan.derived.iter().map(|d| d.bytes).sum::<u64>() + unpack;
         let converted = self.done("convert");
         let mut had: u64 = if converted { plan.derived.iter().map(|d| d.bytes).sum() } else { 0 };
@@ -990,6 +1063,15 @@ impl Steps for RealSteps {
     fn unpack_runtime(&mut self, job: &RuntimeJob, cancel: &AtomicBool) -> Result<String, String> {
         crate::runtime::unpack(job, cancel, &mut |_, _| {})
     }
+    fn nvidia(&mut self, sel: &Selection) -> Result<Vec<NvidiaJob>, String> {
+        crate::nvidia::jobs(self.stack(), sel)
+    }
+    fn nvidia_current(&mut self, job: &NvidiaJob) -> bool {
+        crate::nvidia::is_current(job)
+    }
+    fn unpack_nvidia(&mut self, job: &NvidiaJob, cancel: &AtomicBool) -> Result<String, String> {
+        crate::nvidia::unpack(job, cancel)
+    }
     fn disk_free(&mut self, dir: &Path) -> u64 {
         crate::preflight::disk_free(dir)
     }
@@ -1085,6 +1167,11 @@ pub mod testing {
         pub disk_free: Option<u64>,
         /// #340: the unpacked runtime folder was deleted.
         pub runtime_gone: bool,
+        /// The selection needs an NVIDIA wheel (`nvidia-fake`, 30 bytes, 70
+        /// extracted); off by default, so the other tests' plans stay as they were.
+        pub nvidia: bool,
+        /// The libraries taken out of the fake wheel are gone again.
+        pub nvidia_gone: bool,
     }
 
     #[derive(Clone, Default)]
@@ -1312,6 +1399,30 @@ pub mod testing {
         }
         fn runtime_current(&mut self, _job: &RuntimeJob) -> bool {
             !self.shared.lock().unwrap().runtime_gone
+        }
+        fn nvidia(&mut self, sel: &Selection) -> Result<Vec<NvidiaJob>, String> {
+            if !self.shared.lock().unwrap().nvidia || sel.points.is_empty() {
+                return Ok(Vec::new());
+            }
+            let root = &sel.install_root;
+            Ok(vec![NvidiaJob {
+                file: job("nvidia-fake", FileKind::NvidiaWheel, 30, &[], root),
+                install_root: root.clone(),
+                members: vec![crate::nvidia::NvidiaMember {
+                    member: "nvidia/cu13/lib/fake.so".into(),
+                    dest: root.join("bin").join("fake.so"),
+                    bytes: 70,
+                    sha256: "0".repeat(64),
+                }],
+            }])
+        }
+        fn nvidia_current(&mut self, _job: &NvidiaJob) -> bool {
+            !self.shared.lock().unwrap().nvidia_gone
+        }
+        fn unpack_nvidia(&mut self, job: &NvidiaJob, _cancel: &AtomicBool) -> Result<String, String> {
+            self.step(&format!("unpack nvidia {}", job.file.id), "nvidia")?;
+            self.shared.lock().unwrap().nvidia_gone = false;
+            Ok("nvidia-fake.whl from NVIDIA (1 files written)".into())
         }
         fn unpack_runtime(&mut self, job: &RuntimeJob, _cancel: &AtomicBool) -> Result<String, String> {
             self.step(&format!("unpack runtime {}", job.file_id), "runtime")?;

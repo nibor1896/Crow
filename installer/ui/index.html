@@ -160,6 +160,15 @@ button.sec:hover{color:var(--soft)}
         var l = lic[fileLic[id]];
         if (l && l.show_at_install && shown.indexOf(l) < 0) shown.push(l);
       });
+      // NVIDIA's libraries come from NVIDIA's wheels, per server the point runs
+      // (crowsetup-core nvidia::point_servers).
+      var servers = [(p.engine && p.engine.kind) || 'serve'];
+      if (p.image_server || (p.crow_env && p.crow_env.CROW_IMAGE_MODEL_DIR)) servers.push('sd-server');
+      (st.nvidia_files || []).forEach(function (w) {
+        var l = lic[w.license];
+        if (l && l.show_at_install && shown.indexOf(l) < 0 &&
+            w.servers.some(function (s) { return servers.indexOf(s) >= 0; })) shown.push(l);
+      });
       var gated = [];
       p.files.forEach(function (id) { if (gate[id] && gated.indexOf(gate[id]) < 0) gated.push(gate[id]); });
       return {
@@ -366,6 +375,9 @@ button.sec:hover{color:var(--soft)}
     h += '<div class="list">' +
       kindRow('Crow', ['CrowPackage'], 'crow', crowOk) +
       kindRow('crow-nest engine', ['EnginePackage'], 'engine', function () { return 'Installed. All files verified.'; }) +
+      (jobsWhere(function (j) { return j.kind === 'NvidiaWheel'; }).length
+        ? kindRow('NVIDIA CUDA libraries', ['NvidiaWheel'], 'nvidia', function () { return 'From NVIDIA. All files verified.'; })
+        : '') +
       planPoints().map(pointRow).join('') + configsRow() + '</div>';
     var voiceErr = jobsWhere(function (j) { return j.kind === 'Whisper' && S.files[j.id] && S.files[j.id].error; })[0];
     if (voiceErr) h += '<div class="list">' + row({ title: 'Voice model', desc: S.files[voiceErr.id].error, dcls: 'bad', cls: 'err', tail: retry(voiceErr.id) }) + '</div>';

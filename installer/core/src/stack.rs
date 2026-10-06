@@ -1,8 +1,8 @@
 //! T2: typed view of `manifests/stack.json` (the embedded [`crate::STACK_JSON`]).
 //!
 //! Typed: everything the plan and preflight read, i.e. `files`, `crow_files`,
-//! `derived` and each point's `id`, `menu`, `files`, `derived`, `bytes` and
-//! `preflight`. Kept as `serde_json::Value`: a point's `engine`, `image_server`
+//! `nvidia_files` (crate::nvidia), `derived` and each point's `id`, `menu`,
+//! `files`, `derived`, `bytes` and `preflight`. Kept as `serde_json::Value`: a point's `engine`, `image_server`
 //! and `crow_env` (the boot-time wiring; the check step resolves them like
 //! `crow_boot.plan_point`), plus the whole document in [`Stack::raw`].
 //! Keys starting with `_` are documentation and ignored. `tools/check_stack.py`
@@ -18,8 +18,40 @@ pub struct Stack {
     pub files: Vec<StackFile>,
     /// Files every install gets, whatever points are chosen (the dictation model).
     pub crow_files: Vec<StackFile>,
+    /// NVIDIA's CUDA libraries, taken from NVIDIA's own wheels (crate::nvidia).
+    pub nvidia_files: Vec<NvidiaWheel>,
     pub derived: Vec<Derived>,
     pub points: Vec<Point>,
+}
+
+/// One member CrowSetup takes out of an NVIDIA wheel.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct WheelMember {
+    /// The path inside the wheel, as its RECORD lists it.
+    pub member: String,
+    /// `${INSTALL}/...`, where the packages used to carry the file.
+    pub dest: String,
+    pub bytes: u64,
+    pub sha256: String,
+}
+
+/// An NVIDIA wheel on PyPI, pinned by bytes and sha256 (`nvidia_files`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct NvidiaWheel {
+    pub id: String,
+    pub package: String,
+    pub version: String,
+    /// `windows` or `linux`: the only platform that installs it.
+    pub platform: String,
+    /// The servers that load it: `serve`, `llama-server`, `sd-server`.
+    pub servers: Vec<String>,
+    pub url: String,
+    pub bytes: u64,
+    pub sha256: String,
+    /// Where the wheel is downloaded to (`${INSTALL}/setup/downloads/...`).
+    pub dest: String,
+    pub license: String,
+    pub extract: Vec<WheelMember>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -189,6 +221,8 @@ struct Doc {
     files: Vec<StackFile>,
     #[serde(default)]
     crow_files: Vec<StackFile>,
+    #[serde(default)]
+    nvidia_files: Vec<NvidiaWheel>,
     derived: Vec<Derived>,
     points: Vec<Point>,
 }
@@ -197,7 +231,14 @@ impl Stack {
     pub fn parse(json: &str) -> Result<Stack, String> {
         let raw: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("stack.json: {e}"))?;
         let doc: Doc = serde_json::from_value(raw.clone()).map_err(|e| format!("stack.json: {e}"))?;
-        let stack = Stack { raw, files: doc.files, crow_files: doc.crow_files, derived: doc.derived, points: doc.points };
+        let stack = Stack {
+            raw,
+            files: doc.files,
+            crow_files: doc.crow_files,
+            nvidia_files: doc.nvidia_files,
+            derived: doc.derived,
+            points: doc.points,
+        };
         for p in &stack.points {
             if let Some(id) = p.files.iter().find(|id| stack.file(id).is_none()) {
                 return Err(format!("stack.json: point {} names file {id}, which is not declared", p.id));
