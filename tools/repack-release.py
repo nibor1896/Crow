@@ -28,6 +28,13 @@ file in the package is named) and refuses to print a result line otherwise.
 When the engine DOES change, this tool is the wrong one: use pack-release.ps1
 on Windows, which resolves the imports.
 
+NO NVIDIA FILE SHIPS. The previous packages carried cublas64_13.dll and
+cublasLt64_13.dll in bin/; this package carries neither. previous_bin() reads
+them out of the previous package, checks them against its manifest like every
+other byte and leaves them out, and shipped_set_violations() refuses a package
+that holds one. CrowSetup fetches them at install time from NVIDIA's own PyPI
+wheel (nvidia-cublas) and puts the same files in bin/ (see NOTICE).
+
 WHAT MAY SHIP (#196 C2). One declared set, the same in pack-release.ps1:
 SHIP_TOP_DIRS, SHIP_ROOT_FILES and SHIP_SINGLE_FILES say where a file may live;
 EXCLUDE_DIRS and EXCLUDE_FILES say what never ships (runs/, *.log, __pycache__,
@@ -77,6 +84,11 @@ SHIP_SINGLE_FILES = ("templates\\0731-chat-template.jinja", "manifests\\operatin
 EXCLUDE_DIRS = ("runs", "__pycache__", ".crow", "digests", "sessions")
 EXCLUDE_FILES = ("*.log", "*.pyc", "*.pyo", "*.jsonl", "test_*.py", ".env*", "secrets.json",
                  "session*.json", "state*.json", "settings.json", "*_tokens.json")
+# NVIDIA files this package never carries: CrowSetup downloads them at install time from
+# NVIDIA's own PyPI wheels (nvidia-cublas 13.6.0.2) and puts them at the same paths.
+# An explicit list of names, never a pattern. Keep identical to $NVIDIA_AT_INSTALL in
+# pack-release.ps1; test_repack_release.py compares them.
+NVIDIA_AT_INSTALL = ("cublas64_13.dll", "cublasLt64_13.dll")
 KIT_REQUIRED = ("crow-pathtracer.js", "kit.json", "voxel-kit.js", "SKILL.md", "check_diorama.py",
                 "scaffold\\index.html", "scaffold\\scene.js",
                 "LICENSE.three", "LICENSE.three-mesh-bvh", "LICENSE.three-gpu-pathtracer")
@@ -131,6 +143,11 @@ def excluded(rel: str) -> str | None:
     return None
 
 
+def is_nvidia_at_install(rel: str) -> bool:
+    """True when the file name of `rel` is one of NVIDIA_AT_INSTALL (any folder, any case)."""
+    return rel.replace("/", "\\").split("\\")[-1].lower() in {n.lower() for n in NVIDIA_AT_INSTALL}
+
+
 def shipped_set_violations(paths) -> list[tuple[str, str]]:
     """Every path that is not in the declared shipped set, with the reason."""
     bad = []
@@ -151,6 +168,8 @@ def shipped_set_violations(paths) -> list[tuple[str, str]]:
         why = excluded(rel)
         if why:
             bad.append((rel, "excluded: " + why))
+        elif is_nvidia_at_install(rel):
+            bad.append((rel, "an NVIDIA library: CrowSetup downloads it at install time, it is not redistributed here"))
     return bad
 
 
@@ -349,8 +368,10 @@ def read_manifest(z: zipfile.ZipFile) -> list[dict]:
     return json.loads(raw)
 
 
-def previous_bin(path: str) -> dict[str, bytes]:
-    """bin\\* of the previous package, every byte checked against its manifest."""
+def previous_bin(path: str, left_out: list | None = None) -> dict[str, bytes]:
+    """bin\\* of the previous package, every byte checked against its manifest.
+    The NVIDIA libraries it carries (NVIDIA_AT_INSTALL) are checked too, then left out;
+    their names go to `left_out` when it is given."""
     with zipfile.ZipFile(path) as z:
         by_path = {e["path"]: e for e in read_manifest(z)}
         out = {}
@@ -364,6 +385,10 @@ def previous_bin(path: str) -> dict[str, bytes]:
                 raise SystemExit("previous package: %s is not in its MANIFEST.json" % key)
             if sha256_bytes(data) != want["sha256"].upper() or len(data) != want["bytes"]:
                 raise SystemExit("previous package: %s does not match its own manifest" % key)
+            if is_nvidia_at_install(key):
+                if left_out is not None:
+                    left_out.append(key)
+                continue
             out[key] = data
     if not out:
         raise SystemExit("previous package carries no bin/")
@@ -480,8 +505,11 @@ def main(argv: list[str]) -> int:
     version = a.version or version_literal(a.repo)
     if a.version and a.version != version_literal(a.repo):
         print("NOTE: --version %s but the checkout says %s" % (a.version, version_literal(a.repo)))
-    files = previous_bin(a.previous)
+    nvidia = []
+    files = previous_bin(a.previous, nvidia)
     print("bin/ reused from %s: %d files, every byte matched its manifest" % (a.previous, len(files)))
+    if nvidia:
+        print("  left out, NVIDIA's (CrowSetup downloads them at install time): " + ", ".join(sorted(nvidia)))
     staged = stage_from_checkout(a.repo)
     print("staged from the checkout: %d files" % len(staged))
     files.update(staged)

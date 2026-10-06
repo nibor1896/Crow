@@ -9,6 +9,14 @@ imports cublas64_13.dll, which imports cublasLt64_13.dll, and neither is in
 bin/Release -- they sit in the installed CUDA toolkit, which an end user does not
 have. The MSVC runtime is missing for the same reason.
 
+THE PACKAGE CARRIES NO NVIDIA FILE. Those two libraries used to be copied into bin\.
+They are NVIDIA's, so CrowSetup now downloads them at install time from NVIDIA's own
+PyPI wheel (nvidia-cublas 13.6.0.2) and puts the same files at <install>\bin\ (see
+NOTICE). The completeness check below therefore accepts exactly the names in
+$NVIDIA_AT_INSTALL as "provided at install time from NVIDIA", and nothing else of
+NVIDIA's: no wildcard, and any other missing DLL still refuses. Step 1 leaves those
+names out of the build copy, and the gate refuses a stage that holds one.
+
 So the interesting part of this tool is not the copying. It is the completeness
 check: every import of every DLL in the package must resolve to a file that is
 also in the package, or to a Windows system library. Anything else is a file the
@@ -20,8 +28,8 @@ Optional. The bin directory of a Windows stable-diffusion.cpp build (pin 2f88688
 CUDA 13, -DSD_CUDA=ON; recipe in docs/user-guide/install.md). sd-server.exe and
 sd-cli.exe from it go into bin\ beside llama-server.exe, the image server of
 generate_image/edit_image (#314). Their DLLs are resolved exactly like
-llama-server's, so cublas64_13.dll and cublasLt64_13.dll ship once. Without it the
-package has no image server and says so when it is packed.
+llama-server's, so both builds' cublas imports stay on the install-time list. Without
+it the package has no image server and says so when it is packed.
 
 .PARAMETER BuildDir
 The bin directory of the llama.cpp Windows build to pack. Required to pack; it
@@ -80,6 +88,26 @@ $SYSTEM_DLLS = @(
     'shlwapi.dll', 'version.dll', 'userenv.dll', 'ntdll.dll', 'rpcrt4.dll',
     'nvcuda.dll'      # installed by the NVIDIA display driver, not redistributable
 )
+
+# NVIDIA libraries the package does NOT carry: CrowSetup downloads them at install time
+# from NVIDIA's own PyPI wheel (nvidia-cublas 13.6.0.2) and puts them in <install>\bin\.
+# An explicit list of names, never a pattern. Keep identical to NVIDIA_AT_INSTALL in
+# tools/repack-release.py; tools/test_repack_release.py compares them.
+$NVIDIA_AT_INSTALL = @('cublas64_13.dll', 'cublasLt64_13.dll')
+
+function Test-NvidiaAtInstall {
+    # True for exactly the names above, case-insensitive. Not a system DLL (Test-SystemDll
+    # stays false for them): an import of one is only accepted when the caller says the
+    # install provides it.
+    param([string] $Name)
+    return $NVIDIA_AT_INSTALL -contains ([IO.Path]::GetFileName($Name))
+}
+
+function Get-NvidiaFiles {
+    # The paths in $Paths that are one of the named NVIDIA libraries. A package must hold none.
+    param([string[]] $Paths)
+    return ,@($Paths | Where-Object { $_ -and (Test-NvidiaAtInstall $_) })
+}
 
 function Test-SystemDll {
     param([string] $Name)
@@ -146,9 +174,14 @@ function Find-RuntimeLibrary {
 <#
     The completeness check. Returns the list of unresolved imports; empty means
     the package stands on its own.
+
+    -NvidiaAtInstall (the packing path sets it): an import of one of the named
+    $NVIDIA_AT_INSTALL libraries is not missing, because CrowSetup downloads that
+    file from NVIDIA at install time. Only those names; every other import that is
+    neither in the package nor a system library is still reported.
 #>
 function Test-PackageComplete {
-    param([string] $Dumpbin, [string[]] $Files)
+    param([string] $Dumpbin, [string[]] $Files, [switch] $NvidiaAtInstall)
 
     $present = @{}
     foreach ($f in $Files) { $present[[IO.Path]::GetFileName($f).ToLowerInvariant()] = $true }
@@ -160,6 +193,7 @@ function Test-PackageComplete {
             $k = $imp.ToLowerInvariant()
             if ($present.ContainsKey($k)) { continue }
             if (Test-SystemDll $imp)      { continue }
+            if ($NvidiaAtInstall -and (Test-NvidiaAtInstall $imp)) { continue }
             $missing += [pscustomobject]@{ Needs = $imp; RequiredBy = [IO.Path]::GetFileName($f) }
         }
     }
@@ -806,6 +840,37 @@ function Invoke-Selftest {
     Check "MSVCP140.dll does NOT count"             (-not (Test-SystemDll 'MSVCP140.dll'))
     Check "ggml-base.dll does NOT count"            (-not (Test-SystemDll 'ggml-base.dll'))
 
+    # NVIDIA at install time: the named allowlist, and the closure check that uses it.
+    Check "the install-time NVIDIA list is exactly cublas64_13.dll and cublasLt64_13.dll" ((($NVIDIA_AT_INSTALL | Sort-Object) -join ',') -eq 'cublas64_13.dll,cublasLt64_13.dll')
+    Check "both names are on it, in any case"       ((Test-NvidiaAtInstall 'CUBLAS64_13.DLL') -and (Test-NvidiaAtInstall 'cublasLt64_13.dll'))
+    Check "NEGATIVE: no other NVIDIA name is (cudart, nvrtc, another cublas version, a wildcard match)" (
+        -not ((Test-NvidiaAtInstall 'cudart64_13.dll') -or (Test-NvidiaAtInstall 'nvrtc64_130_0.dll') -or
+              (Test-NvidiaAtInstall 'cublas64_12.dll') -or (Test-NvidiaAtInstall 'cublasXX64_13.dll') -or (Test-NvidiaAtInstall 'cublas64_13.dll.bak')))
+    Check "an NVIDIA file in a staged set is found"  ((Get-NvidiaFiles -Paths @('C:\s\bin\llama-server.exe', 'C:\s\bin\cublasLt64_13.dll')).Count -eq 1)
+    Check "a set without one is clean"               ((Get-NvidiaFiles -Paths @('C:\s\bin\llama-server.exe', 'C:\s\bin\msvcp140.dll')).Count -eq 0)
+    & {
+        # The closure check against synthetic imports: dumpbin is replaced for this scope only.
+        function Get-Imports {
+            param([string] $Dumpbin, [string] $Path)
+            switch ([IO.Path]::GetFileName($Path)) {
+                'ggml-cuda.dll' { return @('KERNEL32.dll', 'cublas64_13.dll', 'cublasLt64_13.dll') }
+                'sd-server.exe' { return @('cublasLt64_13.dll', 'MSVCP140.dll') }
+                'odd.dll'       { return @('mystery64.dll') }
+                'older.dll'     { return @('cublas64_12.dll') }
+                'cudart.dll'    { return @('cudart64_13.dll') }
+                default         { return @() }
+            }
+        }
+        $ng = @('C:\s\bin\ggml-cuda.dll', 'C:\s\bin\sd-server.exe', 'C:\s\bin\msvcp140.dll')
+        Check "the NVIDIA imports are accepted when the install provides them"  ((Test-PackageComplete -Dumpbin 'x' -Files $ng -NvidiaAtInstall).Count -eq 0)
+        Check "without that switch they are still reported (the old closure)"   ((Test-PackageComplete -Dumpbin 'x' -Files $ng).Needs -contains 'cublas64_13.dll')
+        $bad = @(Test-PackageComplete -Dumpbin 'x' -Files ($ng + 'C:\s\bin\odd.dll') -NvidiaAtInstall)
+        Check "NEGATIVE: an unrelated missing DLL still refuses, and is the only one named" ($bad.Count -eq 1 -and $bad[0].Needs -eq 'mystery64.dll' -and $bad[0].RequiredBy -eq 'odd.dll')
+        Check "NEGATIVE: an NVIDIA DLL that is not on the list still refuses (cublas 12)" ((Test-PackageComplete -Dumpbin 'x' -Files @('C:\s\bin\older.dll') -NvidiaAtInstall).Needs -contains 'cublas64_12.dll')
+        Check "NEGATIVE: cudart64_13.dll is not on the list either"               ((Test-PackageComplete -Dumpbin 'x' -Files @('C:\s\bin\cudart.dll') -NvidiaAtInstall).Needs -contains 'cudart64_13.dll')
+        Check "a DLL present in the package still satisfies its import"           ((@(Test-PackageComplete -Dumpbin 'x' -Files @('C:\s\bin\odd.dll', 'C:\s\bin\mystery64.dll') -NvidiaAtInstall)).Count -eq 0)
+    }
+
     # What ships and what does not. Both directions again, because a predicate
     # that says no to everything would quietly put the suite back in the package
     # and this check would still be green.
@@ -1083,6 +1148,9 @@ function Invoke-Selftest {
     $self = Get-Content -LiteralPath $PSCommandPath -Raw
     Check "the packing path calls Invoke-StageGate before the manifest" ($self -match '(?s)Invoke-StageGate -Stage \$stage -Patterns \$pp\.Patterns.*# 5 - manifest')
     Check "and copies cli and kits through Copy-ShippedTree" (([regex]::Matches($self, 'Copy-ShippedTree -Source \(Join-Path \$repo')).Count -eq 2)
+    Check "the packing path resolves and gates with -NvidiaAtInstall (both calls)" (([regex]::Matches($self, 'Test-PackageComplete -Dumpbin \$dumpbin -Files \(Get-ChildItem \$binOut -File\)\.FullName -NvidiaAtInstall')).Count -eq 2)
+    Check "step 1 leaves NVIDIA's libraries out of the build copy"             ($self -match 'if \(Test-NvidiaAtInstall \$f\.Name\)\s+\{ \$binLeft \+= \$f\.Name; continue \}')
+    Check "and the gate refuses a stage that holds one"                          ($self -match '(?s)Get-NvidiaFiles -Paths @\(Get-ChildItem \$stage -Recurse.*?an NVIDIA library is in the package')
 
     $dumpbin = Find-Dumpbin
     Check "dumpbin located" ([bool]$dumpbin)
@@ -1217,6 +1285,7 @@ $built = @()
 $binLeft = @()
 foreach ($f in Get-ChildItem $BuildDir -File -Force) {
     if (Get-ExcludeRule -RelPath $f.Name) { $binLeft += $f.Name; continue }
+    if (Test-NvidiaAtInstall $f.Name)     { $binLeft += $f.Name; continue }   # NVIDIA's: fetched at install time
     Copy-Item -LiteralPath $f.FullName -Destination $binOut
     $built += (Join-Path $binOut $f.Name)
 }
@@ -1224,7 +1293,8 @@ Write-Host ("  copied $($built.Count) build files" + $(if ($binLeft.Count -gt 0)
 
 # 1b - the image server (#314), two executables beside llama-server.exe. Step 2
 #      resolves their DLLs with llama-server's: a name already staged is not
-#      copied again, so the shared cublas64_13.dll/cublasLt64_13.dll ship once.
+#      copied again. cublas64_13.dll/cublasLt64_13.dll are NVIDIA's and ship in
+#      neither; CrowSetup downloads them at install time.
 if ($SdBuildDir) {
     $sdBins = Get-SdBinaries -Dir $SdBuildDir
     $clash  = Get-NameClashes -Dest $binOut -Incoming $sdBins
@@ -1242,7 +1312,7 @@ if ($SdBuildDir) {
 $extra  = @()
 $rounds = 0
 while ($true) {
-    $gap = Test-PackageComplete -Dumpbin $dumpbin -Files (Get-ChildItem $binOut -File).FullName
+    $gap = Test-PackageComplete -Dumpbin $dumpbin -Files (Get-ChildItem $binOut -File).FullName -NvidiaAtInstall
     if ($gap.Count -eq 0) { break }
     $rounds++
     if ($rounds -gt 8) { throw "dependency resolution did not settle after 8 rounds" }
@@ -1339,11 +1409,16 @@ $kitHave = (Get-FileHash -LiteralPath (Join-Path $stage 'kits\pathtracer\crow-pa
 if ($kitHave -ne $kitWant.ToUpperInvariant()) { throw "kits/pathtracer/crow-pathtracer.js does not match kit.json" }
 
 # 4 - the gate: nothing in the package may need something outside it
-$final = Test-PackageComplete -Dumpbin $dumpbin -Files (Get-ChildItem $binOut -File).FullName
+$final = Test-PackageComplete -Dumpbin $dumpbin -Files (Get-ChildItem $binOut -File).FullName -NvidiaAtInstall
 if ($final.Count -gt 0) {
     throw ("package is incomplete: " + (($final.Needs | Sort-Object -Unique) -join ', '))
 }
-Write-Host "  completeness: OK"
+Write-Host ("  completeness: OK (imports of " + ($NVIDIA_AT_INSTALL -join ', ') + " are provided at install time from NVIDIA)")
+# No NVIDIA file may be in the package, whichever way it got there.
+$nvStaged = Get-NvidiaFiles -Paths @(Get-ChildItem $stage -Recurse -File | ForEach-Object { $_.FullName })
+if ($nvStaged.Count -gt 0) {
+    throw ("an NVIDIA library is in the package, which must carry none: " + (($nvStaged | Split-Path -Leaf) -join ', '))
+}
 
 # 4b - the shipped set and the privacy gate (#196 C2), on the finished stage and
 #      BEFORE the manifest or the zip exist. A refusal removes the stage so no

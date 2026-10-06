@@ -458,5 +458,70 @@ class TheTextEncoderConverterShipsTest(unittest.TestCase):
         self.assertRegex(ps, r"(?m)^Copy-ToolFiles -Repo \$repo -Stage \$stage")
 
 
+class NoNvidiaFileShipsTest(unittest.TestCase):
+    """CrowSetup downloads cuBLAS from NVIDIA's own wheel at install time; no package carries it."""
+
+    NAMES = ("cublas64_13.dll", "cublasLt64_13.dll")
+
+    def test_the_install_time_list_is_exactly_the_two_names(self):
+        self.assertEqual(tuple(sorted(rr.NVIDIA_AT_INSTALL)), tuple(sorted(self.NAMES)))
+
+    def test_pack_release_ps1_declares_the_same_list(self):
+        with open(PS1, encoding="utf-8") as fh:
+            ps = fh.read()
+        m = re.search(r"\$NVIDIA_AT_INSTALL\s*=\s*@\((.*?)\)", ps, re.S)
+        self.assertTrue(m, "$NVIDIA_AT_INSTALL not declared in pack-release.ps1")
+        self.assertEqual(tuple(re.findall(r"'([^']*)'", m.group(1))), rr.NVIDIA_AT_INSTALL)
+
+    def test_a_package_holding_one_is_refused_in_any_case_and_folder(self):
+        got = {p for p, _ in rr.shipped_set_violations(
+            ["bin\\cublas64_13.dll", "bin\\CUBLASLT64_13.DLL", "bin/sub/cublasLt64_13.dll"])}
+        self.assertEqual(got, {"bin\\cublas64_13.dll", "bin\\CUBLASLT64_13.DLL", "bin\\sub\\cublasLt64_13.dll"})
+        self.assertIn("NVIDIA", rr.shipped_set_violations(["bin\\cublas64_13.dll"])[0][1])
+
+    def test_it_is_a_named_list_not_a_pattern(self):
+        ok = ["bin\\ggml-cuda.dll", "bin\\cublas64_12.dll", "bin\\cudart64_13.dll", "bin\\cublasXX64_13.dll",
+              "bin\\cublas64_13.dll.bak"]
+        self.assertEqual(rr.shipped_set_violations(ok), [])
+
+    def test_a_previous_package_with_them_repacks_without_them(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(os.path.join(tmp, "repo"))
+            prev = os.path.join(tmp, "prev.zip")
+            rr.write_package(prev, {"bin\\llama-server.exe": b"MZ clean", "bin\\ggml-cuda.dll": b"MZ cuda",
+                                    "bin\\cublas64_13.dll": b"MZ nvidia", "bin\\cublasLt64_13.dll": b"MZ nvidia2"})
+            out = os.path.join(tmp, "out")
+            code, text = run_main(["--previous", prev, "--repo", repo, "--out", out, "--version", "9.9.9",
+                                   "--private-pattern", FAKE_PROFILE])
+            self.assertEqual(code, 0, text)
+            self.assertIn("cublas64_13.dll", text)  # named as left out
+            with zipfile.ZipFile(os.path.join(out, "crow-9.9.9-win-x64.zip")) as z:
+                names = {n.replace("/", "\\") for n in z.namelist()}
+            self.assertIn("bin\\llama-server.exe", names)
+            self.assertIn("bin\\ggml-cuda.dll", names)
+            self.assertFalse([n for n in names if "cublas" in n.lower()], names)
+
+    def test_previous_bin_still_checks_their_bytes_against_the_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prev = os.path.join(tmp, "prev.zip")
+            rr.write_package(prev, {"bin\\llama-server.exe": b"MZ", "bin\\cublas64_13.dll": b"MZ nvidia"})
+            tampered = os.path.join(tmp, "tampered.zip")
+            with zipfile.ZipFile(prev) as zin, zipfile.ZipFile(tampered, "w") as zout:
+                for item in zin.infolist():
+                    data = zin.read(item.filename)
+                    zout.writestr(item.filename, b"MZ other" if "cublas" in item.filename else data)
+            with self.assertRaises(SystemExit):
+                rr.previous_bin(tampered)
+            left = []
+            self.assertEqual(sorted(rr.previous_bin(prev, left)), ["bin\\llama-server.exe"])
+            self.assertEqual(left, ["bin\\cublas64_13.dll"])
+
+    def test_pack_release_ps1_leaves_them_out_and_gates_on_them(self):
+        with open(PS1, encoding="utf-8") as fh:
+            ps = fh.read()
+        self.assertRegex(ps, r"(?m)^\s*if \(Test-NvidiaAtInstall \$f\.Name\)\s+\{ \$binLeft \+= \$f\.Name; continue \}")
+        self.assertRegex(ps, r"(?s)Get-NvidiaFiles -Paths @\(Get-ChildItem \$stage -Recurse.*?an NVIDIA library is in the package")
+
+
 if __name__ == "__main__":
     unittest.main()
