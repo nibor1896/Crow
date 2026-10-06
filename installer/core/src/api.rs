@@ -38,6 +38,9 @@ pub enum FileKind {
     EnginePackage,
     Model,
     Whisper,
+    /// An NVIDIA wheel from PyPI; the `nvidia` step takes its libraries out
+    /// (crate::nvidia) and deletes it.
+    NvidiaWheel,
 }
 
 /// One file to fetch and verify.
@@ -138,7 +141,8 @@ pub enum Event {
     FileRetry { id: String, attempt: u32, reason: String },
     FileVerified { id: String },
     FileError { id: String, message: String, retryable: bool },
-    /// An install step: `crow`, `engine`, `python`, `convert`, `check`, `shortcuts`.
+    /// An install step: `crow`, `engine`, `python`, `nvidia`, `runtime`,
+    /// `convert`, `check`, `shortcuts`.
     Step { name: String, status: StepStatus, detail: String },
     Done { installed: Vec<PointId>, shortcut: Option<PathBuf> },
     Fatal { message: String },

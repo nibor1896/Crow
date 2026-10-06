@@ -34,6 +34,30 @@ the model — that is a separate line, printed at the end of the run.
 | **Tailscale** | Optional, for the phone over HTTPS from anywhere (#249). Installed by neither script: `install.sh --tailscale` / `install.ps1 -Tailscale` print the missing steps. [download](https://tailscale.com/download) · [iPhone](https://apps.apple.com/app/tailscale/id1470499037) · [Android](https://play.google.com/store/apps/details?id=com.tailscale.ipn) · [Linux](https://tailscale.com/kb/1031/install-linux) · [Windows](https://tailscale.com/kb/1022/install-windows) · [setup](remote-tailscale.md) |
 | **systemd-run** | Linux only, optional. With a reachable user manager, `render_page`'s browser (6 GiB) and `run_command`'s shell (8 GiB) run in a memory-bounded scope of their own (#213, #218); without it they are bounded by their clocks only. The preflight warns without it |
 
+### NVIDIA libraries
+
+The packages carry no NVIDIA file. `CrowSetup` downloads cuBLAS/cuBLASLt (and on Linux the CUDA
+runtime, plus NVRTC for the engine) from NVIDIA's own PyPI wheels at install time and puts them at
+`<install>\bin\` (Windows) and `<install>/cuda/lib/` (Linux), under NVIDIA's licence, which you
+accept there (see [NOTICE](../../NOTICE)). `install.ps1` fetches the Windows cuBLAS wheel itself
+(size and sha256 pinned, each file checked against the wheel's `RECORD`, before `bin\` is touched);
+`install.sh` builds from source and unpacks NVIDIA's own CUDA toolkit archives. Without any of them
+(the zip or tarball unpacked by hand) fetch the same wheels and copy the named files:
+
+```
+pip download nvidia-cublas==13.6.0.2 nvidia-cuda-runtime==13.3.29 nvidia-cuda-nvrtc==13.3.33 --no-deps --only-binary=:all:
+```
+
+| file | wheel | goes to |
+|---|---|---|
+| `cublas64_13.dll`, `cublasLt64_13.dll` | `nvidia-cublas` 13.6.0.2 | `<install>\bin\` |
+| `libcublas.so.13`, `libcublasLt.so.13` | `nvidia-cublas` 13.6.0.2 | `<install>/cuda/lib/` |
+| `libcudart.so.13` | `nvidia-cuda-runtime` 13.3.29 | `<install>/cuda/lib/` |
+| NVRTC: `nvrtc64_130_0.dll`, `nvrtc-builtins64_133.dll` | `nvidia-cuda-nvrtc` 13.3.33 | `<install>\bin\`, beside `serve.exe` |
+| NVRTC: `libnvrtc.so.13` (saved as `libnvrtc.so`), `libnvrtc-builtins.so.13.3` | `nvidia-cuda-nvrtc` 13.3.33 | `<install>/bin/`, beside `serve` |
+
+A wheel is a zip file: open it and copy the files out.
+
 Every check that can reject the machine runs **before** the 506 MB download starts. Finding out
 afterwards that the card is too small is the most expensive possible failure.
 
@@ -70,8 +94,9 @@ There is no Start-menu entry: the last step prints the two start lines instead.
 `generate_image` and `edit_image` need `sd-server.exe` in `<install>\bin`. The package carries
 it only when it was packed with `-SdBuildDir`; without it the pack prints
 `image server: none` and both tools answer `the image server is not installed`. Build it on
-Windows from the Linux builder's pin, with the same CUDA 13 toolkit as `llama-server.exe`, so
-the two share `cublas64_13.dll`/`cublasLt64_13.dll`:
+Windows from the Linux builder's pin, with the same CUDA 13 toolkit as `llama-server.exe`; both
+import `cublas64_13.dll`/`cublasLt64_13.dll`, which the package does not carry
+([NVIDIA libraries](#nvidia-libraries)):
 
 ```powershell
 git clone https://github.com/leejet/stable-diffusion.cpp sd.cpp; cd sd.cpp
@@ -99,8 +124,9 @@ build does; `Ninja Multi-Config` still writes to `build\bin\Release`.
 
 `pack-release.ps1` takes only `sd-server.exe` and `sd-cli.exe` from that directory and resolves
 their DLLs with `dumpbin` exactly as it does for `llama-server.exe`; a DLL already staged is not
-copied twice. `sd-server.exe` links ggml-cuda statically and imports `cublasLt64_13.dll`
-directly. Upstream's `win-cuda12` zip is not used: it brings a second CUDA runtime (563 MB) and
+copied twice. The two cuBLAS DLLs are the exception: the completeness check accepts exactly those
+two names as provided at install time from NVIDIA and packs neither. `sd-server.exe` links
+ggml-cuda statically and imports `cublasLt64_13.dll` directly. Upstream's `win-cuda12` zip is not used: it brings a second CUDA runtime (563 MB) and
 its `sm_120` support is unverified (#314).
 
 ---
@@ -113,6 +139,7 @@ resumes where it stopped. `install.ps1` above stays the way to install Crow alon
 | installs | |
 |---|---|
 | Crow | the release package, always |
+| NVIDIA libraries | `cublas64_13.dll` and `cublasLt64_13.dll` from NVIDIA's `nvidia-cublas` wheel into `<install>\bin\` ([NVIDIA libraries](#nvidia-libraries)) |
 | crow-nest engine | the engine zip from the crow-nest release, always. Every model runs on it |
 | operating points | any of Flash-Next (200k), 27B (128k), Image Stack, and on Windows the Media Stack (pictures and short videos). The optional llama.cpp section downloads nothing |
 | Media Stack | its LTX-2.5 weights come from `Lightricks/LTX-2.5`, a gated Hugging Face repo: accept the licence there, then paste a read token into the field on the selection page (or set `HF_TOKEN`, or log in with the Hugging Face CLI). The token goes only to `https://huggingface.co` and is never logged. ComfyUI's own portable 7z is unpacked to `<install>\comfyui`. Needs 64 GB RAM and 100 GB free disk |
@@ -238,7 +265,8 @@ sudo pacman -S --needed gtk3 webkit2gtk-4.1 python python-gobject
 
 | installs | |
 |---|---|
-| Crow | `crow-<v>-linux-x64.tar.gz`: Crow, `bin/sd-server`, `cuda/lib/` (`libcudart.so.13`, `libcublas.so.13`, `libcublasLt.so.13`) |
+| Crow | `crow-<v>-linux-x64.tar.gz`: Crow and `bin/sd-server`, no NVIDIA file |
+| NVIDIA libraries | `libcudart.so.13`, `libcublas.so.13`, `libcublasLt.so.13` into `cuda/lib/`, from NVIDIA's PyPI wheels ([NVIDIA libraries](#nvidia-libraries)) |
 | crow-nest engine | `crow-nest-engine-<v>-linux-x64.tar.gz` into `bin/`: `serve` and the files its `MANIFEST.json` lists. Refused when the system glibc is older than the pack's `glibc_min` |
 | Python | `<install>/venv` from the system `python3` with `--system-site-packages`, then `pywebview` (required), `faster-whisper`, `sounddevice` (voice, a missing one only warns) — as `install.sh` |
 | shortcuts | desktop entries: "Crow Operating Points" (`crow-operating-points.desktop`) and "Crow" (`crow.desktop`) in `${XDG_DATA_HOME:-~/.local/share}/applications`; the folder you chose gets "Crow Operating Points" |
@@ -268,7 +296,7 @@ A local test install that downloads no model, from a models tree on the same fil
 ### Build it (Linux)
 
 ```bash
-bash tools/pack-release.sh --sd-server <sd-server> --cuda-lib <cuda>/lib64
+bash tools/pack-release.sh --sd-server <sd-server>
 bash installer/build.sh --crow-pack dist/crow-<v>-linux-x64.tar.gz --engine-pack crow-nest-engine-<v>-linux-x64.tar.gz
 bash tools/pack-release.sh --selftest
 bash installer/build.sh --selftest
@@ -276,8 +304,8 @@ bash installer/build.sh --selftest
 
 | `tools/pack-release.sh` | |
 |---|---|
-| stage | the payload as `tools/repack-release.py` stages it, `bin/sd-server`, the three CUDA libraries under their sonames |
-| completeness | every `NEEDED` (`readelf -d`) is packed or a system library (glibc, libstdc++, libgcc, libgomp, the driver's `libcuda.so.1`) |
+| stage | the payload as `tools/repack-release.py` stages it, `bin/sd-server`; no NVIDIA file, nothing under `cuda/` |
+| completeness | every `NEEDED` (`readelf -d`) is packed, a system library (glibc, libstdc++, libgcc, libgomp, the driver's `libcuda.so.1`) or one of the three named NVIDIA libraries CrowSetup downloads (`libcudart.so.13`, `libcublas.so.13`, `libcublasLt.so.13`). Any other missing library refuses |
 | shipped set | `tools/repack-release.py` rules; `runs/`, `*.log` and the other excludes never ship |
 | privacy gate | `$HOME`, `/home/<anyone>/`, the user name (bare too), the host name, `--private-pattern`, UTF-8 and UTF-16LE. The user name passes only where it is the project's public namespace (`github.com/<name>/`, `"repo": "<name>/`, the copyright line). A hit writes nothing |
 | archive | regular files only, no owner in the headers, `MANIFEST.json` with forward slashes, read back against its manifest and gated again |

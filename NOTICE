@@ -65,21 +65,24 @@ unsloth's own artefact and carries whatever terms that repository states.
 NVIDIA CUDA Toolkit
 --------------------------------------------------------------------------------
 
-The CUDA backend is built against NVIDIA's CUDA Toolkit -- version 13.3 on the
-development machine -- and is subject to the NVIDIA Software License Agreement
-and the CUDA Supplement to it.
+Crow does not distribute any NVIDIA file. No package of this project contains
+one.
 
-The Windows package ships two NVIDIA libraries alongside the binaries, because
-they are required at runtime and are not in this repository: cublas64_13.dll
-and cublasLt64_13.dll. The Linux package ships three, for sd-server:
-cuda/lib/libcudart.so.13, cuda/lib/libcublas.so.13 and
-cuda/lib/libcublasLt.so.13. They stay under NVIDIA's own terms and are NOT
-covered by the MIT grant above. NVIDIA permits redistribution of the libraries
-it designates as redistributable, under the conditions stated in that
-agreement, and all five are on that list: Attachment A of the CUDA EULA names
-cublas.dll and cublasLt.dll for Windows, versioned file names included (its own
-example is cudart64_90.dll), and libcudart.so, libcublas.so and libcublasLt.so
-for Linux (read at docs.nvidia.com/cuda/eula on 2026-10-03).
+The CUDA backend is built against NVIDIA's CUDA Toolkit (version 13.3 on the
+development machine) and needs NVIDIA's libraries at runtime. The installers
+(CrowSetup; install.ps1 for the Windows cuBLAS files) download them at install time from NVIDIA's own PyPI wheels and puts
+them next to the binaries that import them:
+
+  - cublas64_13.dll and cublasLt64_13.dll in bin/ on Windows, and
+    libcublas.so.13 and libcublasLt.so.13 in cuda/lib/ on Linux, from
+    nvidia-cublas 13.6.0.2;
+  - on Linux also libcudart.so.13 in cuda/lib/, from nvidia-cuda-runtime
+    13.3.29, for sd-server;
+  - for the crow-nest engine, NVRTC from nvidia-cuda-nvrtc 13.3.33.
+
+They are NVIDIA's files, unmodified, under NVIDIA's own licence
+(https://docs.nvidia.com/cuda/eula/index.html), which the user accepts there
+when downloading them from NVIDIA. They are NOT covered by the MIT grant above.
 
 
 --------------------------------------------------------------------------------

@@ -30,6 +30,16 @@ OFFLINE (the default, no network):
                    (.exe on Windows only); argv_platform names only those two;
                    lib_path (the folders in front of LD_LIBRARY_PATH) holds
                    ${INSTALL}/ folders, and on Linux the engine's own folder;
+  * nvidia files - NVIDIA's CUDA libraries from NVIDIA's own wheels (nvidia_files,
+                   CrowSetup's crate::nvidia): every field, a 64-hex sha256 and
+                   positive bytes for the wheel and each member it takes, the wheel
+                   on files.pythonhosted.org named after its package and version, a
+                   known platform and known servers, every dest under ${INSTALL}/,
+                   member names that stay inside the wheel, one set of bytes per
+                   dest and platform, no dest another file group already uses.
+                   A licence may name no text_file only when its text_dest is
+                   exactly the dest of dist-info members of nvidia_files under
+                   that licence (the EULA text every NVIDIA wheel carries);
   * crow files   - the Crow-wide group (crow_files: the dictation model) has every
                    field, a pinned 40-hex revision, a status of published or
                    upstream, a dest under ${INSTALL}/ that no other file uses, and
@@ -102,6 +112,13 @@ CROW_FILE_FIELDS = ("id", "repo", "path", "revision", "bytes", "sha256", "dest",
 CROW_STATUSES = ("published", "upstream")
 WHISPER_DIR = "${INSTALL}/models/whisper-small/"
 PLATFORMS = ("windows", "linux")
+# nvidia_files (CrowSetup crate::nvidia): the servers a wheel can serve, where the
+# wheels come from, and the fields of a wheel and of a member it takes.
+NVIDIA_SERVERS = ("serve", "llama-server", "sd-server")
+PYPI_FILES = "https://files.pythonhosted.org/packages/"
+NVIDIA_FIELDS = ("id", "package", "version", "platform", "servers", "url", "bytes", "sha256",
+                 "dest", "status", "license", "role", "extract")
+NVIDIA_MEMBER_FIELDS = ("member", "dest", "bytes", "sha256")
 
 
 def point_platforms(pt) -> "tuple[str, ...]":
@@ -253,6 +270,9 @@ def check_schema(doc) -> "list[str]":
         # #340: the selection screen writes "<covers>: <name>" under the point.
         if lic.get("show_at_install") and not (isinstance(lic.get("covers"), str) and lic["covers"]):
             p.append("licence %s is shown at install but names nothing it covers" % name)
+        if lic.get("text_file") is None and "text_file" in lic \
+                and nvidia_licence_text(doc, name, lic.get("text_dest")):
+            continue  # the text comes out of NVIDIA's wheels (nvidia_files)
         tf = ids.get(lic.get("text_file"))
         if tf is None or tf.get("role") != "license":
             p.append("licence %s text_file %r is not a file with role license"
@@ -290,6 +310,120 @@ def check_schema(doc) -> "list[str]":
     got = [pt.get("id") for pt in doc["points"]]
     if got != list(POINT_IDS):
         p.append("points are %s, expected %s" % (got, list(POINT_IDS)))
+    return p
+
+
+def nvidia_licence_text(doc, name, text_dest) -> bool:
+    """`text_dest` is exactly the dest of nvidia_files members that are the
+    licence text in a wheel's dist-info, every wheel carrying them is under
+    licence `name`, and no other member writes there."""
+    if not isinstance(text_dest, str) or not text_dest.startswith("${INSTALL}/"):
+        return False
+    wheels = doc.get("nvidia_files")
+    if not isinstance(wheels, list):
+        return False
+    hits = 0
+    for w in wheels:
+        if not isinstance(w, dict) or not isinstance(w.get("extract"), list):
+            continue
+        for m in w["extract"]:
+            if not isinstance(m, dict) or m.get("dest") != text_dest:
+                continue
+            member = m.get("member")
+            if not (isinstance(member, str) and re.fullmatch(r"[^/]+\.dist-info/(licenses/)?[^/]+", member)
+                    and w.get("license") == name):
+                return False
+            hits += 1
+    return hits > 0
+
+
+def member_name_is_safe(name) -> bool:
+    """A wheel member that stays inside the wheel: relative, `/`-separated, no
+    empty, `.` or `..` part, no backslash, no drive."""
+    return (isinstance(name, str) and bool(name) and not name.startswith("/") and "\\" not in name
+            and all(part not in ("", ".", "..") and ":" not in part for part in name.split("/")))
+
+
+def check_nvidia_files(doc) -> "list[str]":
+    wheels = doc.get("nvidia_files")
+    if wheels is None:
+        return []
+    if not isinstance(wheels, list):
+        return ["nvidia_files is not a list"]
+    p = []
+    taken = {f.get("dest"): f.get("id") for group in ("files", "crow_files")
+             for f in doc.get(group) or [] if isinstance(f, dict)}
+    other_ids = {f.get("id") for group in ("files", "crow_files") for f in doc.get(group) or []
+                 if isinstance(f, dict)}
+    licenses = doc.get("licenses") or {}
+    seen_ids, wheel_dests, member_at = set(), {}, {}
+
+    def pos_int(v):
+        return isinstance(v, int) and not isinstance(v, bool) and v > 0
+
+    def under_install(v):
+        return isinstance(v, str) and v.startswith("${INSTALL}/") and ".." not in v.split("/")
+
+    for w in wheels:
+        if not isinstance(w, dict):
+            p.append("nvidia_files entry %r is not an object" % (w,))
+            continue
+        wid = w.get("id", "?")
+        missing = [k for k in NVIDIA_FIELDS if k not in w]
+        if missing:
+            p.append("nvidia file %s lacks %s" % (wid, ", ".join(missing)))
+            continue
+        if wid in seen_ids or wid in other_ids:
+            p.append("nvidia file id %s twice (files, crow_files and nvidia_files share one id space)" % wid)
+        seen_ids.add(wid)
+        if not isinstance(w["sha256"], str) or not HEX64.match(w["sha256"]):
+            p.append("nvidia file %s sha256 is not 64 lowercase hex" % wid)
+        if not pos_int(w["bytes"]):
+            p.append("nvidia file %s bytes %r is not a positive integer" % (wid, w["bytes"]))
+        url, pkg, ver = w["url"], w["package"], w["version"]
+        if not (isinstance(url, str) and url.startswith(PYPI_FILES) and url.endswith(".whl")):
+            p.append("nvidia file %s url %r is not a wheel on %s" % (wid, url, PYPI_FILES))
+        elif not (isinstance(pkg, str) and isinstance(ver, str)
+                  and url.rsplit("/", 1)[1].startswith("%s-%s-" % (pkg.replace("-", "_"), ver))):
+            p.append("nvidia file %s url names another wheel than %s %s" % (wid, pkg, ver))
+        if w["platform"] not in PLATFORMS:
+            p.append("nvidia file %s platform %r is not one of %s" % (wid, w["platform"], ", ".join(PLATFORMS)))
+        servers = w["servers"]
+        if not isinstance(servers, list) or not servers or not all(x in NVIDIA_SERVERS for x in servers):
+            p.append("nvidia file %s servers %r are not a list of %s" % (wid, servers, ", ".join(NVIDIA_SERVERS)))
+        if not under_install(w["dest"]):
+            p.append("nvidia file %s dest %r is not under ${INSTALL}/" % (wid, w["dest"]))
+        elif w["dest"] in wheel_dests or w["dest"] in taken:
+            p.append("nvidia file %s dest %s is used twice" % (wid, w["dest"]))
+        wheel_dests[w["dest"]] = wid
+        if w["status"] != "upstream":
+            p.append("nvidia file %s status %r: NVIDIA's wheels are upstream" % (wid, w["status"]))
+        if w["license"] not in licenses:
+            p.append("nvidia file %s licence %r is not declared under licenses" % (wid, w["license"]))
+        if not isinstance(w["extract"], list) or not w["extract"]:
+            p.append("nvidia file %s extracts nothing" % wid)
+            continue
+        for m in w["extract"]:
+            if not isinstance(m, dict) or [k for k in NVIDIA_MEMBER_FIELDS if k not in m]:
+                p.append("nvidia file %s member %r needs %s" % (wid, m, ", ".join(NVIDIA_MEMBER_FIELDS)))
+                continue
+            name = m["member"]
+            if not member_name_is_safe(name):
+                p.append("nvidia file %s member %r leaves the wheel" % (wid, name))
+            if not under_install(m["dest"]):
+                p.append("nvidia file %s member %s dest %r is not under ${INSTALL}/" % (wid, name, m["dest"]))
+            elif m["dest"] in taken or m["dest"] in wheel_dests:
+                p.append("nvidia file %s member %s dest %s is another file's" % (wid, name, m["dest"]))
+            if not isinstance(m["sha256"], str) or not HEX64.match(m["sha256"]):
+                p.append("nvidia file %s member %s sha256 is not 64 lowercase hex" % (wid, name))
+            if not pos_int(m["bytes"]):
+                p.append("nvidia file %s member %s bytes %r is not a positive integer" % (wid, name, m["bytes"]))
+            key = (w["platform"], m["dest"])
+            got = (m["bytes"], m["sha256"])
+            if key in member_at and member_at[key][0] != got:
+                p.append("nvidia files %s and %s write different bytes to %s on %s"
+                         % (member_at[key][1], wid, m["dest"], w["platform"]))
+            member_at.setdefault(key, (got, wid))
     return p
 
 
@@ -912,6 +1046,9 @@ def run(doc, online=False) -> Report:
     crow_problems = check_crow_files(doc)
     r.check("crow files", crow_problems, "%d files %s B, dictation in %s"
             % (len(crow), format(sum(f.get("bytes") or 0 for f in crow), ","), WHISPER_DIR))
+    wheels = [w for w in doc.get("nvidia_files") or [] if isinstance(w, dict)]
+    r.check("nvidia files", check_nvidia_files(doc), "%d wheels from PyPI, %d members"
+            % (len(wheels), sum(len(w.get("extract") or []) for w in wheels)))
     lists, n_lists = check_point_lists(doc)
     r.check("point lists", lists, "%d lists, %d points" % (n_lists, len(doc["points"])))
     if crow_problems:

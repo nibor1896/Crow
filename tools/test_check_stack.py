@@ -715,5 +715,168 @@ class OnlineToken(unittest.TestCase):
         self.assertIn("HF_TOKEN", str(cm.exception))
 
 
+
+def wheel_(doc, wid):
+    return next(w for w in doc["nvidia_files"] if w["id"] == wid)
+
+
+EULA_DEST = "${INSTALL}/licenses/NVIDIA-CUDA-EULA.txt"
+
+
+class NvidiaLicence(Base):
+    """A licence may name no text_file only when its text_dest is the dest of
+    the dist-info licence members of nvidia_files under that very licence."""
+
+    def test_the_real_licence_is_green_through_the_wheels(self):
+        lic = self.doc["licenses"]["nvidia-cuda-eula"]
+        self.assertIsNone(lic["text_file"])
+        self.assertEqual(lic["text_dest"], EULA_DEST)
+        self.assertTrue(C.nvidia_licence_text(self.doc, "nvidia-cuda-eula", EULA_DEST))
+
+    def test_a_text_dest_no_member_writes(self):
+        self.doc["licenses"]["nvidia-cuda-eula"]["text_dest"] = "${INSTALL}/licenses/OTHER.txt"
+        self.red("schema", "licence nvidia-cuda-eula text_file None is not a file with role license")
+
+    def test_a_text_dest_that_is_a_library_not_a_licence_text(self):
+        self.doc["licenses"]["nvidia-cuda-eula"]["text_dest"] = "${INSTALL}/bin/cublas64_13.dll"
+        self.red("schema", "text_file None is not a file with role license")
+
+    def test_no_text_dest_at_all(self):
+        del self.doc["licenses"]["nvidia-cuda-eula"]["text_dest"]
+        self.red("schema", "text_file None is not a file with role license")
+
+    def test_a_wheel_under_another_licence_writes_the_text(self):
+        wheel_(self.doc, "cudart-linux")["license"] = "apache-2.0"
+        self.red("schema", "text_file None is not a file with role license")
+
+    def test_another_licence_cannot_borrow_the_nvidia_text(self):
+        self.doc["licenses"]["apache-2.0"]["text_file"] = None
+        self.doc["licenses"]["apache-2.0"]["text_dest"] = EULA_DEST
+        self.red("schema", "licence apache-2.0 text_file None is not a file with role license")
+
+    def test_without_nvidia_files_the_null_text_file_is_refused(self):
+        del self.doc["nvidia_files"]
+        self.red("schema", "text_file None is not a file with role license")
+
+    def test_a_missing_text_file_key_stays_refused(self):
+        del self.doc["licenses"]["nvidia-cuda-eula"]["text_file"]
+        self.red("schema", "licence nvidia-cuda-eula lacks text_file")
+
+    def test_neither_wheels_nor_their_licence_is_green(self):
+        del self.doc["nvidia_files"]
+        del self.doc["licenses"]["nvidia-cuda-eula"]
+        r = C.run(self.doc)
+        self.assertEqual(r.failed, 0, "\n".join(r.lines))
+
+
+class NvidiaFiles(Base):
+    def test_the_real_wheels_are_green(self):
+        self.assertEqual(C.check_nvidia_files(self.doc), [])
+        r = C.run(self.doc)
+        self.assertTrue([ln for ln in r.lines if ln.startswith("  OK") and "nvidia files" in ln], r.lines)
+
+    def test_a_short_sha256(self):
+        wheel_(self.doc, "cublas-windows")["sha256"] = "ab" * 31
+        self.red("nvidia files", "nvidia file cublas-windows sha256 is not 64 lowercase hex")
+
+    def test_an_upper_case_member_sha256(self):
+        wheel_(self.doc, "nvrtc-windows")["extract"][0]["sha256"] = "AB" * 32
+        self.red("nvidia files", "member nvidia/cu13/bin/x86_64/nvrtc64_130_0.dll sha256 is not 64 lowercase hex")
+
+    def test_zero_bytes(self):
+        wheel_(self.doc, "nvrtc-linux")["bytes"] = 0
+        self.red("nvidia files", "nvidia file nvrtc-linux bytes 0 is not a positive integer")
+
+    def test_member_bytes_that_are_not_a_number(self):
+        wheel_(self.doc, "nvrtc-linux")["extract"][0]["bytes"] = "120080992"
+        self.red("nvidia files", "bytes '120080992' is not a positive integer")
+
+    def test_a_url_off_pypi(self):
+        w = wheel_(self.doc, "cublas-linux")
+        w["url"] = "https://github.com/example/mirror/releases/download/v1/" + w["url"].rsplit("/", 1)[1]
+        self.red("nvidia files", "nvidia file cublas-linux url")
+
+    def test_a_url_of_another_wheel(self):
+        w = wheel_(self.doc, "cudart-linux")
+        w["version"] = "13.3.30"
+        self.red("nvidia files", "nvidia file cudart-linux url names another wheel than nvidia-cuda-runtime 13.3.30")
+
+    def test_an_unknown_platform(self):
+        wheel_(self.doc, "nvrtc-windows")["platform"] = "macos"
+        self.red("nvidia files", "nvidia file nvrtc-windows platform 'macos' is not one of windows, linux")
+
+    def test_an_unknown_server(self):
+        wheel_(self.doc, "cublas-windows")["servers"] = ["comfyui"]
+        self.red("nvidia files", "nvidia file cublas-windows servers ['comfyui']")
+
+    def test_no_server(self):
+        wheel_(self.doc, "cublas-windows")["servers"] = []
+        self.red("nvidia files", "nvidia file cublas-windows servers []")
+
+    def test_a_wheel_dest_outside_the_install(self):
+        wheel_(self.doc, "nvrtc-linux")["dest"] = "${MODELS}/nvidia.whl"
+        self.red("nvidia files", "nvidia file nvrtc-linux dest '${MODELS}/nvidia.whl' is not under ${INSTALL}/")
+
+    def test_a_member_dest_that_climbs_out(self):
+        wheel_(self.doc, "nvrtc-linux")["extract"][0]["dest"] = "${INSTALL}/../bin/libnvrtc.so"
+        self.red("nvidia files", "dest '${INSTALL}/../bin/libnvrtc.so' is not under ${INSTALL}/")
+
+    def test_a_member_name_that_leaves_the_wheel(self):
+        for name in ("../evil.dll", "/abs/evil.dll", "nvidia\\evil.dll", "C:/evil.dll", "nvidia//evil.dll"):
+            doc = copy.deepcopy(REAL)
+            wheel_(doc, "cublas-windows")["extract"][0]["member"] = name
+            self.doc = doc
+            self.red("nvidia files", "member %r leaves the wheel" % name)
+
+    def test_a_member_dest_another_file_uses(self):
+        wheel_(self.doc, "cublas-windows")["extract"][0]["dest"] = file_(self.doc, "comfyui-license")["dest"]
+        self.red("nvidia files", "dest ${INSTALL}/licenses/ComfyUI-LICENSE is another file's")
+
+    def test_two_wheels_write_different_bytes_to_one_dest(self):
+        a = wheel_(self.doc, "cublas-windows")["extract"][0]
+        b = wheel_(self.doc, "nvrtc-windows")["extract"][0]
+        b["dest"] = a["dest"]
+        self.red("nvidia files", "nvidia files nvrtc-windows and cublas-windows write different bytes to ${INSTALL}/bin/cublas64_13.dll on windows")
+
+    def test_the_same_dest_on_two_platforms_is_fine(self):
+        # the EULA text, and dests the platforms share by name, are per platform
+        self.assertEqual(C.check_nvidia_files(self.doc), [])
+        dests = [(w["platform"], m["dest"]) for w in self.doc["nvidia_files"] for m in w["extract"]]
+        self.assertIn(("windows", EULA_DEST), dests)
+        self.assertIn(("linux", EULA_DEST), dests)
+
+    def test_a_missing_field(self):
+        del wheel_(self.doc, "cudart-linux")["servers"]
+        self.red("nvidia files", "nvidia file cudart-linux lacks servers")
+
+    def test_a_member_without_its_sha256(self):
+        del wheel_(self.doc, "cudart-linux")["extract"][0]["sha256"]
+        self.red("nvidia files", "nvidia file cudart-linux member")
+
+    def test_an_id_a_model_file_already_has(self):
+        wheel_(self.doc, "cudart-linux")["id"] = "27b-cnq"
+        self.red("nvidia files", "nvidia file id 27b-cnq twice")
+
+    def test_a_status_other_than_upstream(self):
+        wheel_(self.doc, "cudart-linux")["status"] = "published"
+        self.red("nvidia files", "nvidia file cudart-linux status 'published'")
+
+    def test_an_undeclared_licence(self):
+        w = wheel_(self.doc, "nvrtc-linux")
+        w["license"] = "nvidia-eula-2"
+        # without the EULA member, so the licence's own text rule is not what fails
+        w["extract"] = [m for m in w["extract"] if m["dest"] != EULA_DEST]
+        self.red("nvidia files", "nvidia file nvrtc-linux licence 'nvidia-eula-2' is not declared")
+
+    def test_nothing_to_extract(self):
+        wheel_(self.doc, "nvrtc-linux")["extract"] = []
+        self.red("nvidia files", "nvidia file nvrtc-linux extracts nothing")
+
+    def test_not_a_list(self):
+        self.doc["nvidia_files"] = {"nvrtc": {}}
+        del self.doc["licenses"]["nvidia-cuda-eula"]  # its text needs the wheels
+        self.red("nvidia files", "nvidia_files is not a list")
+
+
 if __name__ == "__main__":
     unittest.main()

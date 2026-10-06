@@ -11,23 +11,27 @@
 #       the exclude rules, templates/0731-chat-template.jinja,
 #       manifests/{operating-point,stack}.json, tools/te_rename.py, LICENSE,
 #       NOTICE, README.md;
-#     bin/sd-server                       the image server (--sd-server);
-#     cuda/lib/libcudart.so.13,
-#     cuda/lib/libcublas.so.13,
-#     cuda/lib/libcublasLt.so.13          the CUDA runtime sd-server links
-#                                         (--cuda-lib; symlinks are followed,
-#                                         the file ships under its soname).
+#     bin/sd-server                       the image server (--sd-server).
+#   NO NVIDIA FILE IS PACKED. sd-server links libcudart.so.13, libcublas.so.13
+#   and libcublasLt.so.13 (NVIDIA_AT_INSTALL below); CrowSetup downloads them at
+#   install time from NVIDIA's own PyPI wheels (nvidia-cuda-runtime 13.3.29,
+#   nvidia-cublas 13.6.0.2) and puts the same files in <install>/cuda/lib/ (see
+#   NOTICE). The package holds nothing under cuda/ and no file of those names.
 #   crow_core._image_server_env puts <install>/cuda/lib on LD_LIBRARY_PATH.
 #   MANIFEST.json is a bare JSON array of {path, bytes, sha256}: forward
 #   slashes, upper-case hex, MANIFEST.json not listed in itself.
 #
 # THE CHECKS, IN THIS ORDER, BEFORE A BYTE IS WRITTEN
-#   1. completeness: every NEEDED of bin/sd-server and the three libraries
-#      (readelf -d) is in the package or is a library every glibc system or
-#      the NVIDIA driver has (SYSTEM_LIBS below). pack-release.ps1's dumpbin
-#      check, for ELF.
+#   1. completeness: every NEEDED of bin/sd-server (readelf -d) is in the
+#      package, is a library every glibc system or the NVIDIA driver has
+#      (SYSTEM_LIBS below), or is one of the three NVIDIA libraries named in
+#      NVIDIA_AT_INSTALL, which CrowSetup provides at install time. Nothing
+#      else of NVIDIA's is accepted, and any other missing library refuses.
+#      pack-release.ps1's dumpbin check, for ELF.
 #   2. the shipped set: tools/repack-release.py shipped_set_violations() on
-#      everything but the three cuda/lib files, which are named here exactly.
+#      every file (cuda/lib/ is still exempt from it, see below), then
+#      nvidia_violations(): a file of an NVIDIA_AT_INSTALL name, or anything
+#      under cuda/, refuses the pack.
 #   3. THE PRIVACY GATE: tools/repack-release.py privacy_gate() -- the same
 #      patterns and the same scoped allowlist as pack-release.ps1: $HOME (three
 #      spellings), the user name (as a path segment and bare, case-insensitive),
@@ -44,13 +48,13 @@
 #   the tar stream itself through the gate once more.
 #
 # USAGE
-#   tools/pack-release.sh --sd-server PATH [--cuda-lib DIR] [--out DIR]
+#   tools/pack-release.sh --sd-server PATH [--out DIR]
 #                         [--version V] [--private-pattern TEXT]...
 #   tools/pack-release.sh --selftest
 #   tools/pack-release.sh --gate FILE...   the privacy gate alone, on files named
 #                                          by their base name (installer/build.sh)
-#   --cuda-lib defaults to $CUDA_HOME/lib64, /opt/cuda/lib64, then
-#   /usr/local/cuda/lib64: the toolkit, never an install.
+#   --cuda-lib is accepted and ignored (it named the toolkit the libraries were
+#   copied from; none are copied any more).
 #
 # NOT HERE
 #   Building sd-server: tools/build-sd-server.sh. A binary built in a home
@@ -74,7 +78,10 @@ spec = importlib.util.spec_from_file_location("repack", os.path.join(REPO, "tool
 rr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rr)
 
-CUDA_LIBS = ("libcudart.so.13", "libcublas.so.13", "libcublasLt.so.13")
+# NVIDIA's libraries sd-server links, which the package does NOT carry: CrowSetup downloads
+# them at install time from NVIDIA's PyPI wheels (nvidia-cuda-runtime 13.3.29, nvidia-cublas
+# 13.6.0.2) into <install>/cuda/lib/. An explicit list of names, never a pattern.
+NVIDIA_AT_INSTALL = ("libcudart.so.13", "libcublas.so.13", "libcublasLt.so.13")
 # What every glibc system has, plus the driver's libcuda. Anything else a
 # packed binary needs has to be in the package.
 SYSTEM_LIBS = {
@@ -97,14 +104,16 @@ def needed(path: str) -> list:
     return re.findall(r"\(NEEDED\)\s+Shared library: \[([^\]]+)\]", out.stdout)
 
 
-def completeness(binaries: dict) -> list:
-    """(file, library) for every NEEDED that is neither shipped nor a system library.
-    `binaries` maps package path -> file on disk."""
+def completeness(binaries: dict, needed_of=None) -> list:
+    """(file, library) for every NEEDED that is neither shipped, nor a system library, nor one of
+    the NVIDIA_AT_INSTALL names CrowSetup provides. `binaries` maps package path -> file on disk;
+    `needed_of` replaces readelf (selftest)."""
+    needed_of = needed_of or needed
     shipped = {os.path.basename(p) for p in binaries}
     gaps = []
     for rel, src in sorted(binaries.items()):
-        for lib in needed(src):
-            if lib not in shipped and lib not in SYSTEM_LIBS:
+        for lib in needed_of(src):
+            if lib not in shipped and lib not in SYSTEM_LIBS and lib not in NVIDIA_AT_INSTALL:
                 gaps.append((rel, lib))
     return gaps
 
@@ -161,7 +170,7 @@ def gate(files: dict, extra) -> bool:
     return ok and not hits
 
 
-def stage(repo: str, sd_server: str, cuda_lib: str) -> tuple:
+def stage(repo: str, sd_server: str) -> tuple:
     """(files {forward-slash path: bytes}, {package path: source file} of the ELF files)."""
     files = {k.replace("\\", "/"): v for k, v in rr.stage_from_checkout(repo).items()}
     elf = {}
@@ -169,19 +178,25 @@ def stage(repo: str, sd_server: str, cuda_lib: str) -> tuple:
         raise SystemExit("--sd-server %s: not a file" % sd_server)
     files["bin/sd-server"] = rr.read_bytes(sd_server)
     elf["bin/sd-server"] = os.path.realpath(sd_server)
-    for name in CUDA_LIBS:
-        src = os.path.join(cuda_lib, name)
-        if not os.path.exists(src):
-            raise SystemExit("%s not found in --cuda-lib %s" % (name, cuda_lib))
-        real = os.path.realpath(src)  # libcublas.so.13 -> libcublas.so.13.x.y.z
-        files["cuda/lib/" + name] = rr.read_bytes(real)
-        elf["cuda/lib/" + name] = real
     return files, elf
 
 
 def shipped_violations(files: dict) -> list:
-    linux_only = {"cuda/lib/" + n for n in CUDA_LIBS}
+    linux_only = {"cuda/lib/" + n for n in NVIDIA_AT_INSTALL}
     return rr.shipped_set_violations([p for p in files if p not in linux_only])
+
+
+def nvidia_violations(files: dict) -> list:
+    """(path, reason) for every file that is NVIDIA's: a name in NVIDIA_AT_INSTALL (or in
+    repack-release.py's Windows list), in any folder, or anything under cuda/."""
+    names = {n.lower() for n in NVIDIA_AT_INSTALL + tuple(rr.NVIDIA_AT_INSTALL)}
+    bad = []
+    for p in sorted(files):
+        if os.path.basename(p).lower() in names:
+            bad.append((p, "an NVIDIA library: CrowSetup downloads it at install time, it is not redistributed here"))
+        elif p.startswith("cuda/"):
+            bad.append((p, "cuda/ is where CrowSetup puts NVIDIA's libraries; the package holds nothing there"))
+    return bad
 
 
 def manifest_of(files: dict) -> bytes:
@@ -243,31 +258,30 @@ def verify(out: str, extra) -> list:
     return problems, len(manifest)
 
 
-def default_cuda_lib() -> str:
-    for d in (os.path.join(os.environ.get("CUDA_HOME", "/nonexistent"), "lib64"), "/opt/cuda/lib64", "/usr/local/cuda/lib64"):
-        if os.path.isfile(os.path.join(d, "libcudart.so.13")):
-            return d
-    return ""
-
-
 def pack(a) -> int:
     version = a.version or rr.version_literal(REPO)
-    cuda_lib = a.cuda_lib or default_cuda_lib()
-    if not cuda_lib:
-        raise SystemExit("no CUDA 13 toolkit found ($CUDA_HOME/lib64, /opt/cuda/lib64, /usr/local/cuda/lib64): pass --cuda-lib")
     print("packing crow %s (linux-x64)" % version)
     print("  sd-server: %s" % a.sd_server)
-    print("  cuda/lib : %s" % cuda_lib)
-    files, elf = stage(REPO, a.sd_server, cuda_lib)
+    print("  cuda/lib : none -- %s are NVIDIA's, CrowSetup downloads them at install time" % ", ".join(NVIDIA_AT_INSTALL))
+    if a.cuda_lib:
+        print("  NOTE: --cuda-lib is ignored; no NVIDIA file is packed")
+    files, elf = stage(REPO, a.sd_server)
     print("  staged %d files, %.1f MB" % (len(files), sum(map(len, files.values())) / 1e6))
 
     gaps = completeness(elf)
     if gaps:
         print("REFUSING TO PACK -- the package is incomplete:")
         for rel, lib in gaps:
-            print("  %s needs %s, which is neither packed nor a system library" % (rel, lib))
+            print("  %s needs %s, which is neither packed, a system library, nor one CrowSetup downloads from NVIDIA" % (rel, lib))
         return 1
-    print("  completeness: OK")
+    print("  completeness: OK (%s are provided at install time from NVIDIA)" % ", ".join(NVIDIA_AT_INSTALL))
+    nv = nvidia_violations(files)
+    if nv:
+        print("REFUSING TO PACK -- %d NVIDIA files are in the package, which must carry none:" % len(nv))
+        for rel, why in nv:
+            print("  %s  (%s)" % (rel, why))
+        return 1
+    print("  no NVIDIA file: OK")
     bad = shipped_violations(files)
     if bad:
         print("REFUSING TO PACK -- %d files are not in the shipped set:" % len(bad))
@@ -336,6 +350,32 @@ def selftest() -> int:
           and shipped_violations({"cuda/lib/libnvrtc.so": b""}) != [])
     check("runs/ and *.log never ship", shipped_violations({"cli/runs/x.log": b""}) != [])
 
+    # NVIDIA at install time: the named allowlist, the closure that uses it, and a package without a NVIDIA file.
+    check("the install-time NVIDIA list is exactly libcudart, libcublas, libcublasLt (.so.13)",
+          sorted(NVIDIA_AT_INSTALL) == ["libcublas.so.13", "libcublasLt.so.13", "libcudart.so.13"])
+    fake = {"sd-server": ["libc.so.6", "libcudart.so.13", "libcublas.so.13", "libcublasLt.so.13", "libcuda.so.1"],
+            "odd": ["libmystery.so.1"], "older": ["libcublas.so.12"], "rtc": ["libnvrtc.so.13"]}
+    nd = lambda path: fake[os.path.basename(path)]  # noqa: E731
+    check("completeness: the three NVIDIA libraries are accepted as provided at install time",
+          completeness({"bin/sd-server": "sd-server"}, nd) == [])
+    check("NEGATIVE: an unrelated missing library still refuses, and is the only one named",
+          completeness({"bin/sd-server": "sd-server", "bin/odd": "odd"}, nd) == [("bin/odd", "libmystery.so.1")])
+    check("NEGATIVE: another cublas version and libnvrtc are not on the list",
+          completeness({"bin/older": "older", "bin/rtc": "rtc"}, nd) == [("bin/older", "libcublas.so.12"), ("bin/rtc", "libnvrtc.so.13")])
+    check("NEGATIVE: a staged NVIDIA file is refused, by name in any folder and anything under cuda/",
+          [p for p, _ in nvidia_violations({"bin/libcublas.so.13": b"", "cuda/lib/x.so": b"", "bin/cublas64_13.dll": b"",
+                                            "cli/a.py": b""})] == ["bin/cublas64_13.dll", "bin/libcublas.so.13", "cuda/lib/x.so"])
+    nv_sd = os.path.join(tempfile.gettempdir(), "pack-release-selftest-sd-server")
+    with open(nv_sd, "wb") as fh:
+        fh.write(b"\x7fELF sd")
+    try:
+        staged, staged_elf = stage(REPO, nv_sd)
+    finally:
+        os.remove(nv_sd)
+    check("no NVIDIA file is staged (this checkout plus sd-server): nothing under cuda/, none of the names",
+          nvidia_violations(staged) == [] and not [p for p in staged if p.startswith("cuda/")])
+    check("and only sd-server is read for imports", sorted(staged_elf) == ["bin/sd-server"])
+
     tmp = tempfile.mkdtemp(prefix="pack-release-selftest-")
     try:
         true = shutil.which("true") or "/usr/bin/true"
@@ -393,7 +433,7 @@ def t_read(out: str, name: str) -> bytes:
 def main(argv) -> int:
     ap = argparse.ArgumentParser(prog="tools/pack-release.sh", description="Pack crow-<version>-linux-x64.tar.gz (#342).")
     ap.add_argument("--sd-server", help="the image server binary (tools/build-sd-server.sh)")
-    ap.add_argument("--cuda-lib", default="", help="the CUDA 13 toolkit's lib64 (libcudart/libcublas/libcublasLt .so.13)")
+    ap.add_argument("--cuda-lib", default="", help="ignored: no NVIDIA library is packed any more (CrowSetup downloads them)")
     ap.add_argument("--out", default=os.path.join(REPO, "dist"))
     ap.add_argument("--version", default=None, help="defaults to cli/crow_core.py's VERSION")
     ap.add_argument("--private-pattern", action="append", default=[], metavar="TEXT")

@@ -85,7 +85,7 @@ import crow_platform
 # column 0. Until #187 it stood in cli/crow.py, which handed it over on import;
 # an installation older than this change still carries it there, and that is
 # the only reason the installers look in crow.py at all.
-VERSION = "3.2.3"
+VERSION = "3.2.4"
 
 # The name every reader has used since the split: the session file's `version`
 # field, the User-Agents and the update notice. It used to be "" until the
@@ -12520,9 +12520,11 @@ def image_server_command(port: int) -> "list[str]":
 
 
 def _image_server_env() -> dict:
-    """The process environment plus the CUDA runtime Crow ships (Linux).
+    """The process environment plus the CUDA runtime in `<data>/cuda/lib` (Linux).
 
-    sd-server links libcudart/libcublas from `<data>/cuda/lib`, which is on
+    Crow ships no NVIDIA file: CrowSetup takes libcudart/libcublas from
+    NVIDIA's own wheels into that folder (stack.json `nvidia_files`).
+    sd-server links them from `<data>/cuda/lib`, which is on
     no loader path; measured 2026-09-27, it starts only with
     LD_LIBRARY_PATH set to that folder.
     """
