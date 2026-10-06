@@ -361,6 +361,12 @@ button.sec:hover{color:var(--soft)}
     if (ck.status === 'ok') return row({ title: t, desc: 'Checked. Writing the shortcuts.', dcls: 'ok' });
     return row({ title: t, desc: 'After the downloads.', cls: 'off' });
   }
+  // #338: the state file cannot be written; the run goes on, but says so.
+  function stateRow() {
+    var st = step('state');
+    if (st.status !== 'warning') return '';
+    return '<div class="list">' + row({ title: 'Progress file', desc: st.detail, dcls: 'warn' }) + '</div>';
+  }
   function planPoints() {
     var seen = [];
     S.info.points.forEach(function (p) {
@@ -381,8 +387,11 @@ button.sec:hover{color:var(--soft)}
       planPoints().map(pointRow).join('') + configsRow() + '</div>';
     var voiceErr = jobsWhere(function (j) { return j.kind === 'Whisper' && S.files[j.id] && S.files[j.id].error; })[0];
     if (voiceErr) h += '<div class="list">' + row({ title: 'Voice model', desc: S.files[voiceErr.id].error, dcls: 'bad', cls: 'err', tail: retry(voiceErr.id) }) + '</div>';
+    h += stateRow();
     return '<div class="scroll">' + h + '</div>' +
-      bar('You can close this window. The next start picks up where it stopped.',
+      bar(step('state').status === 'warning'
+        ? 'Keep this window open. Progress is not being saved.'
+        : 'You can close this window. The next start picks up where it stopped.',
         '<button class="chip" data-act="pause">' + (S.paused ? 'Resume' : 'Pause') + '</button>');
   }
 
@@ -407,7 +416,7 @@ button.sec:hover{color:var(--soft)}
       tail: '<button class="chip" data-act="shortcut">change</button>' + toggle('', true, 'static') });
     h += row({ title: S.init.launcher_label || 'Start menu entry', desc: 'Crow', tail: toggle('', true, 'static') });
     h += row({ title: 'Installed', desc: (d.installed || []).map(title).join(', ') });
-    h += '</div>';
+    h += '</div>' + stateRow();
     var note = bm.status === 'failed' ? '<p class="note">' + esc(bm.detail) + '</p>' : '';
     return '<div class="scroll">' + h + '</div>' + note +
       bar('The boot menu starts a model, then Crow.', '<button class="btn" data-act="boot">Open boot menu</button>');

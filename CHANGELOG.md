@@ -5,6 +5,10 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+### Fixed
+
+- **CrowSetup no longer starts over silently when it cannot read its state file** (#338, 2026-10-06). Up to v3.2.4 an I/O error on `setup\state.json` became an empty state without a message, and a failed save was dropped: on 2026-10-01 two window runs against a valid prepared `state.json` fetched the 27B projector again (927,607,488 B, already verified) and demanded convert inputs the done convert step had deleted. Now a `state.json` that exists but cannot be read stops the run with its path and the OS error; a corrupt one is still set aside as `state.json.bad`. A failed save keeps the run going and shows one warning, "Progress is not being saved to <path>: <error>"; the window shows it as a "Progress file" row and asks to keep the window open. Both lines are appended with a UTC timestamp to `setup\setup.log`. Why the 2026-10-01 runs could not use the file is still not found; the log is the evidence the next such run leaves.
+
 ## 3.2.4 — 2026-10-06
 
 **Crow ships no NVIDIA file; the installers fetch NVIDIA's CUDA libraries from NVIDIA's own wheels.** The Windows package no longer carries `cublas64_13.dll` and `cublasLt64_13.dll` (≈516 MB unpacked), the Linux package no longer carries `cuda/lib/`, and the CUDA-EULA redistribution question is gone with them.

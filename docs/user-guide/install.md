@@ -148,6 +148,7 @@ resumes where it stopped. `install.ps1` above stays the way to install Crow alon
 | | |
 |---|---|
 | resume | closing the window or a crash keeps the `.part` files and `%LOCALAPPDATA%\Crow\setup\state.json`. The next start re-hashes the partial file and continues by `Range`; at most the last 64 MB is fetched again |
+| state file | a `state.json` that exists but cannot be read (locked, no permission) stops the run with its path and the OS error, instead of starting over and fetching everything again. A failed save keeps the run going and shows "Progress is not being saved" once; the window then says to keep it open. Both lines also go to `setup\setup.log` |
 | verify | a file is renamed into place only after its sha256 matches. A mismatch refetches that one file, once |
 | retries | a download that gets no bytes for 30 s counts as stalled and is retried with 1 to 30 s backoff, without limit. `401`, `403` and `404` stop with a Retry button |
 | order | the Crow package, the engine, small files, then the large containers. A file two points share is fetched once |
@@ -276,6 +277,7 @@ sudo pacman -S --needed gtk3 webkit2gtk-4.1 python python-gobject
 | install root | `%LOCALAPPDATA%\Crow` | `${XDG_DATA_HOME:-~/.local/share}/crow` |
 | models | `<install>\models` | `<install>/models` |
 | setup state | `<install>\setup\state.json` | `<install>/setup/state.json` |
+| setup log | `<install>\setup\setup.log` | `<install>/setup/setup.log` |
 | a running binary on update | renamed to `.old` | replaced by rename, the running process keeps its file |
 | `--source` on the same file system | copied | hard-linked after its sha256 matched; the source is never written |
 
