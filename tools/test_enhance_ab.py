@@ -340,6 +340,19 @@ class TheBlindSheetTests(InATempRun):
         self.assertNotEqual([k["clip"] for k in key.values()], [r["clip"] for r in rows],
                             "shuffled, not in render order")
 
+    def test_the_sheet_script_reads_the_names_the_cards_use(self):
+        # The "{n}" fill once also hit the script's `${n}`, so it queried
+        # name="action-$9" and copied null for every answer.
+        E.seal(rows_for(self.run), rng=random.Random(1), strip=shutil.copyfile)
+        with open(os.path.join(E.RATING, "index.html"), encoding="utf-8") as fh:
+            sheet = fh.read()
+        script = sheet.split("<script>", 1)[1]
+        self.assertIn('input[name="${k}-${num}"]', script)
+        self.assertIn('input[name="note-${num}"]', script)
+        self.assertIn("const num=String(i+1).padStart(2,'0')", script)
+        self.assertIn('name="action-01"', sheet)
+        self.assertIn('name="note-09"', sheet)
+
     def test_a_clip_that_did_not_render_is_not_on_the_sheet(self):
         rows = rows_for(self.run, {("S3", "C"): "error"})
         E.seal(rows, rng=random.Random(2), strip=shutil.copyfile)

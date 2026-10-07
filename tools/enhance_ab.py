@@ -596,9 +596,9 @@ Three answers per clip; save the copied answers as runs/340-enhance-ab/rating-an
 <button id="go">Copy answers</button><textarea id="out" readonly></textarea>
 <script>
 document.getElementById('go').onclick=()=>{const r={};document.querySelectorAll('.card').forEach((c,i)=>{
-const n=String(i+1).padStart(2,'0');const v=k=>(document.querySelector(`input[name="${k}-${n}"]:checked`)||{}).value||null;
+const num=String(i+1).padStart(2,'0');const v=k=>(document.querySelector(`input[name="${k}-${num}"]:checked`)||{}).value||null;
 r[c.dataset.clip]={action:v('action'),identity:v('identity'),camera:v('camera'),
-note:(document.querySelector(`input[name="note-${n}"]`)||{}).value||''}});
+note:(document.querySelector(`input[name="note-${num}"]`)||{}).value||''}});
 const t=JSON.stringify(r,null,1);document.getElementById('out').value=t;try{navigator.clipboard.writeText(t)}catch(e){}};
 </script></body></html>
 """

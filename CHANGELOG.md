@@ -5,6 +5,14 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+### Added
+
+- **Prompt following of LTX-2.5 is measured and documented as a limit** (#346, 2026-10-07). Nine 5 s clips, three stills × three arms, rated blind by the owner. Enhancing the text with the template's e2b model, at 1920x1088 or 1280x704, scored the same as Crow's raw text on action plus identity (3 of 6 each). So `animate_image` keeps sending the raw text and nothing changes in the package. Every arm showed the same failures: a skipped action, a key changing shape and the camera moving. They are listed in [operating-points.md](docs/operating-points.md#prompt-following--a-documented-ltx-25-limit-346).
+
+### Fixed
+
+- **The #346 rating sheet copies the answers** (#346, 2026-10-07). Before, it copied `null` for every question: filling in the clip count with `{n}` also replaced `${n}` in the sheet's script. The harness does not ship in the package.
+
 ## 3.2.8 — 2026-10-06
 
 **The README no longer offers a Linux download that does not exist; Crow behaves exactly as v3.2.7.** CrowSetup still installs engine v0.9.5. Windows assets only, as for v3.2.x.
