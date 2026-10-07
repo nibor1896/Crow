@@ -31,6 +31,22 @@ def file_(doc, fid):
     return next(f for f in doc["files"] if f["id"] == fid)
 
 
+def pending_hotset(doc):
+    """The crow0924 hot set as it stood before its upload (published 2026-10-07,
+    Crow #196): mirror-pending, fetched from crow-nest on GitHub. The schema cases
+    for mirror-pending need one such file, and the real manifest has none left."""
+    f = file_(doc, "fn-hotsets-crow0924")
+    f.update(revision=None, status="mirror-pending", source={
+        "host": "github", "repo": "nibor1896/crow-nest",
+        "path": "decode_out/hotsets-M-crow0924-n160.json",
+        "revision": "f4a3bd86f7b33db883f59c251cc04b37ac1ceeda",
+        "bytes": f["bytes"], "sha256": f["sha256"], "license": "apache-2.0"})
+    b = point(doc, "flash-next")["bytes"]
+    b["published"] -= f["bytes"]
+    b["mirror_pending"] += f["bytes"]
+    return f
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.doc = copy.deepcopy(REAL)
@@ -56,8 +72,15 @@ class Schema(Base):
         file_(self.doc, "27b-cnq")["status"] = "local"
         self.red("schema", "status 'local'")
 
+    def test_a_pending_hotset_alone_is_green(self):
+        # the helper below builds a valid mirror-pending file, so each case that
+        # uses it is red for its own reason only
+        pending_hotset(self.doc)
+        r = C.run(self.doc)
+        self.assertEqual(r.failed, 0, "\n".join(r.lines))
+
     def test_mirror_pending_with_a_revision(self):
-        file_(self.doc, "fn-hotsets-crow0924")["revision"] = "0" * 40
+        pending_hotset(self.doc)["revision"] = "0" * 40
         self.red("schema", "revision must be null")
 
     def test_published_without_a_revision(self):
@@ -65,7 +88,7 @@ class Schema(Base):
         self.red("schema", "40-hex commit revision")
 
     def test_source_disagreeing_with_the_file(self):
-        file_(self.doc, "fn-hotsets-crow0924")["source"]["sha256"] = "a" * 64
+        pending_hotset(self.doc)["source"]["sha256"] = "a" * 64
         self.red("schema", "differ from its source")
 
     def test_a_licence_shown_at_install_names_what_it_covers(self):
@@ -127,7 +150,7 @@ class UpstreamHosts(Base):
         self.red("schema", "gated only on host huggingface")
 
     def test_a_mirror_pending_file_takes_its_host_from_source(self):
-        file_(self.doc, "fn-hotsets-crow0924")["host"] = "github"
+        pending_hotset(self.doc)["host"] = "github"
         self.red("schema", "mirror-pending: the host is its source's")
 
 

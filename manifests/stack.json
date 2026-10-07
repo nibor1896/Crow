@@ -127,9 +127,9 @@
    "id": "fn-sha256sums",
    "repo": "nibor1896/Qwen3.8-Flash-Next-CNQ4.5-M",
    "path": "SHA256SUMS",
-   "revision": "3ebead456fbff1ceebe600fddc83cb13106b06ce",
-   "bytes": 784,
-   "sha256": "97ea0d58545d63bf08d4a8f71093a82945f7a2c9dde7373aadded39c876fa9b5",
+   "revision": "ce0ddccda55b6092e12111ae9e9d65bb1f66a21b",
+   "bytes": 879,
+   "sha256": "f96296c6f3bddad5bc359faef4b9a5072566db8038f52e8e557e90eb3cd2767b",
    "dest": "${MODELS}/Qwen3.8-Flash-Next-CNQ4.5-M/SHA256SUMS",
    "source": null,
    "status": "published",
@@ -153,20 +153,12 @@
    "id": "fn-hotsets-crow0924",
    "repo": "nibor1896/Qwen3.8-Flash-Next-CNQ4.5-M",
    "path": "hotsets-M-crow0924-n160.json",
-   "revision": null,
+   "revision": "ce0ddccda55b6092e12111ae9e9d65bb1f66a21b",
    "bytes": 37167,
    "sha256": "f83e210a21391521b145d53d41fb0308f99cf6543bada03860127544a1b6fff5",
    "dest": "${MODELS}/Qwen3.8-Flash-Next-CNQ4.5-M/hotsets-M-crow0924-n160.json",
-   "source": {
-    "host": "github",
-    "repo": "nibor1896/crow-nest",
-    "path": "decode_out/hotsets-M-crow0924-n160.json",
-    "revision": "f4a3bd86f7b33db883f59c251cc04b37ac1ceeda",
-    "bytes": 37167,
-    "sha256": "f83e210a21391521b145d53d41fb0308f99cf6543bada03860127544a1b6fff5",
-    "license": "apache-2.0"
-   },
-   "status": "mirror-pending",
+   "source": null,
+   "status": "published",
    "license": "apache-2.0",
    "role": "hotset"
   },
@@ -870,12 +862,12 @@
    ],
    "derived": [],
    "bytes": {
-    "published": 104727704412,
-    "mirror_pending": 37167,
+    "published": 104727741674,
+    "mirror_pending": 0,
     "upstream": 916831248,
-    "files": 105644572827,
+    "files": 105644572922,
     "derived": 0,
-    "disk": 105644572827
+    "disk": 105644572922
    },
    "engine": {
     "binary": {
@@ -933,7 +925,7 @@
      "pinned_max_gib": 46,
      "_source": "crow-nest geo.rs:42 HOST_PINNED_CAP; the operating value is min(cap, free_for_pin - CROW_RAM_MARGIN_GB), derived at boot. Measured on a 64 GB host class."
     },
-    "disk_bytes": 105644572827
+    "disk_bytes": 105644572922
    }
   },
   {
