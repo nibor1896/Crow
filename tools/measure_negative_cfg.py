@@ -816,8 +816,11 @@ def sheet_html(form: dict) -> str:
             else:
                 src = "%s-%s.png" % (slot, letter)
                 cells.append('<figure><a href="%s"><img src="%s" alt="%s %s"></a>'
-                             '<figcaption>%s</figcaption></figure>'
-                             % (src, src, slot, letter, letter))
+                             '<figcaption>%s</figcaption>%s%s</figure>'
+                             % (src, src, slot, letter, letter,
+                                _answer_field(slot, letter, "visible",
+                                              "%s visible" % form[slot]["object"]),
+                                _answer_field(slot, letter, "degraded", "degraded")))
         rows.append('<section><h2>%s &mdash; %s</h2><div class="row">%s</div></section>'
                     % (slot, html.escape(form[slot]["question"]), "".join(cells)))
     style = ("body{margin:0;padding:16px;background:#1e1e1e;color:#e6e6e6;"
@@ -827,13 +830,60 @@ def sheet_html(form: dict) -> str:
              "figure{margin:0}img{width:100%;height:auto;display:block}"
              "figcaption{text-align:center;font-weight:600;padding:4px}"
              ".none{aspect-ratio:16/9;display:grid;place-items:center;"
-             "border:1px dashed #777}h2{font-size:17px;margin:28px 0 8px}")
+             "border:1px dashed #777}h2{font-size:17px;margin:28px 0 8px}"
+             "fieldset{border:0;margin:4px 0 0;padding:0}legend{float:left;width:9em}"
+             "label{margin-right:12px}button{font:inherit;padding:8px 14px;margin:20px 0 8px}"
+             "textarea{width:100%;height:8em;font:12px monospace}")
+    # The empty form travels into the page as JSON; "</" is escaped so no string
+    # in it can close the script element.
+    blank = json.dumps(form, sort_keys=True).replace("</", "<\\/")
     return ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
             "<title>#339 blind sheet</title><style>" + style + "</style></head><body>"
             "<h1>#339 blind sheet</h1><p>" + html.escape(ANSWER_HOW) + "</p>"
-            "<p>Click a picture for full size. Answers go into <code>answers.json</code> "
-            "in this folder.</p>" + "".join(rows) + "</body></html>\n")
+            "<p>Click a picture for full size. Answer both questions under every picture, "
+            "then press <b>Copy answers</b>: the JSON for <code>answers.json</code> in this "
+            "folder lands in the box below and on the clipboard.</p>" + "".join(rows)
+            + '<button id="go" type="button">Copy answers</button><p id="left"></p>'
+            '<textarea id="out" readonly></textarea>'
+            "<script>\nvar BLANK = " + blank + ";\n" + _SHEET_SCRIPT + "</script>"
+            "</body></html>\n")
+
+
+def _answer_field(slot: str, letter: str, key: str, legend: str) -> str:
+    """One yes/no question under a picture; its name is <slot>-<letter>-<key>."""
+    name = "%s-%s-%s" % (slot, letter, key)
+    return ('<fieldset><legend>%s</legend>'
+            '<label><input type="radio" name="%s" value="true"> yes</label>'
+            '<label><input type="radio" name="%s" value="false"> no</label></fieldset>'
+            % (html.escape(legend), name, name))
+
+
+# Builds answers.json from the radios: the blank form with every answered picture
+# filled in, unanswered fields left null (load_round refuses those).
+_SHEET_SCRIPT = r"""document.getElementById('go').onclick = function () {
+  var form = JSON.parse(JSON.stringify(BLANK)), open = 0;
+  function pick(name) {
+    var el = document.querySelector('input[name="' + name + '"]:checked');
+    if (!el) { open += 1; return null; }
+    return el.value === 'true';
+  }
+  Object.keys(form).forEach(function (slot) {
+    if (slot.charAt(0) === '_') { return; }
+    ['A', 'B', 'C'].forEach(function (letter) {
+      if (form[slot][letter] === null) { return; }
+      var base = slot + '-' + letter + '-';
+      form[slot][letter] = {object_visible: pick(base + 'visible'),
+                            degraded: pick(base + 'degraded')};
+    });
+  });
+  var text = JSON.stringify(form, null, 1);
+  document.getElementById('out').value = text;
+  document.getElementById('left').textContent = open
+    ? open + ' answers still open' : 'all answers given';
+  try { navigator.clipboard.writeText(text); } catch (e) {}
+};
+"""
 
 
 # ------------------------------------------------------------- the verdict --
