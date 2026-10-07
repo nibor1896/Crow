@@ -236,6 +236,24 @@ One difference: B5's init was E3 upscaled beforehand (`E3-up.png`), while the to
 server stretch it (`image_preprocess`); the live edit on 2026-09-27 came out clean at 2752×1536
 this way (looked at, not measured against B5).
 
+**No negative prompt (#339).** `generate_image` sends `txt_cfg` 1.0 and no `negative_prompt`. At 1.0,
+sd-server ignores a negative prompt. Windows, 2026-10-07: an RTX 5090 beside the crow-nest 27B
+`serve.exe`, the argv above plus `--mmap`, 2752×1536, 40 steps, 10 prompt/seed pairs × `txt_cfg`
+{1.0, 3.0, 6.0} with the pair's object as `negative_prompt`, rated blind by the owner
+(`runs/339-negative-cfg/`, PREREG and addendum 1):
+
+| `txt_cfg` | object absent | degraded | warm wall clock | card peak |
+|---|---|---|---|---|
+| 1.0, no negative prompt | 0 of 6 | 3 of 6 | median 216.5 s (216.0–217.5, n = 10) | 31,411 MiB, 0 OOM |
+| 3.0 + negative prompt | 2 of 6 | 1 of 6 | median 398.7 s (398.3–398.9, n = 10), 1.84× | 31,411 MiB, 0 OOM |
+| 6.0 + negative prompt | 3 of 6 | 2 of 6 | median 398.6 s (397.8–399.5, n = 10), 1.84× | 31,411 MiB, 0 OOM |
+
+"Object absent" and "degraded" are counted over the 6 pairs whose 1.0 picture showed the object. To
+pass, a value needed the object absent in at least 8 of 10 pairs and no degraded picture, so neither
+3.0 nor 6.0 passed. Once the negative prompt added the object it was meant to exclude: no bananas at
+1.0, bananas at 3.0 and 6.0. An exclusion therefore belongs in the prompt itself, phrased positively
+("an empty table" instead of "no bananas").
+
 ### Delegation (#143)
 
 Parallelism is bought at a provider, not from the card: `delegate(task)` starts a second

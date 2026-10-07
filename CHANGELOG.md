@@ -5,6 +5,25 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 3.2.9 — 2026-10-07
+
+**CrowSetup fetches Flash-Next's default hot set from Crow's own Hugging Face repo, and two blind measurements decided against changing the picture and clip tools.** CrowSetup still installs engine v0.9.5. Windows assets only, as for v3.2.x.
+
+### Changed
+
+- **The Flash-Next hot set comes from our Hugging Face repo** (#196, 2026-10-07). `hotsets-M-crow0924-n160.json` (37,167 B, sha256 `f83e210a…6fff5`) was `mirror-pending` and came from crow-nest on GitHub. It is now in `nibor1896/Qwen3.8-Flash-Next-CNQ4.5-M` at revision `ce0ddcc`, beside the container, with the same bytes. That repo's `SHA256SUMS` lists it (9 sums, 879 B) and its model card names it. `manifests/stack.json` pins both files at `ce0ddcc`. The other Flash-Next files stay pinned at `3ebead4`, where they are unchanged. No file in `stack.json` is `mirror-pending` any more. A Flash-Next install downloads 95 B more, the longer `SHA256SUMS`.
+
+### Added
+
+- **Prompt following of LTX-2.5 is measured and documented as a limit** (#346, 2026-10-07). Nine 5 s clips, three stills × three arms, rated blind by the owner. Enhancing the text with the template's e2b model, at 1920x1088 or 1280x704, scored the same as Crow's raw text on action plus identity (3 of 6 each). So `animate_image` keeps sending the raw text and nothing changes in the package. Every arm showed the same failures: a skipped action, a key changing shape and the camera moving. They are listed in [operating-points.md](docs/operating-points.md#prompt-following--a-documented-ltx-25-limit-346).
+- **A negative prompt for `generate_image` is measured and stays off** (#339, 2026-10-07). Thirty pictures at 2752×1536 beside the 27B on Windows, rated blind by the owner. The prompt named one object to exclude. That object was gone in only 2 of 6 pictures at `txt_cfg` 3.0 and 3 of 6 at 6.0, and both values had degraded pictures. Each guided picture took 1.84× as long (398.7 s against 216.5 s). Crow keeps sending `txt_cfg` 1.0 without a negative prompt, and nothing changes in the package. The table is in [tools.md](docs/reference/tools.md#generate_image-and-edit_image-300-308-311).
+
+### Fixed
+
+- **The #346 rating sheet copies the answers** (#346, 2026-10-07). Before, it copied `null` for every question: filling in the clip count with `{n}` also replaced `${n}` in the sheet's script. The harness does not ship in the package.
+- **The #339 rating sheet has answer fields** (`18e7c09`, 2026-10-07). It showed only the pictures, so the answers had to be typed into `answers.json` by hand. Each picture now has two yes/no questions, and a button copies the finished `answers.json`. The harness does not ship in the package.
+- **Version 3.2.9** in `cli/crow_core.py`, `install.ps1` and `manifests/operating-point.json`; README image regenerated.
+
 ## 3.2.8 — 2026-10-06
 
 **The README no longer offers a Linux download that does not exist; Crow behaves exactly as v3.2.7.** CrowSetup still installs engine v0.9.5. Windows assets only, as for v3.2.x.

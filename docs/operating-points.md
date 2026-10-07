@@ -209,6 +209,34 @@ five stills. Host RAM is machine-wide, of 63.4 GiB. Raw runs: `runs/340-ltx25-ph
   sampling steps. Cause unknown.
 - A clip fills the card (~32.0 of 32.6 GB), which is why pictures and clips never share it.
 
+### Prompt following — a documented LTX-2.5 limit (#346)
+
+Measured 2026-10-07 on Windows, RTX 5090, ComfyUI v0.38.0: three stills, three arms, one 5 s
+clip each, rated blind by robin on three yes/no questions. A is Crow's workflow, which sends LTX
+the raw text. B adds the template's e2b prompt enhancer. C is B at 1280x704. Raw runs:
+`runs/340-enhance-ab/` (PREREG `039ea02`).
+
+| arm | (a) action happened | (b) objects keep identity | (c) camera holds still | render |
+|---|---|---|---|---|
+| A, raw text | 2/3 | 1/3 | 1/3 | 66.3–75.8 s |
+| B, enhanced | 2/3 | 1/3 | 2/3 | 71.6–75.7 s |
+| C, enhanced, 1280x704 | 2/3 | 1/3 | 2/3 | 38.8–42.2 s |
+
+The PREREG's rule is that B or C wins with more (a)+(b) than A and no less (c). All three
+arms score 3, so neither wins and Crow keeps sending the raw text. The failures are the same
+in every arm, so they belong to LTX-2.5 and not to the prompt:
+
+- **Action:** the crow pecks the ground instead of preening under its wing (3/3 arms). Every
+  other requested action happened (6/6).
+- **Identity:** a key held in the beak changes shape (3/3). On landing, the crow's head
+  deforms (A, B), or 2B's eye shows through the blindfold (C).
+- **Camera:** in the landing scene, the camera moves or zooms in despite "The camera holds
+  still" (3/3).
+
+The enhancer keeps every action and the static camera in its rewrite. It drops "No new objects,
+no cuts" from all three texts and part of the negative sound list from two. Peak VRAM was
+31,834–32,012 MiB in every arm.
+
 ### Not measured
 
 | open | |
@@ -217,7 +245,6 @@ five stills. Host RAM is machine-wide, of 63.4 GiB. Raw runs: `runs/340-ltx25-ph
 | the 9B's VRAM beside sd-server at `--max-vram 7` | one run (2026-10-03): peak 21,864 of 32,579 MiB while making pictures |
 | ComfyUI's boot time | `VIDEO_BOOT_WAIT` 300 s is an assumption; one run (2026-10-03): answering 16 s after the card was free |
 | the mode switch's own time | one run (2026-10-03), a 5 s clip: card free 11:14:53, ComfyUI up 11:15:09, rendered in 73.3 s, the 9B back 11:16:32 |
-| prompt following | a small object can change while it is handled; Crow sends LTX the raw text where Lightricks' template enhances it first (#346) |
 | ComfyUI finding the LTX files through `extra_model_paths.yaml` | Phase 0 had them in `ComfyUI/models`; the file's format rests on ComfyUI's `utils/extra_config.py` |
 
 ---

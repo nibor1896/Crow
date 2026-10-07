@@ -60,8 +60,8 @@ fn ids(p: &crowsetup_core::api::Plan) -> Vec<&str> {
 fn flash_next_alone() {
     let p = plan_for(&["flash-next"]);
     assert_eq!(p.jobs.len(), 2 + 4 + 9);
-    assert_eq!(point_files("flash-next"), 105_644_572_827);
-    assert_eq!(p.download_bytes, PKGS + WHISPER + 105_644_572_827);
+    assert_eq!(point_files("flash-next"), 105_644_572_922);
+    assert_eq!(p.download_bytes, PKGS + WHISPER + 105_644_572_922);
     assert_eq!(p.download_bytes, PKGS + WHISPER + point_files("flash-next"));
     assert_eq!(p.disk_bytes, p.download_bytes);
     assert!(p.derived.is_empty());
@@ -123,7 +123,7 @@ fn image_stack_alone_lists_only_itself_on_the_27b_files() {
 fn all_three() {
     let p = plan_for(&["image-stack", "flash-next", "27b"]);
     assert_eq!(p.jobs.len(), 2 + 4 + 9 + 17);
-    assert_eq!(p.download_bytes, PKGS + WHISPER + 105_644_572_827 + 51_900_384_939);
+    assert_eq!(p.download_bytes, PKGS + WHISPER + 105_644_572_922 + 51_900_384_939);
     assert_eq!(p.download_bytes, PKGS + WHISPER + point_files("flash-next") + point_files("image-stack"));
     assert_eq!(p.disk_bytes, p.download_bytes + SDCLI - TEXT_ENCODER);
     let sum: u64 = p.jobs.iter().map(|j| j.bytes).sum();
@@ -224,10 +224,11 @@ fn urls_are_pinned_and_local_rel_is_repo_path() {
 }
 
 #[test]
-fn foreign_files_come_from_their_original_repo_and_only_our_hotset_is_mirror_pending() {
+fn foreign_files_come_from_their_original_repo_and_our_hotset_from_ours() {
     // #340, the owner 2026-10-03: only our own work goes into our repos. The
     // projectors and tokenizers are fetched from unsloth and Qwen, under their
-    // own repo path; the crow-nest hotset is ours and waits for our repo.
+    // own repo path. The crow-nest hotset is ours: mirror-pending until its
+    // upload on 2026-10-07 (#196), fetched from our repo since.
     let p = plan_for(&["flash-next", "27b"]);
     let job = |id: &str| p.jobs.iter().find(|j| j.id == id).unwrap().clone();
     let mm = job("27b-mmproj");
@@ -246,17 +247,17 @@ fn foreign_files_come_from_their_original_repo_and_only_our_hotset_is_mirror_pen
     let hot = job("fn-hotsets-crow0924");
     assert_eq!(
         hot.url,
-        "https://raw.githubusercontent.com/nibor1896/crow-nest/f4a3bd86f7b33db883f59c251cc04b37ac1ceeda/decode_out/hotsets-M-crow0924-n160.json"
+        "https://huggingface.co/nibor1896/Qwen3.8-Flash-Next-CNQ4.5-M/resolve/ce0ddccda55b6092e12111ae9e9d65bb1f66a21b/hotsets-M-crow0924-n160.json"
     );
     assert_eq!(hot.local_rel, "nibor1896/Qwen3.8-Flash-Next-CNQ4.5-M/hotsets-M-crow0924-n160.json");
-    // every model file that is not in our repo is a foreign original or the hotset
+    // every model file that is not in our repo is a foreign original
     let elsewhere: Vec<&str> = p.jobs.iter().filter(|j| !j.url.contains("/nibor1896/Qwen3.8-") && j.kind == FileKind::Model).map(|j| j.id.as_str()).collect();
-    assert_eq!(elsewhere.len(), 7, "{elsewhere:?}");
+    assert_eq!(elsewhere.len(), 6, "{elsewhere:?}");
     let s = Stack::embedded();
     let pending: Vec<&str> = s.files.iter().filter(|f| f.status == Status::MirrorPending).map(|f| f.id.as_str()).collect();
-    assert_eq!(pending, ["fn-hotsets-crow0924"]);
+    assert!(pending.is_empty(), "{pending:?}");
     let (fnx, b27) = (s.point("flash-next").unwrap(), s.point("27b").unwrap());
-    assert_eq!((fnx.bytes.mirror_pending, b27.bytes.mirror_pending), (37_167, 0));
+    assert_eq!((fnx.bytes.mirror_pending, b27.bytes.mirror_pending), (0, 0));
     assert_eq!(fnx.bytes.upstream + b27.bytes.upstream, 916_868_415 - 37_167 + 940_434_736);
 }
 

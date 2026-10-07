@@ -216,3 +216,24 @@ each at `q8_0` for a 4096-token prefix (`docs/qwen_image_2.1.md`), which is what
 
 `edit_image` with a negative prompt; `img_cfg` and `distilled_guidance`; Linux; sizes other than
 2752×1536; values other than 3.0 and 6.0; more than one seed per prompt; more than one day.
+
+## Addendum 1 — 2026-10-07T21:17+02:00, written after round 1 was unblinded
+
+This addendum comes **after** the result, so it changes no threshold, no reading and no arm. It only
+records why the replacement round that *Pair validity* asks for was not run. robin decided that on
+2026-10-07, after seeing the arithmetic below.
+
+Round 1 (`round-1/`, key `d4be01fe…85d`, posted on #339 before the sheet was opened): 6 of the 10
+primary pairs are valid (P01–P05, P07). P06, P08, P09 and P10 showed no object at 1.0. `score`
+reports *incomplete* and names R01–R04 as the next reserves.
+
+The four reserves cannot change the verdict:
+- **Criterion 2** (0 of 10 degraded): the six counted pairs stay counted, because they are the first
+  valid ones in the fixed order. Among them, 3.0 already has 1 degraded picture and 6.0 has 2.
+- **Criterion 1** (absent ≥ 8 of 10): 3.0 has 2 of 6 absent and 6.0 has 3 of 6. Even with the
+  object absent in all four reserves, they would end at 6 of 10 and 7 of 10.
+
+So no `txt_cfg` value can pass, and the ticket closes as A. The replacement round would have cost
+12 jobs (about 1 h of GPU time) for a verdict that is already fixed. Criteria 3 and 4 passed for both
+values (ratio 1.842 and 1.841, 0 OOM lines, peak 31,411 of 32,607 MiB). They are reported, but they
+change nothing.

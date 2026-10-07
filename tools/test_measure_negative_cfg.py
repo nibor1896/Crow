@@ -303,6 +303,38 @@ class RehearsalTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             M.seal(out)
 
+    def test_the_sheet_asks_both_questions_under_every_picture(self):
+        # The first sealed sheet (2026-10-07) showed pictures only: robin had
+        # nowhere to answer, and answers.json had to be edited by hand.
+        _status, out, _stub = M.rehearse(self.tmp.name)
+        M.seal(out)
+        sheet = os.path.join(out, M.SHEET)
+        page = slurp(os.path.join(sheet, "index.html"))
+        form = M.read_json(os.path.join(sheet, "answers.json"))
+        for slot in (k for k in form if not k.startswith("_")):
+            for letter in M.LETTERS:
+                for key in ("visible", "degraded"):
+                    name = "%s-%s-%s" % (slot, letter, key)
+                    self.assertEqual(page.count('name="%s" value="true"' % name), 1, name)
+                    self.assertEqual(page.count('name="%s" value="false"' % name), 1, name)
+        script = page.split("<script>", 1)[1]
+        self.assertEqual(json.loads(script.split("var BLANK = ", 1)[1].split(";\n", 1)[0]), form)
+        self.assertIn("slot + '-' + letter + '-'", script)
+        self.assertIn("pick(base + 'visible')", script)
+        self.assertIn("pick(base + 'degraded')", script)
+        self.assertIn('id="go"', page)
+        self.assertNotIn("cfg", page.lower())
+
+    def test_a_failed_picture_gets_no_questions(self):
+        form = {"_how": "x", "S01": {"object": "fish", "question": "Do you see any fish?",
+                                    "A": {"object_visible": None, "degraded": None},
+                                    "B": None,
+                                    "C": {"object_visible": None, "degraded": None}}}
+        page = M.sheet_html(form)
+        self.assertIn('name="S01-A-visible"', page)
+        self.assertNotIn('name="S01-B-', page)
+        self.assertIn("no picture: the job failed", page)
+
     def test_the_shuffle_varies_between_seals(self):
         orders = set()
         for seed in range(4):
