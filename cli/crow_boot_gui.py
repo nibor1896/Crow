@@ -510,6 +510,7 @@ def open_window(boot: "crow_boot.Boot") -> int:
     `shell_buttons`), imported here and not copied; only the id is this window's.
     """
     try:
+        crow_platform.webview_without_gpu()   # #368: open while the model decodes
         import webview
         import crow_gui
         ctl = Controller(boot)

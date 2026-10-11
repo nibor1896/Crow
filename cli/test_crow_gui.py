@@ -17111,5 +17111,29 @@ class TheClipCardIsInThePageTests(unittest.TestCase):
         self.assertIn('e.kind==="animate" ? "Making a video: "', self.page)
 
 
+class TheWindowLeavesTheGpuToTheEngineTests(unittest.TestCase):
+    """#368: both windows that stay open while the model decodes set the
+    WebView2 switch before pywebview is imported -- the loader reads it when
+    the first WebView2 environment is created."""
+
+    def test_the_chat_window_sets_it_before_webview(self):
+        source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        main = source[source.index("def main(argv"):]
+        main = main[:main.index("webview.create_window(")]
+        self.assertIn("crow_platform.webview_without_gpu()", main)
+        self.assertLess(main.index("crow_platform.webview_without_gpu()"),
+                        main.index("import webview"))
+        self.assertLess(main.index("running_base_url(args.base_url)"),
+                        main.index("crow_platform.webview_without_gpu()"))
+
+    def test_the_operating_point_window_sets_it_before_webview(self):
+        source = (HERE / "crow_boot_gui.py").read_text(encoding="utf-8")
+        body = source[source.index("def open_window("):]
+        body = body[:body.index("webview.create_window(")]
+        self.assertIn("crow_platform.webview_without_gpu()", body)
+        self.assertLess(body.index("crow_platform.webview_without_gpu()"),
+                        body.index("import webview"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -5,6 +5,10 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+### Fixed
+
+- **The window no longer shares the GPU with the local engine on Windows** (#368, 2026-10-11). The chat window and the operating-point window now start WebView2 with `--disable-gpu --disable-gpu-compositing` (through `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`; a value already set is kept). Measured with GLM-5.3-Flash on crow-nest, same serve config: the v3.3.0 window decoded 7.6 and 7.9 tok/s (engine.log 2026-10-11 20:54Z and 20:56Z), the same window with the switch 14.17 tok/s (turn t3, n = 1). `render_page`'s own headless browser does not inherit the switch and keeps its GPU/SwiftShader choice (#213, #293). The operating-point window's effect on decode and the browser panel's WebGL under the switch are not measured. Linux is unchanged.
+
 ## 3.3.0 — 2026-10-11
 
 **GLM-5.3-Flash on crow-nest is Crow's third operating point, CrowSetup installs engine v0.12.0, and new chats in different folders share more of the server's prompt cache.** Windows assets only, as for v3.2.x. The GLM-5.3-Flash container is still uploading: until it is published, CrowSetup installs that point from a local folder (`--source`) only.

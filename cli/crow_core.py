@@ -12008,8 +12008,11 @@ def _render_page(path: str, wait_ms: int | None = None,
         captured = False
         with open(log, "w", encoding="utf-8", errors="replace") as sink:
             try:
+                # #368: without the window's WebView2 switch.
                 proc = subprocess.Popen(argv, stdout=sink,
-                                        stderr=subprocess.STDOUT, **detach)
+                                        stderr=subprocess.STDOUT,
+                                        env=crow_platform.browser_env(),
+                                        **detach)
             except OSError:
                 if pipe:
                     for fd in (pipe[2], pipe[3]):

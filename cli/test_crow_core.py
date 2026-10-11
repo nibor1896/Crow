@@ -27562,6 +27562,71 @@ class TheShippedManifestOffersOnlyMeasuredLevelsTests(unittest.TestCase):
                          [("flash-next-q2-k-xl", "max")])
 
 
+class TheWindowRendersWithoutTheGpuTests(unittest.TestCase):
+    """#368. GLM-5.3-Flash decoded 7.6-7.9 tok/s in the v3.3.0 window and
+    14.17 with WebView2 told to leave the GPU alone (2026-10-11). The switch is
+    an environment variable the WebView2 loader appends to pywebview's own
+    arguments; render_page's browser keeps its own GPU/SwiftShader flags."""
+
+    KEY = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
+
+    def test_windows_sets_the_switch_when_it_is_absent(self):
+        env = {}
+        with mock.patch.object(crow_platform, "IS_WINDOWS", True):
+            crow_platform.webview_without_gpu(env)
+        self.assertEqual(env, {self.KEY: "--disable-gpu --disable-gpu-compositing"})
+
+    def test_an_explicit_value_is_kept(self):
+        env = {self.KEY: "--remote-debugging-port=9222"}
+        with mock.patch.object(crow_platform, "IS_WINDOWS", True):
+            crow_platform.webview_without_gpu(env)
+        self.assertEqual(env, {self.KEY: "--remote-debugging-port=9222"})
+
+    def test_linux_is_untouched(self):
+        env = {}
+        with mock.patch.object(crow_platform, "IS_WINDOWS", False):
+            crow_platform.webview_without_gpu(env)
+        self.assertEqual(env, {})
+
+    def test_the_render_browser_does_not_inherit_the_switch(self):
+        """The window sets it in its own process, and render_page runs in that
+        process: its Popen must hand the browser an env without it."""
+        seen = []
+
+        class Browser:
+            pid, returncode = 4242, 0
+
+            def __init__(self, argv, **kw):
+                seen.append(kw)
+                shot = [a for a in argv if a.startswith("--screenshot=")]
+                with open(shot[0].split("=", 1)[1], "wb") as fh:
+                    fh.write(b"pixels")
+
+            def wait(self, timeout=None):
+                return 0
+
+        folder = os.path.realpath(tempfile.mkdtemp(prefix="crow-q368-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        with open(os.path.join(folder, "index.html"), "w", encoding="utf-8") as fh:
+            fh.write("<p>hi")
+        root = crow_core.get_root()
+        self.addCleanup(crow_core.set_root, root)
+        crow_core.set_root(folder)
+        self.addCleanup(crow_core._LAST_CAPTURES.clear)
+        self.addCleanup(crow_core._RENDER_RIDE.clear)
+        with mock.patch.dict(os.environ, {self.KEY: "--disable-gpu"}),                 mock.patch.object(crow_core, "find_browser", lambda: "/bin/chromium"),                 mock.patch.object(crow_platform, "devtools_pipe", lambda: None),                 mock.patch.object(crow_platform, "render_scope_prefix", lambda: []),                 mock.patch.object(crow_platform, "render_gl_mode",
+                                  lambda *a, **k: "angle"),                 mock.patch.object(crow_platform, "gpu_free_mib", lambda: 73),                 mock.patch.object(crow_core.subprocess, "Popen", Browser):
+            said = crow_core.tool_render_page("index.html")
+            self.assertIn(self.KEY, os.environ)
+        self.assertFalse(said.startswith("error"), said)
+        self.assertTrue(seen, "no browser was started")
+        for kw in seen:
+            self.assertIsNotNone(kw.get("env"), "the browser inherits the window's env")
+            self.assertNotIn(self.KEY, {k.upper() for k in kw["env"]})
+            self.assertEqual(kw["env"].get("PATH") or kw["env"].get("Path"),
+                             os.environ.get("PATH"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

@@ -18776,6 +18776,11 @@ def main(argv: list[str] | None = None) -> int:
     # #196 C3 also finds crow-nest's serve on 8099 by its /health.
     if args.base_url == DEFAULT_BASE_URL:
         args.base_url = crow_core.running_base_url(args.base_url)
+    # #368. The window renders without the GPU so WebView2 does not time-slice
+    # the card with the local engine's CUDA kernels (GLM-5.3-Flash in the
+    # window: 14.17 tok/s with the flag, 7.6-8.3 without, 2026-10-11). An
+    # explicit value in the environment is kept.
+    crow_platform.webview_without_gpu()
     try:
         import webview
     except ImportError:
