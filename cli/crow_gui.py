@@ -3644,8 +3644,10 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
           <p class="about">CROW <span id="aboutver"></span></p>
           <p class="mcpsaid" id="updsaid"></p>
           <button id="updbtn" hidden onclick="crow.updateRun()"></button>
-          <!-- #367: the crow-nest engine in bin, installed against the one this
-               Crow is pinned to (stack.json engine_package), and its update. -->
+          <!-- #367, the owner 2026-10-12: the crow-nest engine in bin, shown and
+               updated the same way as Crow above: its version, crow-nest's
+               newest release on github.com, install or reinstall. -->
+          <p class="about">CROW-NEST <span id="engver"></span></p>
           <p class="mcpsaid" id="engsaid"></p>
           <button id="engbtn" hidden onclick="crow.engineRun()"></button>
           <!-- THE DIRECTORY IS FILLED IN, NOT WRITTEN OUT. This said
@@ -6425,18 +6427,24 @@ const crow = {
     $("#updsaid").textContent=e.t;
     if(e.done){ $("#updbtn").hidden=true; } },
 
-  // #367: the engine line. No network: the pin ships with this Crow.
-  engineCheck(){
+  // #367, the owner 2026-10-12: the engine entry is Crow's entry again, for
+  // crow-nest: the installed version as the heading, the newest release from
+  // github.com, and the button either way (install / reinstall).
+  engineShow(s, keepSaid){
     const said=$("#engsaid"), btn=$("#engbtn");
+    $("#engver").textContent=s.installed || ("none in "+s.bin_dir);
     btn.hidden=true;
-    pywebview.api.engine_check().then(s=>{
-      const inst=s.installed ? (s.current ? "v"+s.installed : s.installed)
-                             : "none in "+s.bin_dir;
-      said.textContent="engine crow-nest: installed "+inst
-        +(s.pinned ? ", pinned v"+s.pinned : ", none pinned for this system");
-      if(!s.offer) return;
-      btn.textContent="update engine (crow-nest) to v"+s.pinned;
-      btn.disabled=false; btn.hidden=false; }); },
+    if(!s.latest){ if(!keepSaid) said.textContent="could not reach github.com"; return; }
+    if(!keepSaid) said.textContent=s.newer
+      ? s.latest+" is out, this is "+(s.installed || "none installed")
+      : s.latest+" is the newest release";
+    if(!s.offer){ if(!keepSaid) said.textContent+=", with no engine for this system"; return; }
+    btn.textContent=(s.newer?"install ":"reinstall ")+s.latest;
+    btn.disabled=false; btn.hidden=false; },
+
+  engineCheck(){
+    $("#engsaid").textContent="checking github.com …"; $("#engbtn").hidden=true;
+    pywebview.api.engine_check().then(s=>this.engineShow(s, false)); },
 
   engineRun(){
     const btn=$("#engbtn");
@@ -6447,8 +6455,7 @@ const crow = {
 
   engineDone(e){
     $("#engsaid").textContent=e.t;
-    if(e.done){ $("#engbtn").disabled=false;
-      pywebview.api.engine_check().then(s=>{ $("#engbtn").hidden=!s.offer; }); } },
+    if(e.done) pywebview.api.engine_check().then(s=>this.engineShow(s, true)); },
 
   setTheme(name){
     // PAINTED FIRST, WRITTEN SECOND. The attribute swap is one frame; the write
@@ -16533,13 +16540,15 @@ class Api:
         self._updating = False
 
     def engine_check(self) -> dict:
-        """#367: the About pane's engine line -- installed against pinned.
-        Never raises; no network (the pin ships in manifests/stack.json)."""
+        """#367: the About pane's engine entry -- the installed engine against
+        crow-nest's newest release, asked of github.com like `update_check`.
+        Never raises."""
         try:
             return crow_core.engine_state()
         except Exception:                  # noqa: BLE001 - a pane, never fatal
-            return {"pinned": None, "installed": None, "current": False,
-                    "offer": False, "bin_dir": crow_core.engine_bin_dir()}
+            return {"installed": None, "latest": None, "current": False,
+                    "newer": False, "offer": False,
+                    "bin_dir": crow_core.engine_bin_dir()}
 
     def engine_update_start(self) -> str:
         """#367: press "update engine". Empty when it started, else why not.

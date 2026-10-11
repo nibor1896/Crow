@@ -405,22 +405,23 @@ installs it. A restart is needed afterwards. The button runs the same installer 
 install does — PowerShell with `install.ps1 -NoPause` on Windows, `bash install.sh` on Linux —
 so re-running the command at the top of this page by hand is the same update.
 
-That button updates Crow only; the crow-nest engine in `bin\` is the line below it (#367).
-`engine crow-nest: installed …, pinned …` compares the sha256 of `bin\serve.exe` with the
-engine this Crow version is pinned to (`manifests/stack.json` `engine_package`, crow-nest
-v0.12.0 for 3.3.x, v0.13.0 for 3.4.x; the package carries no version, so its bytes are its identity). When they
-differ, **update engine (crow-nest) to v…** appears:
+That button updates Crow only; the crow-nest engine in `bin\` is the entry below it (#367), and
+it reads the same way: `CROW-NEST <installed version>`, then crow-nest's newest release from
+github.com (`0.13.0 is out, this is 0.12.0` or `0.13.0 is the newest release`), and the button
+**install 0.13.0** or **reinstall 0.13.0**. The engine carries no version, so the installed one
+is named by the sha256 of `bin\serve.exe`: the `bin\.crow-engine.json` an engine update writes,
+else the table `manifests/stack.json` `engine_package.known`, else `unknown (<sha8>)`.
 
 | step | what happens |
 |---|---|
 | refused first | while a `serve` started from `bin\` runs: stop the point (boot menu *Stop*, or `--stop`), then press again |
-| download | only the pinned asset from crow-nest's GitHub release; size and sha256 must equal the pin, otherwise nothing is changed |
-| check | every file in the zip against the `MANIFEST.json` inside it, and `serve.exe` against the pinned sha256; nothing unlisted, no paths |
-| replace | each listed file is renamed to `<name>.bak-<first 8 hex of the old serve.exe's sha256>` and written new, `MANIFEST.json` last |
+| download | only the release's engine asset from crow-nest's GitHub; size and sha256 must equal what GitHub states for the asset (`digest`), otherwise nothing is changed |
+| check | every file in the zip against the `MANIFEST.json` inside it, and `serve.exe` against the known sha256 of that version when `known` has one; nothing unlisted, no paths |
+| replace | each listed file is renamed to `<name>.bak-<first 8 hex of the old serve.exe's sha256>` and written new, `MANIFEST.json` last, then `.crow-engine.json` |
 | afterwards | start the point again. Crow itself needs no restart |
 
-Linux: crow-nest v0.13.0 publishes no Linux engine, so no engine is pinned there and the line
-says so.
+Linux: crow-nest v0.13.0 publishes no Linux engine zip, so the entry names the release and offers
+no button.
 
 ---
 
