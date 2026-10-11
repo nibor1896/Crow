@@ -827,6 +827,17 @@ def check_engine_package(doc) -> "list[str]":
         for key in ("sha256", "serve_sha256"):
             if not isinstance(e[key], str) or not HEX64.match(e[key]):
                 p.append("engine_package %s %s is not 64 lowercase hex" % (plat, key))
+    # #367 (2026-10-12): serve sha256 of each released engine, so the About pane
+    # names the version in bin when serve carries none.
+    known = pkg.get("known", {})
+    if not isinstance(known, dict):
+        p.append("engine_package known is not a version -> serve sha256 table")
+        known = {}
+    for ver, sha in known.items():
+        if not re.match(r"^\d+\.\d+\.\d+$", str(ver)):
+            p.append("engine_package known %r is not a release number" % (ver,))
+        if not isinstance(sha, str) or not HEX64.match(sha):
+            p.append("engine_package known %s is not 64 lowercase hex" % ver)
     return p
 
 

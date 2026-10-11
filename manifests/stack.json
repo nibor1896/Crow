@@ -17,6 +17,10 @@
  "_engine_package": "The crow-nest engine package this Crow version is built and tested against (#367). CrowSetup installs it on a fresh install (its packages.json is written by installer/build.ps1 from the same asset); Crow's About pane compares ${INSTALL}/bin/serve against serve_sha256 and offers to fetch exactly url, checked against bytes and sha256, then every file against the MANIFEST.json inside the zip. The package carries no version (installer/core/src/layout.rs), so serve's sha256 is the identity of an installed engine. serve_sha256 is the serve.exe entry of that MANIFEST.json. Windows only: crow-nest v0.12.0 publishes no Linux engine asset.",
  "engine_package": {
   "version": "0.13.0",
+  "known": {
+   "0.12.0": "670a93f9101d3896b4f70df5e9bae88e90df68bb422fc429e37320d297196200",
+   "0.13.0": "7d73f8de681bed915bfd02242a7e618428ca22136898d7e4ed6677038dfd8cd3"
+  },
   "windows": {
    "asset": "crow-nest-engine-0.13.0-win-x64.zip",
    "url": "https://github.com/nibor1896/crow-nest/releases/download/v0.13.0/crow-nest-engine-0.13.0-win-x64.zip",
