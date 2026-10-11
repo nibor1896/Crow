@@ -158,7 +158,9 @@ GUI_SCRIPT = os.path.join(HERE, "crow_gui.py")
 ICON_FILE = os.path.join(HERE, "crow.ico")
 PLATFORM_KEY = "windows" if crow_platform.IS_WINDOWS else "linux"
 
-BOOT_TIMEOUT_S = {"flash-next": 600.0}
+# glm53-flash (#365): its boot is not measured; it gets the Flash-Next allowance
+# for the other container that streams experts from NVMe.
+BOOT_TIMEOUT_S = {"flash-next": 600.0, "glm53-flash": 600.0}
 DEFAULT_BOOT_TIMEOUT_S = 300.0
 IMAGE_TIMEOUT_S = 300.0
 LLAMA_TIMEOUT_S = 600.0             # crow_core.start_server's own wait_s
@@ -181,6 +183,7 @@ ICONS = {
     "start": ("\U0001F680", ">"),
     "flash-next": ("\U0001F9E0", "-"),
     "27b": ("⚡", "-"),
+    "glm53-flash": ("\U0001F40B", "-"),
     "image-stack": ("\U0001F3A8", "-"),
     "media-stack": ("\U0001F3AC", "-"),
     "optional": ("\U0001F999", "-"),

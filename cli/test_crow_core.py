@@ -1854,9 +1854,8 @@ class TheSeamSendsTheGoalItCarriesTests(TurnLoopCase):
                       "the K=2 shape: the goal marks ride the same head")
 
     def test_the_working_area_is_byte_stable_across_the_seam(self):
-        """Same block, same place: it opens the head right behind the base
-        prompt on both sides, so the goal marks (#210) move nothing in front
-        of it."""
+        """Same block, same place: it opens the head's per-folder tail (#364)
+        on both sides, so the goal marks (#210) move nothing in front of it."""
         self._goal_two_of_three_done()
         before, after = self._first_head_after_the_cut(pinned=True)
         block = crow_core.working_area_line(self.work)
@@ -1873,15 +1872,16 @@ class TheHeadNamesTheWorkingAreaTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(crow_core.set_root, crow_core.get_root())
 
-    def test_a_bound_root_opens_the_head(self):
+    def test_a_bound_root_is_named_in_the_head(self):
+        """#364: in the head's tail, behind the static blocks -- no longer at
+        its start (that order is `TheHeadIsStaticBeforeTheFolderTests`)."""
         crow_core.set_root(self.dir)
         head = crow_core.prompt_head()
-        self.assertTrue(head.startswith("Working area: %s\n" % crow_core.get_root()))
+        self.assertIn("Working area: %s\n" % crow_core.get_root(), head)
 
     def test_an_explicit_root_wins_over_the_bound_one(self):
         crow_core.set_root(None)
-        self.assertTrue(crow_core.prompt_head(self.dir).startswith(
-            "Working area: %s\n" % self.dir))
+        self.assertIn("Working area: %s\n" % self.dir, crow_core.prompt_head(self.dir))
 
     def test_a_rootless_head_carries_no_line(self):
         """NEGATIVE: without a root nothing is claimed, and the head of every
@@ -6824,13 +6824,66 @@ class SkillTests(_MemoryFixture):
         self.assertLessEqual(len(block), crow_core.SKILL_HEAD_CHARS + 200)
         self.assertIn("did not fit", block)
 
-    def test_the_head_carries_what_is_true_before_what_to_do(self):
+    def test_the_head_carries_what_is_global_before_what_is_the_folders(self):
         """One string is pinned, so one function composes it. Two orders would
-        be two caches for one set of facts."""
+        be two caches for one set of facts. #364 (the owner, 2026-10-11): the
+        skills are global and the project memory is the folder's, so the
+        skills come first -- before #364 it was the other way round."""
         self.call("add", content="PROJEKTFAKT")
         self.save()
         head = crow_core.prompt_head()
-        self.assertLess(head.index("PROJEKTFAKT"), head.index("SKILLS"))
+        self.assertLess(head.index("SKILLS"), head.index("PROJEKTFAKT"))
+
+
+class TheHeadIsStaticBeforeTheFolderTests(_MemoryFixture):
+    """#364. Two new chats in two folders, G5 on 2026-10-11: the working area
+    at char 363 of the system prompt cut the server's shared prefix to 6,043
+    tokens, in front of 1,342 chars (machine, profile, skills) that were the
+    same in both. Everything the same in every chat comes first."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.addCleanup(setattr, crow_core, "SKILLS_DIR", crow_core.SKILLS_DIR)
+        crow_core.SKILLS_DIR = os.path.join(self.dir, "skills")
+        os.makedirs(crow_core.SKILLS_DIR)
+
+    def save(self):
+        crow_core.tool_skill("save", name="messreihe", description="Wenn eine Messung "
+                             "mehr als einen Lauf hat.", body="1. Skript  2. Reihe")
+
+    def _system(self, root: str) -> str:
+        crow_core.set_root(root)
+        self.call("add", content="PROJEKTFAKT aus %s" % os.path.basename(root))
+        crow_core.tool_goal_set("Ziel in %s" % os.path.basename(root), ["eins", "zwei"])
+        return crow_core.system_with_memory(crow_core.DEFAULT_SYSTEM,
+                                            crow_core.prompt_head())
+
+    def test_two_folders_share_everything_before_the_working_area(self):
+        self.call("add", target="user", content="PROFILZEILE")
+        self.save()
+        other = os.path.join(self.dir, "Anderes")
+        os.makedirs(os.path.join(other, crow_core.ROOT_MARKER))
+        a, b = self._system(self.root), self._system(other)
+        tail_a = a.index(crow_core.working_area_line(self.root))
+        tail_b = b.index(crow_core.working_area_line(other))
+        self.assertEqual(tail_a, tail_b)
+        self.assertEqual(a[:tail_a], b[:tail_b], "byte-identical up to the tail")
+        shared = os.path.commonprefix([a, b])
+        for static in ("Machine: ", "PROFILZEILE", "SKILLS", "messreihe"):
+            self.assertIn(static, shared)
+        for dynamic in ("PROJEKTFAKT", "Active goal"):
+            self.assertNotIn(dynamic, shared)
+            self.assertGreater(a.index(dynamic), tail_a)
+        # inside the tail: the working area, then project memory, goal last
+        self.assertLess(a.index("PROJEKTFAKT"), a.index("Active goal"))
+
+    def test_a_rootless_chat_keeps_its_line_behind_the_static_blocks(self):
+        self.call("add", target="user", content="PROFILZEILE")
+        self.save()
+        crow_core.set_root(None)
+        head = crow_core.prompt_head()
+        self.assertNotIn("Working area", head)
+        self.assertLess(head.index("SKILLS"), head.index("no working directory bound"))
 
     def test_the_review_may_call_skill_and_nothing_further(self):
         """The background pass runs with nobody at the keyboard. `memory` and
@@ -7188,8 +7241,9 @@ class TheMachineIsAFactAndMemoryMayNotContradictItTests(_MemoryFixture):
         self.assertIn("Machine: ", head)
         self.assertIn("GPU NVIDIA GeForce RTX 5090 (32,607 MiB VRAM)", head)
         self.assertIn("A tool's own limits are not the machine's", head)
-        # facts first: the working area, then the machine, then memory
-        self.assertLess(head.index("Working area:"), head.index("Machine:"))
+        # #364: the machine is the same in every chat, so it opens the head;
+        # the working area is the folder's and comes behind it
+        self.assertLess(head.index("Machine:"), head.index("Working area:"))
 
     def test_the_machine_line_is_static_for_the_prefix(self):
         first = crow_core.machine_line()
@@ -29795,3 +29849,28 @@ class VideoNotesKeepFactsTests(unittest.TestCase):
             "k": "video", "at": 2, "t": "", "path": "/w/videos/a.mp4", "name": "a.mp4",
             "w": 1920, "h": 1088, "bytes": 1642079, "source": "animate_image",
             "job": "vid-1"}])
+
+
+class TheGlmOperatingPointPairsAndKeepsTheMeasuredRequestTests(unittest.TestCase):
+    """#365: GLM-5.3-Flash on crow-nest is the third operating point (owner
+    decision 2026-10-11). /props reports the container path; the entry pairs it
+    and sends exactly the request of the measured session: the shared row, no
+    top_k, no fixed reasoning word, no cap."""
+
+    PROPS = "converter/GLM-5.3-Flash-MUL1K3.cnq"
+
+    def test_the_container_pairs_with_its_entry(self):
+        name = crow_core.model_display_name(self.PROPS)
+        self.assertEqual(crow_core.model_key_for(name), "glm53-flash-mul1k3")
+
+    def test_the_request_is_the_measured_one(self):
+        name = crow_core.model_display_name(self.PROPS)
+        self.assertEqual(crow_core.sampling_for(name),
+                         crow_core.sampling_for(crow_core.DEFAULT_MODEL))
+        self.assertIsNone(crow_core.reasoning_budget_for(name))
+        self.assertIsNone(crow_core.effective_reasoning(name, None))
+        self.assertEqual(crow_core.reasoning_menu_for(name),
+                         crow_core.reasoning_menu_for(crow_core.DEFAULT_MODEL))
+
+    def test_it_is_an_active_point(self):
+        self.assertEqual(crow_core.ACTIVE_POINTS[:3], ("flash-next", "27b", "glm53-flash"))

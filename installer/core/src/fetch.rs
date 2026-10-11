@@ -303,6 +303,8 @@ impl Cx<'_> {
         });
         let (opts, job) = (self.opts, self.job);
         let r = match &opts.source {
+            // #365: an upload-pending file has no URL yet (plan.rs).
+            Source::Remote if job.url.is_empty() => Err(FetchError::Permanent(not_published(&job.id))),
             Source::Remote => self.remote(&mut part),
             Source::Local(root) => self.local(&mut part, &root.join(&job.local_rel)),
         };
@@ -734,6 +736,11 @@ fn auth_header(url: &str, token: Option<&str>) -> Option<String> {
         return None;
     }
     token.map(|t| format!("Bearer {t}"))
+}
+
+/// #365: the sentence for an upload-pending file asked for over the network.
+pub fn not_published(id: &str) -> String {
+    format!("{id} is not published yet: install this point from a local folder (--source).")
 }
 
 /// The sentence for a refused request. A Hugging Face 401/403 is the gate.

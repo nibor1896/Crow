@@ -11,7 +11,7 @@ Everything else is in this folder.
 |---|---|
 | [Overview](user-guide/overview.md) | start, the window part by part, features, tools, licences: what the front page used to carry |
 | [Install](user-guide/install.md) | requirements, both installers, `CrowSetup.exe` (the Windows window: Crow, engine, operating points, resume), the model download, updating, where everything lands; optional `--voice`, `--tailscale` / `-Tailscale`, `--pathtracer` / `-PathTracer` |
-| [Boot menu](user-guide/boot.md) | `cli\crow_boot.py`: start one of the three operating points (or an optional llama.cpp line), then Crow; one point at a time, stop, flags, the shortcut, where the logs go |
+| [Boot menu](user-guide/boot.md) | `cli\crow_boot.py`: start one of the operating points (or an optional llama.cpp line), then Crow; one point at a time, stop, flags, the shortcut, where the logs go |
 | [Window](user-guide/window.md) | the client, panel by panel: pinned cards, selection and links, layout |
 | [Linux](user-guide/linux.md) | install, the paths table, the engine build, memory scopes for server, render and command, optional helpers, the window on Wayland, troubleshooting |
 | [Memory](user-guide/memory.md) | what is written, by whom, and the gate |
@@ -41,7 +41,7 @@ Everything else is in this folder.
 
 | | |
 |---|---|
-| [Operating points](operating-points.md) | the four measured lines, the engine patches, and the by-hand server commands |
+| [Operating points](operating-points.md) | the five measured lines, the engine patches, and the by-hand server commands |
 | [Measurements](measurements/README.md) | every number with the conditions it was taken under |
 | [Acceptance: #207](acceptance/issue-207.md) | the live acceptance protocol of the bounded search and capture |
 | [Flash-Next placement](measurements/flash-next-placement.md) | the `-ncmoe` / `-ub` sweep, 27 runs |

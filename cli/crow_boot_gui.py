@@ -64,9 +64,10 @@ LOGO_LINE = "var LOGO = 'mark-on-dark.svg';"
 # GGUF line 9-12 s from a hardlinked install layout (2026-10-01, CHANGELOG
 # 3.0.0); Flash-Next's cold start ~83 s (2026-09-11, crow_boot.py BOOT_TIMEOUT_S).
 # A line without a measurement fills against DEFAULT_USUAL_START_S, a guess.
+# GLM-5.3-Flash (#365) is NOT MEASURED: it takes DEFAULT_USUAL_START_S.
 # The Media Stack (#340) is NOT MEASURED yet: its 9B llama-server line takes the
 # 27B GGUF line's figure, the nearest measured start.
-USUAL_START_S = {"flash-next": 83.0, "27b": 15.0, "image-stack": 15.0,
+USUAL_START_S = {"flash-next": 83.0, "27b": 15.0, "glm53-flash": 60.0, "image-stack": 15.0,
                  "media-stack": 15.0, "qwen35-q4-k-xl": 15.0}
 DEFAULT_USUAL_START_S = 60.0
 FILL_CAP = 95

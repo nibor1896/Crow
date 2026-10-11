@@ -68,7 +68,7 @@ class TheWindowShowsTheStacksGuiLineTests(GuiCase):
 
 
 class State1NothingRunsTests(GuiCase):
-    def test_three_points_then_the_optional_lines_and_a_greyed_open_button(self):
+    def test_four_points_then_the_optional_lines_and_a_greyed_open_button(self):
         ctl = self.controller(llama=FakeLlama([LLAMA_27B]))
         ctl.refresh()
         v = ctl.view()
@@ -76,7 +76,8 @@ class State1NothingRunsTests(GuiCase):
         self.assertEqual(v["say"], "Which model should Crow fly with?")
         self.assertIsNone(v["fill"])
         self.assertEqual([r["title"] for r in v["rows"]],
-                         ["Qwen3.8-Flash-Next", "Qwen3.8-27B", "Image Stack"] + ["Media Stack"] * MEDIA)
+                         ["Qwen3.8-Flash-Next", "Qwen3.8-27B", "GLM-5.3-Flash", "Image Stack"]
+                         + ["Media Stack"] * MEDIA)
         self.assertTrue(all(r["enabled"] and not r["dim"] for r in v["rows"]))
         self.assertEqual([(r["title"], r["detail"], r["cls"]) for r in v["optional"]],
                          [("Qwen3.8-27B-UD-Q4_K_XL (optional)", "llama.cpp, port 8082", "opt")])
@@ -104,7 +105,8 @@ class State2StartingTests(GuiCase):
         self.assertEqual((first["title"], first["detail"], first["enabled"]),
                          ("Qwen3.8-27B", "Loading the model. Usually ready in under 20 s.", False))
         self.assertEqual([(r["title"], r["cls"], r["enabled"]) for r in at7["rows"][1:]],
-                         [("Qwen3.8-Flash-Next", "off", False), ("Image Stack", "off", False)]
+                         [("Qwen3.8-Flash-Next", "off", False), ("GLM-5.3-Flash", "off", False),
+                          ("Image Stack", "off", False)]
                          + [("Media Stack", "off", False)] * MEDIA)
         self.assertEqual(at7["optional"], [])
         self.assertEqual(at7["bar"]["text"], "You can close this window. The model keeps loading.")
@@ -167,7 +169,8 @@ class State3LandedTests(GuiCase):
         self.assertEqual(v["running"], {"title": "Qwen3.8-27B", "stop": True,
                                         "detail": "Running on port 8099. 128k context, vision on."})
         self.assertEqual([(r["title"], r["cls"], r["dim"]) for r in v["rows"]],
-                         [("Qwen3.8-Flash-Next", "off", True), ("Image Stack", "off", True)]
+                         [("Qwen3.8-Flash-Next", "off", True), ("GLM-5.3-Flash", "off", True),
+                          ("Image Stack", "off", True)]
                          + [("Media Stack", "off", True)] * MEDIA)
         self.assertEqual(v["bar"]["text"], "The Crow window opens on Qwen3.8-27B.")
         self.assertTrue(v["bar"]["button"]["enabled"])
@@ -212,7 +215,7 @@ class State3LandedTests(GuiCase):
         v = ctl.view()
         self.assertEqual(v["running"]["title"], "Qwen3.8-27B-UD-Q4_K_XL (optional)")
         self.assertEqual(v["running"]["detail"], "Running on port 8082. llama.cpp.")
-        self.assertEqual(len(v["rows"]), 3 + MEDIA, "every baseline point is offered (and refused)")
+        self.assertEqual(len(v["rows"]), 4 + MEDIA, "every baseline point is offered (and refused)")
 
 
 class TheWindowOnLinuxTests(GuiCase):

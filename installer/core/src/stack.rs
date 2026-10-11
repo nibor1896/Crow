@@ -62,6 +62,10 @@ pub enum Status {
     /// Planned for our repo at `repo`/`path`; `revision` is null until the upload,
     /// so the bytes come from `source`.
     MirrorPending,
+    /// #365: our own file, not yet uploaded to `repo`/`path` and with no upstream
+    /// source (`revision` and `source` are null): it installs from a local
+    /// `--source` only, until the upload flips it to `published`.
+    UploadPending,
     /// The third-party repo at the pinned revision.
     Upstream,
 }
@@ -178,6 +182,9 @@ pub struct Menu {
 pub struct PointBytes {
     pub published: u64,
     pub mirror_pending: u64,
+    /// #365: only a point with an upload-pending file states it.
+    #[serde(default)]
+    pub upload_pending: u64,
     pub upstream: u64,
     pub files: u64,
     pub derived: u64,

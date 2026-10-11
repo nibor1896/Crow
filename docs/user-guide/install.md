@@ -152,7 +152,7 @@ resumes where it stopped. `install.ps1` above stays the way to install Crow alon
 | Crow | the release package, always |
 | NVIDIA libraries | `cublas64_13.dll` and `cublasLt64_13.dll` from NVIDIA's `nvidia-cublas` wheel into `<install>\bin\` ([NVIDIA libraries](#nvidia-libraries)) |
 | crow-nest engine | the engine zip from the crow-nest release, always. Every model runs on it |
-| operating points | any of Flash-Next (200k), 27B (128k), Image Stack, and on Windows the Media Stack (pictures and short videos). The optional llama.cpp section downloads nothing |
+| operating points | any of Flash-Next (200k), 27B (128k), GLM-5.3-Flash (200k; local `--source` only until its container is published, #365), Image Stack, and on Windows the Media Stack (pictures and short videos). The optional llama.cpp section downloads nothing |
 | Media Stack | its LTX-2.5 weights come from `Lightricks/LTX-2.5`, a gated Hugging Face repo: accept the licence there, then paste a read token into the field on the selection page (or set `HF_TOKEN`, or log in with the Hugging Face CLI). The token goes only to `https://huggingface.co` and is never logged. ComfyUI's own portable 7z is unpacked to `<install>\comfyui`. Needs 64 GB RAM and 100 GB free disk |
 | Python | only when no Python 3.10+ is found (`py` launcher, `PATH`): the embeddable 3.13, pip, and `pywebview` (required), `faster-whisper`, `sounddevice` (voice, a missing one only warns) |
 
@@ -179,7 +179,7 @@ Install root: `%LOCALAPPDATA%\Crow`, models in `<install>\models` (the same layo
 | `--source <dir>` | take the files from a local folder instead of Hugging Face and GitHub |
 | `--install-root <dir>` | install root, default `%LOCALAPPDATA%\Crow` |
 | `--package-source <dir>` | Crow's package and the engine package from `<dir>\<asset>`, checked against the embedded size and sha256; every other file from its URL (or `--source`) |
-| `--points <ids>` | with `--headless`: the points to install (`flash-next`, `27b`, `image-stack`, `media-stack`) |
+| `--points <ids>` | with `--headless`: the points to install (`flash-next`, `27b`, `glm53-flash`, `image-stack`, `media-stack`) |
 | `--shortcut-dir <dir>` | the shortcut goes into `<dir>` only, not the Desktop or the Start menu |
 | `--no-shortcuts` | no shortcut at all |
 | `--selftest` | run the checks, open no window, use no network. Exit code 0 is green |

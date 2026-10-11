@@ -85,7 +85,7 @@ import crow_platform
 # column 0. Until #187 it stood in cli/crow.py, which handed it over on import;
 # an installation older than this change still carries it there, and that is
 # the only reason the installers look in crow.py at all.
-VERSION = "3.2.9"
+VERSION = "3.3.0"
 
 # The name every reader has used since the split: the session file's `version`
 # field, the User-Agents and the update notice. It used to be "" until the
@@ -1952,7 +1952,7 @@ def crow_nest_ready(base_url: str, timeout: float = 2.0) -> bool:
     return isinstance(doc, dict) and doc.get("status") == "ok"
 
 
-ACTIVE_POINTS = ("flash-next", "27b", "image-stack", "media-stack")
+ACTIVE_POINTS = ("flash-next", "27b", "glm53-flash", "image-stack", "media-stack")
 ACTIVE_POINT_IMAGE = "image-stack"
 # #340: images and videos, one at a time on the card (use_mode).
 ACTIVE_POINT_MEDIA = "media-stack"
@@ -9050,17 +9050,35 @@ def memory_block(root: "str | None" = None) -> str:
     why -- once there is anything else in the head at all. Silence about the
     project would otherwise be indistinguishable from an empty project.
     """
-    blocks = []
+    user = user_memory_block()
+    blocks = [b for b in (user, project_memory_block(root, bool(user))) if b]
+    return "\n\n".join(blocks)
+
+
+def user_memory_block() -> str:
+    """The USER PROFILE block, or "" when the profile is empty.
+
+    #364: GLOBAL, the same in every chat (`config_dir()/USER.md`), so it sits in
+    the static part of the head, before anything that names a folder.
+    """
     user = read_store(USER_PATH)
-    if user:
-        blocks.append(render_store("USER PROFILE", user, USER_CHARS))
+    return render_store("USER PROFILE", user, USER_CHARS) if user else ""
+
+
+def project_memory_block(root: "str | None" = None, has_profile: bool = False) -> str:
+    """The project's MEMORY block, the rootless line, or "".
+
+    #364: PER FOLDER (`<root>/.crow/MEMORY.md`, and its label names the folder),
+    so it rides in the dynamic tail of the head, behind the working area. The
+    rootless line appears only beside a profile (`memory_block`'s rule).
+    """
     path = memory_path(root)
     entries = read_store(path)
     if entries:
-        blocks.append(render_store(_store("memory", root)[2], entries, MEMORY_CHARS))
-    elif path is None and blocks:
-        blocks.append("(no working directory bound -- this chat has no project memory)")
-    return "\n\n".join(blocks)
+        return render_store(_store("memory", root)[2], entries, MEMORY_CHARS)
+    if path is None and has_profile:
+        return "(no working directory bound -- this chat has no project memory)"
+    return ""
 
 
 def prompt_head(root: "str | None" = None,
@@ -9085,11 +9103,21 @@ def prompt_head(root: "str | None" = None,
     den Marken des Schnittzeitpunkts (siehe `goal_block`). Zwei Stellen
     rufen das -- repin nach `roll_over`, beide Oberflaechen.
 
-    #222: the working area opens the head (`working_area_line`).
+    #364: STATIC FIRST, PER FOLDER LAST (the owner, 2026-10-11). A server reuses a
+    prompt by its longest common token prefix, so every byte behind the first
+    per-folder byte is a new prompt for the next chat in another folder.
+    Measured on the stored G5 chats t1/t2: the working area (#222) at char 363
+    cut the shared prefix to 6,043 tokens on GLM-5.3-Flash, in front of 1,342
+    chars that were identical in both. So: machine, profile, skills (the same
+    in every chat), then working area, project memory, goal (per folder). The
+    working area still precedes the goal, so the heads before and after a cut
+    (#210) still share it. Changing this order moves every new pin once.
     """
     here = get_root() if root is None else root
-    parts = [p for p in (working_area_line(here), machine_line(), memory_block(root),
-                         skill_block(),
+    profile = user_memory_block()
+    parts = [p for p in (machine_line(), profile, skill_block(),        # static
+                         working_area_line(here),                       # per folder
+                         project_memory_block(root, bool(profile)),
                          goal_block(include_status=include_status)) if p]
     return "\n\n".join(parts)
 
@@ -9108,9 +9136,10 @@ def prompt_head(root: "str | None" = None,
 # there: the base prompt stays the same for every folder, while the head is
 # already per chat (`memory_block` reads the same root) and is re-pinned
 # exactly when the root moves (`_bind_root`) and at the cut (`repin_head`).
-# FIRST in the head: it is a fact, the order is facts before actions, and in
-# first place it sits inside the common prefix of the heads before and after
-# the cut -- the goal marks (#210) only change what comes behind it.
+# FIRST IN THE HEAD'S TAIL (#364): behind the static blocks, which are the
+# same for every folder, and before project memory and the goal. It still sits
+# inside the common prefix of the heads before and after the cut -- the goal
+# marks (#210) only change what comes behind it.
 #
 # A CHAT WITHOUT A ROOT GETS NO LINE, so its head stays byte-identical to what
 # it was before this change -- and a sentence about where relative paths land
@@ -9120,8 +9149,8 @@ WORKING_AREA_LINE = ("Working area: {root}\n"
                      "here. Use this exact path; do not retype it from memory.")
 
 
-# #270. THE MACHINE, AS FACTS, right after the working area: facts
-# before actions (the head's order), static so the prefix holds. The rule
+# #270. THE MACHINE, AS FACTS, opening the head (#364: the static blocks
+# come first), static so the prefix holds. The rule
 # beside it is the lesson of 2026-09-23/24: render_page rasterised in software
 # while the model server held the card, and the model wrote "Machine has NO
 # GPU" into its memory. A tool's limit is the tool's.

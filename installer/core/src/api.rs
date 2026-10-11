@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// An operating point id as written in `manifests/stack.json`:
-/// `flash-next`, `27b`, `image-stack`, `media-stack`.
+/// `flash-next`, `27b`, `glm53-flash`, `image-stack`, `media-stack`.
 pub type PointId = String;
 
 /// What the user picked on the selection screen.

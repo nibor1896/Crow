@@ -12,6 +12,8 @@
 //! stays the planned `<repo>/<path>` in our repo, the layout `--source` mirrors.
 //! When the mirror is uploaded, stack.json flips the file to `published` with a
 //! revision and the URL follows; no runtime fallback is needed for that.
+//! An `upload-pending` file (#365) has neither: its `url` stays empty, a local
+//! `--source` supplies it, and a download refuses it by name (fetch.rs).
 //!
 //! `disk_bytes` is what stays on disk: download + derived - the derived entries'
 //! inputs, which the convert step deletes (`text_encoder/` once
@@ -121,6 +123,7 @@ fn file_job(f: &StackFile, kind: FileKind, points: Vec<String>, install: &Path, 
     let url = match (f.status, &f.revision, &f.source) {
         (Status::MirrorPending, _, Some(src)) => src.url(),
         (Status::MirrorPending, _, None) => return Err(format!("file {} is mirror-pending without a source", f.id)),
+        (Status::UploadPending, _, _) => String::new(),
         (_, Some(rev), _) => f.url(rev)?,
         (_, None, _) => return Err(format!("file {} has no pinned revision", f.id)),
     };

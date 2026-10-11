@@ -135,9 +135,10 @@ OPS = [("Default, Windows", "CNQ4.5-M NVFP4 container", "40‡", "crow-nest"),
        ("Second, Windows", "Qwen3.8-Flash-Next UD-Q2_K_XL", "41.76", "llama.cpp"),
        ("Second, Linux", "Qwen3.8-Flash-Next UD-Q2_K_XL", "41.8", "llama.cpp"),
        ("Third", "Qwen3.8-27B UD-Q4_K_XL", "123.05", "llama.cpp"),
+       ("GLM-5.3-Flash, Windows", "GLM-5.3-Flash-MUL1K3 container", "14.17‡", "crow-nest"),
        ("Media Stack, Windows", "Qwen3.5-9B Q8_0 + Qwen-Image + LTX-2.5", "—", "llama.cpp")]
 STATS_NOTE = "crow-nest CNQ4.5-M, RTX 5090, Windows 2026-10-06, after the PLE fix: decode in a live Crow session, prefill cold. Source: docs/operating-points.md"
-OPS_NOTE = "‡ live Crow session at 8k, 2026-10-06. * at 122k context, 2026-09-24. — not measured. Dates and sources: docs/operating-points.md"
+OPS_NOTE = "‡ live Crow session: 8k 2026-10-06, GLM 2026-10-11. * at 122k context, 2026-09-24. — not measured. Sources: docs/operating-points.md"
 INTRO_LINES = (
     f"A local model at 200k context with {NTOOLS} tools and MCP, persistent memory, its own skills,",
     "a browser panel, eyes, and subagents it can send out while it keeps working.",

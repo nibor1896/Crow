@@ -1292,6 +1292,9 @@ pub mod testing {
         if has("flash-next") {
             jobs.push(job("fn-cnq", FileKind::Model, 10560, &["flash-next"], root));
         }
+        if has("glm53-flash") {
+            jobs.push(job("glm-cnq", FileKind::Model, 12460, &["glm53-flash"], root));
+        }
         if has("media-stack") {
             // #340: the video runtime's archive, unpacked and then deleted.
             jobs.push(job("comfyui-portable", FileKind::Model, 199, &["media-stack"], root));

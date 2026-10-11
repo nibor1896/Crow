@@ -29,6 +29,13 @@
    "text_file": "27b-license",
    "summary": "Permissive; keep the licence and notices."
   },
+  "mit-zai": {
+   "name": "MIT License",
+   "non_commercial": false,
+   "show_at_install": false,
+   "text_file": "glm-license",
+   "summary": "Permissive (zai-org/GLM-5.3-Flash); keep the copyright and permission notice."
+  },
   "qwen-research": {
    "name": "Qwen Research License Agreement",
    "covers": "Qwen-Image weights",
@@ -291,6 +298,84 @@
    "status": "upstream",
    "license": "apache-2.0",
    "role": "tokenizer"
+  },
+  {
+   "id": "glm-cnq",
+   "repo": "nibor1896/GLM-5.3-Flash-MUL1K3",
+   "path": "GLM-5.3-Flash-MUL1K3.cnq",
+   "revision": null,
+   "bytes": 124591634567,
+   "sha256": "9ce11456c68f80926e1fe8289888a3571309a1f8558bc73d1578f0db2b30213e",
+   "dest": "${MODELS}/GLM-5.3-Flash-MUL1K3/GLM-5.3-Flash-MUL1K3.cnq",
+   "source": null,
+   "status": "upload-pending",
+   "license": "mit-zai",
+   "role": "container"
+  },
+  {
+   "id": "glm-arena-warm",
+   "repo": "nibor1896/GLM-5.3-Flash-MUL1K3",
+   "path": "glm53-cal4-decode-counts.json",
+   "revision": "f8d7ece2f1e1b387ae1299faf260d5cd05aebfde",
+   "bytes": 54279,
+   "sha256": "5584c8a03d665798d2b98b573ad09b05e5acf04cf80d0aff071308620c0fb65a",
+   "dest": "${MODELS}/GLM-5.3-Flash-MUL1K3/glm53-cal4-decode-counts.json",
+   "source": null,
+   "status": "published",
+   "license": "mit-zai",
+   "role": "hotset"
+  },
+  {
+   "id": "glm-tokenizer",
+   "repo": "zai-org/GLM-5.3-Flash",
+   "path": "tokenizer.json",
+   "revision": "eb9eb208eb0d988989d07a6a12d0fdeb5f52574a",
+   "bytes": 20217442,
+   "sha256": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d",
+   "dest": "${MODELS}/GLM-5.3-Flash-MUL1K3/tokenizer.json",
+   "source": null,
+   "status": "upstream",
+   "license": "mit-zai",
+   "role": "tokenizer"
+  },
+  {
+   "id": "glm-tokenizer-config",
+   "repo": "zai-org/GLM-5.3-Flash",
+   "path": "tokenizer_config.json",
+   "revision": "eb9eb208eb0d988989d07a6a12d0fdeb5f52574a",
+   "bytes": 761,
+   "sha256": "98b1271574f41abf89427ae2dda030d94dc9478f0edc5a8bd240db213c6fd5fc",
+   "dest": "${MODELS}/GLM-5.3-Flash-MUL1K3/tokenizer_config.json",
+   "source": null,
+   "status": "upstream",
+   "license": "mit-zai",
+   "role": "tokenizer"
+  },
+  {
+   "id": "glm-chat-template",
+   "repo": "zai-org/GLM-5.3-Flash",
+   "path": "chat_template.jinja",
+   "revision": "eb9eb208eb0d988989d07a6a12d0fdeb5f52574a",
+   "bytes": 10950,
+   "sha256": "0c4099f3382d6c92700dfb99725025360966fd73032f0ecf32377c0d9e6309c5",
+   "dest": "${MODELS}/GLM-5.3-Flash-MUL1K3/chat_template.jinja",
+   "source": null,
+   "status": "upstream",
+   "license": "mit-zai",
+   "role": "tokenizer"
+  },
+  {
+   "id": "glm-license",
+   "repo": "zai-org/GLM-5.3-Flash",
+   "path": "LICENSE",
+   "revision": "eb9eb208eb0d988989d07a6a12d0fdeb5f52574a",
+   "bytes": 1070,
+   "sha256": "30b85b6b9659f2e78aa259f8faf5d920a68dee7c9ced3fa6dba1f19f2bc4fca1",
+   "dest": "${MODELS}/GLM-5.3-Flash-MUL1K3/LICENSE",
+   "source": null,
+   "status": "upstream",
+   "license": "mit-zai",
+   "role": "license"
   },
   {
    "id": "qi-license",
@@ -1010,6 +1095,124 @@
      "_source": "dense family: no routed experts, no hot set and no pinned expert tier (crow-nest boot.rs:50-56). No host-RAM floor is stated in crow-nest's docs."
     },
     "disk_bytes": 18784665622
+   }
+  },
+  {
+   "id": "glm53-flash",
+   "menu": {
+    "title": "GLM-5.3-Flash",
+    "line": "200k context — the big MoE, experts streamed from NVMe",
+    "gui": "200k context. The big MoE, experts streamed from NVMe."
+   },
+   "_status": "Crow's third operating point, owner decision 2026-10-11 (#365). The container is upload-pending: its upload to the repo of its file entry was still running on 2026-10-11 (SHA256SUMS there at f8d7ece2 already lists its sha256), so until the upload commits and this file is flipped to published with that revision, CrowSetup installs it from a local --source only. The arena-warm file is published there at f8d7ece2.",
+   "files": [
+    "glm-cnq",
+    "glm-arena-warm",
+    "glm-tokenizer",
+    "glm-tokenizer-config",
+    "glm-chat-template",
+    "glm-license"
+   ],
+   "derived": [],
+   "bytes": {
+    "published": 54279,
+    "mirror_pending": 0,
+    "upload_pending": 124591634567,
+    "upstream": 20230223,
+    "files": 124611919069,
+    "derived": 0,
+    "disk": 124611919069
+   },
+   "engine": {
+    "binary": {
+     "windows": "${INSTALL}/bin/serve.exe",
+     "linux": "${INSTALL}/bin/serve"
+    },
+    "cwd": "${INSTALL}",
+    "env": {
+     "CROW_CNQ": "${MODELS}/GLM-5.3-Flash-MUL1K3/GLM-5.3-Flash-MUL1K3.cnq",
+     "CROW_TOKENIZER": "${MODELS}/GLM-5.3-Flash-MUL1K3/tokenizer.json",
+     "CROW_TOKENIZER_CONFIG": "${MODELS}/GLM-5.3-Flash-MUL1K3/tokenizer_config.json",
+     "CROW_GLM_PINNED": "zerocopy",
+     "CROW_GLM_FLAGS": "1",
+     "CROW_GLM_STAGER": "1",
+     "CROW_GLM_ARENA": "global",
+     "CROW_GLM_ARENA_ELASTIC_GB": "10",
+     "CROW_GLM_ARENA_STAGE_GB": "2.6",
+     "CROW_GLM_CPU_LANE": "split",
+     "CROW_PINNED_ALLOC": "host",
+     "CROW_GLM_PREFETCH": "1",
+     "CROW_GLM_PREFETCH_SIDE": "1",
+     "CROW_GLM_SHARED_OVERLAP": "1",
+     "CROW_GLM_HCFUSE": "1",
+     "CROW_GLM_DENSE_GEMM": "1",
+     "CROW_CHUNK": "8192",
+     "CROW_GLM_STAGE_OVERLAP": "1",
+     "CROW_GLM_MOE_TC": "2",
+     "CROW_GLM_ATTN2": "1",
+     "CROW_GLM_PREFILL_NVPF": "1",
+     "CROW_GLM_RT2": "1",
+     "CROW_GLM_ARENA_FREQ": "1",
+     "CROW_GLM_ARENA_REGROW": "1",
+     "CROW_GLM_EMBED_GATHER": "1",
+     "CROW_GLM_RT2_TABLE_SM": "1",
+     "CROW_GLM_SIDE_NOJOIN": "1",
+     "CROW_NVME_DEMAND_FIRST": "1",
+     "CROW_GLM_GUESS_TRIM": "1",
+     "CROW_GLM_ARENA_STAGE_LEND": "1",
+     "CROW_GLM_ARENA_LAZY_REFILL": "1",
+     "CROW_GLM_MUL1_FUSE": "1",
+     "CROW_GLM_ATTN_FUSE": "1",
+     "CROW_GLM_RT2_GATHER_EARLY": "1",
+     "CROW_GLM_ARENA_PROMPT_COUNT": "1",
+     "CROW_GLM_KV_LAZY": "4096",
+     "CROW_GLM_ARENA_WARM": "${MODELS}/GLM-5.3-Flash-MUL1K3/glm53-cal4-decode-counts.json"
+    },
+    "_env": "crow-nest runs/glm53-flash/quick/arm4.env at v0.12.0 (the operating set since 2026-10-11, owner decision), verbatim except CROW_GLM_ARENA_WARM, which arm4.env names in a lab worktree and which ships here as glm-arena-warm (byte-equal to runs/glm53-flash/arena-warm/glm53-cal4-decode-counts.json at v0.12.0). Needs crow-nest v0.12.0 or later (#214 CROW_GLM_KV_LAZY, #216): engine asset crow-nest-engine-0.12.0-win-x64.zip, 4,518,677 B, sha256 e22443e624105f8741831963d91ac350de30c5b5d8be0a705685f062c7fe0c29. Measured on local main 2a18fbc, which v0.12.0 contains.",
+    "env_engine_default": {
+     "CROW_LOCK": "not set: the engine default; crow-nest#131 moves the lock to a per-user state dir"
+    },
+    "argv": [
+     "--port",
+     "8099",
+     "--slot-save-path",
+     "${INSTALL}/session"
+    ],
+    "dirs": [
+     "${INSTALL}/session"
+    ],
+    "port": 8099,
+    "context": 200000,
+    "_context": "crow-nest docs/env.md CROW_CONTEXT: the glm5_next floor 200,000 is its default; measured at 200,000 in the Crow window 2026-10-11 (#365)",
+    "readiness": {
+     "method": "GET",
+     "path": "/health",
+     "status": 200,
+     "json": {
+      "status": "ok"
+     }
+    },
+    "identity": {
+     "method": "GET",
+     "path": "/props",
+     "field": "model_path",
+     "endswith": "GLM-5.3-Flash-MUL1K3.cnq",
+     "vision": false
+    }
+   },
+   "image_server": null,
+   "crow_env": {},
+   "preflight": {
+    "gpu": {
+     "arch": "blackwell",
+     "sm": "sm_120",
+     "_source": "crow-nest docs/getting-started.md:18-19: the FP4 path builds for compute_120a; the Ampere/Ada fallback is not planned (crow-nest #12). Measured on one RTX 5090, 32,607 MiB."
+    },
+    "host_ram": {
+     "pinned_max_gib": 46,
+     "_source": "crow-nest docs/glm5-model.md:194-195: HOST_PINNED_CAP 46 GiB; 124 x 42 x 9,474,048 B = 45.95 GiB pinned on the RTX 5090 of record, a 64 GB host. The original FP8 weights are not needed at runtime."
+    },
+    "disk_bytes": 124611919069
    }
   },
   {

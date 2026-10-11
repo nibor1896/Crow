@@ -24,7 +24,7 @@ pub fn main(steps: &mut dyn Steps, opts: &RunOptions, sel: Option<Selection>) ->
         Outcome::Fatal(_) => 1,
         Outcome::Quit => {
             if !printer.planned {
-                println!("Nothing to continue. Pass --points (flash-next, 27b, image-stack, media-stack).");
+                println!("Nothing to continue. Pass --points (flash-next, 27b, glm53-flash, image-stack, media-stack).");
             }
             2
         }

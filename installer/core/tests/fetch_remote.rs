@@ -494,3 +494,18 @@ fn an_already_verified_file_returns_without_network() {
     assert!(!ev.iter().any(|e| matches!(e, Event::FileStarted { .. })));
     assert!(srv.seen().is_empty(), "no request");
 }
+
+#[test]
+fn an_upload_pending_file_is_refused_by_name_without_a_request() {
+    // #365: plan.rs leaves an upload-pending file's url empty; a download names it
+    // and points at --source instead of asking a server for "".
+    let content = data(1_000, 7);
+    let tmp = tempfile::tempdir().unwrap();
+    let dest = tmp.path().join("models").join("glm.cnq");
+    let job = job("glm-cnq", "", &dest, &content);
+    let mut st = store(tmp.path());
+    let (r, _) = run(&job, &mut st, &opts(Source::Remote));
+    let err = r.unwrap_err().to_string();
+    assert!(err.contains("glm-cnq is not published yet") && err.contains("--source"), "{err}");
+    assert!(!dest.exists());
+}
