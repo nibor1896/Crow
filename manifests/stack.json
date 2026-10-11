@@ -16,13 +16,13 @@
  },
  "_engine_package": "The crow-nest engine package this Crow version is built and tested against (#367). CrowSetup installs it on a fresh install (its packages.json is written by installer/build.ps1 from the same asset); Crow's About pane compares ${INSTALL}/bin/serve against serve_sha256 and offers to fetch exactly url, checked against bytes and sha256, then every file against the MANIFEST.json inside the zip. The package carries no version (installer/core/src/layout.rs), so serve's sha256 is the identity of an installed engine. serve_sha256 is the serve.exe entry of that MANIFEST.json. Windows only: crow-nest v0.12.0 publishes no Linux engine asset.",
  "engine_package": {
-  "version": "0.12.0",
+  "version": "0.13.0",
   "windows": {
-   "asset": "crow-nest-engine-0.12.0-win-x64.zip",
-   "url": "https://github.com/nibor1896/crow-nest/releases/download/v0.12.0/crow-nest-engine-0.12.0-win-x64.zip",
-   "bytes": 4518677,
-   "sha256": "e22443e624105f8741831963d91ac350de30c5b5d8be0a705685f062c7fe0c29",
-   "serve_sha256": "670a93f9101d3896b4f70df5e9bae88e90df68bb422fc429e37320d297196200"
+   "asset": "crow-nest-engine-0.13.0-win-x64.zip",
+   "url": "https://github.com/nibor1896/crow-nest/releases/download/v0.13.0/crow-nest-engine-0.13.0-win-x64.zip",
+   "bytes": 4526571,
+   "sha256": "4b3d2e4b33be78e54d5aa2b5622996cd53d22b8f7c38a6e560a54272d1b285a8",
+   "serve_sha256": "7d73f8de681bed915bfd02242a7e618428ca22136898d7e4ed6677038dfd8cd3"
   }
  },
  "licenses": {
@@ -1177,9 +1177,12 @@
      "CROW_GLM_RT2_GATHER_EARLY": "1",
      "CROW_GLM_ARENA_PROMPT_COUNT": "1",
      "CROW_GLM_KV_LAZY": "4096",
+     "CROW_GLM_SMALL_PROMPT": "1",
+     "CROW_GLM_ANSWER_REUSE": "1",
+     "CROW_GLM_PREFIX_ANCHOR": "1",
      "CROW_GLM_ARENA_WARM": "${MODELS}/GLM-5.3-Flash-MUL1K3/glm53-cal4-decode-counts.json"
     },
-    "_env": "crow-nest runs/glm53-flash/quick/arm4.env at v0.12.0 (the operating set since 2026-10-11, owner decision), verbatim except CROW_GLM_ARENA_WARM, which arm4.env names in a lab worktree and which ships here as glm-arena-warm (byte-equal to runs/glm53-flash/arena-warm/glm53-cal4-decode-counts.json at v0.12.0). Needs crow-nest v0.12.0 or later (#214 CROW_GLM_KV_LAZY, #216): engine asset crow-nest-engine-0.12.0-win-x64.zip, 4,518,677 B, sha256 e22443e624105f8741831963d91ac350de30c5b5d8be0a705685f062c7fe0c29. Measured on local main 2a18fbc, which v0.12.0 contains.",
+    "_env": "crow-nest runs/glm53-flash/quick/arm4.env at v0.12.0 (the operating set since 2026-10-11, owner decision), verbatim except CROW_GLM_ARENA_WARM, which arm4.env names in a lab worktree and which ships here as glm-arena-warm (byte-equal to runs/glm53-flash/arena-warm/glm53-cal4-decode-counts.json at v0.12.0). Needs crow-nest v0.12.0 or later (#214 CROW_GLM_KV_LAZY, #216): engine asset crow-nest-engine-0.12.0-win-x64.zip, 4,518,677 B, sha256 e22443e624105f8741831963d91ac350de30c5b5d8be0a705685f062c7fe0c29. Measured on local main 2a18fbc, which v0.12.0 contains. Plus CROW_GLM_SMALL_PROMPT=1, CROW_GLM_ANSWER_REUSE=1 and CROW_GLM_PREFIX_ANCHOR=1 (crow-nest #216, #219, #217; default off in the engine, not in arm4.env), owner decision of 2026-10-12 after his live check: installed v0.12.0 serve in the Crow window, one task of 3 rounds, [cache] LIVE every round, prefill 55 / 154 / 86 new tokens in 2,680.8 / 4,539.0 / 3,105.1 ms (10.3 s) against 4.7-7.2 s per round and 36.5 s for 6 rounds with the switches off, decode 14.03 tok/s, no hang. Engine pin crow-nest v0.13.0 (crow-nest-engine-0.13.0-win-x64.zip, 4,526,571 B, sha256 4b3d2e4b33be78e54d5aa2b5622996cd53d22b8f7c38a6e560a54272d1b285a8).",
     "env_engine_default": {
      "CROW_LOCK": "not set: the engine default; crow-nest#131 moves the lock to a per-user state dir"
     },

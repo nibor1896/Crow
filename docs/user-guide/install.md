@@ -408,7 +408,7 @@ so re-running the command at the top of this page by hand is the same update.
 That button updates Crow only; the crow-nest engine in `bin\` is the line below it (#367).
 `engine crow-nest: installed …, pinned …` compares the sha256 of `bin\serve.exe` with the
 engine this Crow version is pinned to (`manifests/stack.json` `engine_package`, crow-nest
-v0.12.0 for 3.3.x; the package carries no version, so its bytes are its identity). When they
+v0.12.0 for 3.3.x, v0.13.0 for 3.4.x; the package carries no version, so its bytes are its identity). When they
 differ, **update engine (crow-nest) to v…** appears:
 
 | step | what happens |
@@ -419,7 +419,7 @@ differ, **update engine (crow-nest) to v…** appears:
 | replace | each listed file is renamed to `<name>.bak-<first 8 hex of the old serve.exe's sha256>` and written new, `MANIFEST.json` last |
 | afterwards | start the point again. Crow itself needs no restart |
 
-Linux: crow-nest v0.12.0 publishes no Linux engine, so no engine is pinned there and the line
+Linux: crow-nest v0.13.0 publishes no Linux engine, so no engine is pinned there and the line
 says so.
 
 ---
