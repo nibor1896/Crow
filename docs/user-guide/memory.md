@@ -34,9 +34,26 @@ on. `prefix_fingerprint` hashes the system prompt, llama-server reuses a prompt 
 prefix, and the KV cache lives on disk, so a head re-read at every start would go stale against
 every saved cache. Binding a different folder re-pins and says what the prefill costs first.
 
+## Order: the same in every chat first, the folder's last (#364)
+
+| part of the system prompt | differs between chats? |
+|---|---|
+| base prompt (`--system`, `--language`) | no, per start |
+| machine line | no, per machine |
+| `USER PROFILE` | no, `USER.md` is global |
+| `SKILLS` | no, global |
+| working area | **yes**, per folder |
+| project `MEMORY` (or the "no working directory bound" line) | **yes**, per folder |
+| active goal | **yes**, per folder, always last |
+
+A server reuses a prompt by its longest common token prefix, so a new chat in another folder reuses
+everything above the working area. Measured offline on two stored chats in two folders (2026-10-11):
+GLM-5.3-Flash 6,052 → 6,357 shared tokens, Qwen3.8-Flash-Next 6,548 → 6,873. Existing chats keep
+their pinned head; the first new pin after the update is cold once.
+
 ## The machine line (#270)
 
-The head opens with the working area, then one line of static machine facts — OS, CPU, RAM, GPU name and total
+The head opens with one line of static machine facts — OS, CPU, RAM, GPU name and total
 VRAM, probed once per process (`crow_platform.machine_facts`) — and the rule that a tool's limit is not the
 machine's. Never free memory or anything that moves: the head follows the fixed base prompt, so an unchanged head keeps the cached prefix. Existing chats keep their pinned
 head; a new chat, a folder change or a rollover pins the new one.

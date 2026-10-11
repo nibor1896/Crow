@@ -5,6 +5,10 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+### Changed
+
+- **New chats in different folders share more of the server's prompt cache** (#364, 2026-10-11). The system prompt now carries what is the same in every chat first (machine line, user profile, skills) and the folder's parts last (working area, project memory, goal). Before, the working area sat at char 363, so two chats in two folders shared only the tool block and the base prompt. Measured offline on the two stored G5 chats (t1/t2, 2026-10-11), each rendered with its model's chat template and tokenizer: shared prefix GLM-5.3-Flash 6,052 → 6,357 tokens (the engine counted 6,043 before), Qwen3.8-Flash-Next 6,548 → 6,873. Not measured on a live server yet. Existing chats keep their pinned head; the first new chat, folder change or rollover after the update pins the new order and is cold once.
+
 ## 3.2.9 — 2026-10-07
 
 **CrowSetup fetches Flash-Next's default hot set from Crow's own Hugging Face repo, and two blind measurements decided against changing the picture and clip tools.** CrowSetup still installs engine v0.9.5. Windows assets only, as for v3.2.x.
