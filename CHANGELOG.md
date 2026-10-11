@@ -5,6 +5,20 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 3.4.0 — 2026-10-12
+
+**GLM-5.3-Flash reuses the server's prompt state across tool rounds and chats, CrowSetup installs crow-nest engine v0.13.0, and the turn line names how long prefill took.** Windows assets only, as for v3.3.x.
+
+### Changed
+
+- **The GLM-5.3-Flash point reuses the prompt state across tool rounds and chats** (`94e2556`, 2026-10-12, owner decision). The `glm53-flash` point in `manifests/stack.json` adds `CROW_GLM_SMALL_PROMPT=1`, `CROW_GLM_ANSWER_REUSE=1` and `CROW_GLM_PREFIX_ANCHOR=1` (crow-nest #216, #219, #217; default off in the engine) to the `arm4.env` set. The owner's live check of 2026-10-12 with the three switches on the installed engine v0.12.0, in the Crow window, one task of 3 rounds: `[cache] LIVE` every round, prefill 55 / 154 / 86 new tokens in 2,680.8 / 4,539.0 / 3,105.1 ms (10.3 s in total), against 4.7 to 7.2 s per round and 36.5 s for 6 rounds in the task before with the switches off; decode 14.03 tok/s; no hang (n = 1 task).
+- **Crow is pinned to crow-nest engine v0.13.0** (`94e2556`, 2026-10-12). `manifests/stack.json` `engine_package` names `crow-nest-engine-0.13.0-win-x64.zip` (4,526,571 B, sha256 `4b3d2e4b…`, `serve.exe` sha256 `7d73f8de…`); CrowSetup installs it, and Settings → About offers it to an install on an older engine (#367). The engine's GLM reasoning box closes on the `</think>` token id instead of its text (crow-nest #221), and serve logs the generated ids of every request at INFO (crow-nest #223).
+- **Version 3.4.0** in `cli/crow_core.py`, `install.ps1` and `manifests/operating-point.json`; the README image's version pill.
+
+### Fixed
+
+- **The turn line names how long prefill took** (#370, 2026-10-12). It showed prefill only as a rate, so the owner's 3-round GLM task read `prefill 295 @ 28.57 tok/s`, which looked like a broken prefill; the 10.3 s it took were not on the line. It now reads `prefill 295 tok in 10.3s @ 28.57 tok/s`; the rest of the line is unchanged.
+
 ## 3.3.1 — 2026-10-11
 
 **The window leaves the GPU to the local engine on Windows, and Crow updates the crow-nest engine from Settings → About.** Windows assets only, as for v3.3.0. CrowSetup still installs engine v0.12.0.

@@ -375,11 +375,11 @@ class EnginePackage(Base):
 
     def test_url_elsewhere_refused(self):
         self.doc["engine_package"]["windows"]["url"] = "https://example.com/crow-nest-engine-0.12.0-win-x64.zip"
-        self.red("engine package", "is not https://github.com/nibor1896/crow-nest/releases/download/v0.12.0/")
+        self.red("engine package", "is not https://github.com/nibor1896/crow-nest/releases/download/v0.13.0/")
 
     def test_url_of_another_version_refused(self):
-        self.doc["engine_package"]["version"] = "0.13.0"
-        self.red("engine package", "asset 'crow-nest-engine-0.12.0-win-x64.zip' is not version 0.13.0")
+        self.doc["engine_package"]["version"] = "0.14.0"
+        self.red("engine package", "asset 'crow-nest-engine-0.13.0-win-x64.zip' is not version 0.14.0")
 
     def test_bad_serve_sha(self):
         self.doc["engine_package"]["windows"]["serve_sha256"] = "670A93F9"
@@ -387,9 +387,9 @@ class EnginePackage(Base):
 
     def test_real_pin(self):
         e = REAL["engine_package"]
-        self.assertEqual(e["version"], "0.12.0")
-        self.assertEqual(e["windows"]["bytes"], 4518677)
-        self.assertEqual(e["windows"]["sha256"], "e22443e624105f8741831963d91ac350de30c5b5d8be0a705685f062c7fe0c29")
+        self.assertEqual(e["version"], "0.13.0")
+        self.assertEqual(e["windows"]["bytes"], 4526571)
+        self.assertEqual(e["windows"]["sha256"], "4b3d2e4b33be78e54d5aa2b5622996cd53d22b8f7c38a6e560a54272d1b285a8")
 
 
 class CrowFiles(Base):

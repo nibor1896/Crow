@@ -179,7 +179,7 @@ Flash-Next and the 27B. It overrides crow-nest#151's rule of no manifest entry b
 | Model | [zai-org/GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash) @ `eb9eb208`, MIT |
 | Container | `GLM-5.3-Flash-MUL1K3.cnq`, 124,591,634,567 B (116 GiB), 3.05-bit MUL1 experts from the original FP8; the FP8 original is not needed at runtime |
 | Engine | crow-nest `serve` v0.12.0 or later (glm5_next path, expert tiers over VRAM, pinned host RAM and NVMe) |
-| Environment | crow-nest `runs/glm53-flash/quick/arm4.env`, carried in `manifests/stack.json` point `glm53-flash` |
+| Environment | crow-nest `runs/glm53-flash/quick/arm4.env` plus `CROW_GLM_SMALL_PROMPT=1`, `CROW_GLM_ANSWER_REUSE=1`, `CROW_GLM_PREFIX_ANCHOR=1` (owner decision 2026-10-12 after his live check: one 3-round task prefilled 55 / 154 / 86 new tokens in 10.3 s with `[cache] LIVE` every round, against 4.7-7.2 s per round with the switches off; decode 14.03 tok/s; n = 1, installed engine v0.12.0), carried in `manifests/stack.json` point `glm53-flash` |
 | Context | 200,000 (the glm5_next floor, its default) |
 | Hardware | RTX 5090 (32 GB VRAM), 64 GB host RAM (up to 46 GiB pinned) |
 | Sampling | temperature 1.0 / top_p 0.95 from GLM's `generation_config.json`; min_p 0.01 from Crow's shared row; top_k not sent |

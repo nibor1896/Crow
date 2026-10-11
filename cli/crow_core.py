@@ -85,7 +85,7 @@ import crow_platform
 # column 0. Until #187 it stood in cli/crow.py, which handed it over on import;
 # an installation older than this change still carries it there, and that is
 # the only reason the installers look in crow.py at all.
-VERSION = "3.3.1"
+VERSION = "3.4.0"
 
 # The name every reader has used since the split: the session file's `version`
 # field, the User-Agents and the update notice. It used to be "" until the
@@ -7624,7 +7624,11 @@ class TurnCost:
             bits.append(f"{self.decoded:,} tok" + (f" @ {rate:.2f} tok/s" if rate else ""))
         if self.prefilled:
             rate = self.prefilled / self.prefill_s if self.prefill_s > 0 else None
-            bits.append(f"prefill {self.prefilled:,}" + (f" @ {rate:.2f} tok/s" if rate else ""))
+            # #370: the seconds, not only the rate. A tool round that prefills 55 new tokens in
+            # 2.7 s is a fixed per-call cost, and `prefill 295 @ 28.57 tok/s` alone read as a
+            # broken prefill (the owner, 2026-10-12). llama.cpp logs duration, count and rate together.
+            took = f" in {format_clock(self.prefill_s)}" if self.prefill_s > 0 else ""
+            bits.append(f"prefill {self.prefilled:,} tok{took}" + (f" @ {rate:.2f} tok/s" if rate else ""))
         if self.cached is not None:
             bits.append(f"cached {self.cached:,}/{self.cached_of:,}")
         if self.tool_calls:
