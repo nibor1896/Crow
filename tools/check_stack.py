@@ -40,6 +40,9 @@ OFFLINE (the default, no network):
                    A licence may name no text_file only when its text_dest is
                    exactly the dest of dist-info members of nvidia_files under
                    that licence (the EULA text every NVIDIA wheel carries);
+  * engine package - #367: the crow-nest engine this Crow is pinned to: a
+                   release number, per platform asset, bytes, sha256 and
+                   serve_sha256, the url exactly crow-nest's release asset;
   * crow files   - the Crow-wide group (crow_files: the dictation model) has every
                    field, a pinned 40-hex revision, a status of published or
                    upstream, a dest under ${INSTALL}/ that no other file uses, and
@@ -101,6 +104,8 @@ SOURCE_FIELDS = ("host", "repo", "path", "revision", "bytes", "sha256", "license
 HOSTS = ("huggingface", "github", "github-release")
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
+ENGINE_PACKAGE_FIELDS = ("asset", "url", "bytes", "sha256", "serve_sha256")
+ENGINE_RELEASE_URL = "https://github.com/nibor1896/crow-nest/releases/download/v%s/%s"
 REPO_ID = re.compile(r"^[A-Za-z0-9][\w.-]*/[\w.-]+$")
 PLACEHOLDER = re.compile(r"\$\{([^}]*)\}")
 PATH_ROOTS = ("${INSTALL}/", "${MODELS}/")
@@ -475,6 +480,11 @@ def check_paths(doc) -> "list[str]":
         low = s.lower()
         if where.endswith("/repo") and REPO_ID.fullmatch(s):
             low = low.split("/", 1)[1]
+        # #367: the engine pin's url names crow-nest's public GitHub owner, the
+        # same as a repo id above (#343); what follows the owner is still checked.
+        if (where.startswith("/engine_package/") and where.endswith("/url")
+                and low.startswith("https://github.com/")):
+            low = low[len("https://github.com/"):].split("/", 1)[-1]
         for n in names:
             if re.search(r"(?<![a-z0-9])%s(?![a-z0-9])" % re.escape(n), low):
                 p.append("%s: names the user %r" % (where, n))
@@ -787,6 +797,39 @@ def check_platforms(doc) -> "list[str]":
     return p
 
 
+def check_engine_package(doc) -> "list[str]":
+    """#367: the crow-nest engine this Crow is pinned to. Crow's About pane
+    downloads exactly `url` and nothing else, so the url must be the release
+    asset of `version` on crow-nest's GitHub, and every sum a real sha256."""
+    pkg = doc.get("engine_package")
+    if not isinstance(pkg, dict):
+        return ["engine_package missing (the crow-nest engine this Crow is pinned to)"]
+    p = []
+    version = pkg.get("version")
+    if not isinstance(version, str) or not re.match(r"^\d+\.\d+\.\d+$", version):
+        p.append("engine_package version %r is not a release number" % (version,))
+    platforms = [k for k in pkg if k in ("windows", "linux")]
+    if not platforms:
+        p.append("engine_package names no platform")
+    for plat in platforms:
+        e = pkg[plat]
+        missing = [k for k in ENGINE_PACKAGE_FIELDS if not isinstance(e, dict) or k not in e]
+        if missing:
+            p.append("engine_package %s lacks %s" % (plat, ", ".join(missing)))
+            continue
+        want = ENGINE_RELEASE_URL % (version, e["asset"])
+        if e["url"] != want:
+            p.append("engine_package %s url %r is not %s" % (plat, e["url"], want))
+        if not str(e["asset"]).startswith("crow-nest-engine-%s-" % version):
+            p.append("engine_package %s asset %r is not version %s" % (plat, e["asset"], version))
+        if not isinstance(e["bytes"], int) or isinstance(e["bytes"], bool) or e["bytes"] <= 0:
+            p.append("engine_package %s bytes %r is not a positive integer" % (plat, e["bytes"]))
+        for key in ("sha256", "serve_sha256"):
+            if not isinstance(e[key], str) or not HEX64.match(e[key]):
+                p.append("engine_package %s %s is not 64 lowercase hex" % (plat, key))
+    return p
+
+
 def check_crow_files(doc) -> "list[str]":
     group = doc.get("crow_files")
     if not isinstance(group, list) or not group:
@@ -1096,6 +1139,9 @@ def run(doc, online=False) -> Report:
     crow_problems = check_crow_files(doc)
     r.check("crow files", crow_problems, "%d files %s B, dictation in %s"
             % (len(crow), format(sum(f.get("bytes") or 0 for f in crow), ","), WHISPER_DIR))
+    eng = doc.get("engine_package") if isinstance(doc.get("engine_package"), dict) else {}
+    r.check("engine package", check_engine_package(doc), "crow-nest v%s for %s"
+            % (eng.get("version"), "/".join(k for k in eng if k in ("windows", "linux")) or "none"))
     wheels = [w for w in doc.get("nvidia_files") or [] if isinstance(w, dict)]
     r.check("nvidia files", check_nvidia_files(doc), "%d wheels from PyPI, %d members"
             % (len(wheels), sum(len(w.get("extract") or []) for w in wheels)))

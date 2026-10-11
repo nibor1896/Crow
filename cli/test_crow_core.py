@@ -29874,3 +29874,165 @@ class TheGlmOperatingPointPairsAndKeepsTheMeasuredRequestTests(unittest.TestCase
 
     def test_it_is_an_active_point(self):
         self.assertEqual(crow_core.ACTIVE_POINTS[:3], ("flash-next", "27b", "glm53-flash"))
+
+
+
+class TheEngineFollowsItsPinTests(unittest.TestCase):
+    """#367, 2026-10-11: robin's install ran Crow 3.3.0 (needs crow-nest
+    v0.12.0) on the engine CrowSetup wrote on 2026-10-06, and nothing in Crow
+    said so or could change it. The pin is stack.json `engine_package`; serve's
+    sha256 is the installed engine's identity (the package carries no version).
+    """
+
+    OLD = b"old serve 0.11"
+    NEW = b"new serve 0.12"
+    URL = ("https://github.com/nibor1896/crow-nest/releases/download/"
+           "v0.12.0/crow-nest-engine-0.12.0-win-x64.zip")
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="crow-engine-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.install = os.path.join(self.root, "Crow")
+        self.bin = os.path.join(self.install, "bin")
+        os.makedirs(self.bin)
+        self.serve = "serve.exe" if crow_core.crow_platform.IS_WINDOWS else "serve"
+        with open(os.path.join(self.bin, self.serve), "wb") as fh:
+            fh.write(self.OLD)
+        with open(os.path.join(self.bin, "MANIFEST.json"), "w") as fh:
+            fh.write("old manifest")
+        self.zip = self.package({self.serve: self.NEW, "LICENSE": b"licence"})
+        self.stack = self.pin(self.zip)
+        self.fetched = []
+
+    def package(self, files, manifest=None, extra=None):
+        import zipfile
+        path = os.path.join(self.root, "pkg-%d.zip" % len(os.listdir(self.root)))
+        entries = manifest if manifest is not None else [
+            {"path": n, "bytes": len(d), "sha256": hashlib.sha256(d).hexdigest().upper()}
+            for n, d in files.items()]
+        with zipfile.ZipFile(path, "w") as z:
+            for name, data in {**files, **(extra or {})}.items():
+                z.writestr(name, data)
+            z.writestr("MANIFEST.json", "﻿" + json.dumps(entries))
+        return path
+
+    def pin(self, zip_path, serve=None):
+        with open(zip_path, "rb") as fh:
+            data = fh.read()
+        entry = {"asset": "crow-nest-engine-0.12.0-win-x64.zip", "url": self.URL,
+                 "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                 "serve_sha256": hashlib.sha256(serve or self.NEW).hexdigest()}
+        path = os.path.join(self.root, "stack.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"engine_package": {"version": "0.12.0", "windows": entry,
+                                          "linux": entry}}, fh)
+        return path
+
+    def fetch(self, zip_path):
+        def run(url):
+            self.fetched.append(url)
+            copy_ = os.path.join(self.root, "download.zip")
+            shutil.copyfile(zip_path, copy_)
+            return copy_
+        return run
+
+    def update(self, zip_path=None, servers=lambda: ""):
+        return crow_core.update_engine(install=self.install, stack_path=self.stack,
+                                       fetch=self.fetch(zip_path or self.zip),
+                                       servers=servers)
+
+    def read(self, name):
+        with open(os.path.join(self.bin, name), "rb") as fh:
+            return fh.read()
+
+    def test_the_shipped_pin_is_crow_nest_0_12_0(self):
+        pin = crow_core.engine_pin()
+        if not crow_core.crow_platform.IS_WINDOWS:
+            self.assertIsNone(pin, "v0.12.0 publishes no Linux engine")
+            return
+        self.assertEqual(pin["version"], "0.12.0")
+        self.assertEqual(pin["sha256"], "e22443e624105f8741831963d91ac350de30c5b5d8be0a705685f062c7fe0c29")
+        self.assertEqual(pin["serve_sha256"], "670a93f9101d3896b4f70df5e9bae88e90df68bb422fc429e37320d297196200")
+
+    def test_an_older_engine_is_reported_and_offered(self):
+        state = crow_core.engine_state(self.install, self.stack)
+        self.assertEqual(state["pinned"], "0.12.0")
+        self.assertFalse(state["current"])
+        self.assertTrue(state["offer"])
+        self.assertEqual(state["installed"],
+                         "other (%s)" % hashlib.sha256(self.OLD).hexdigest()[:8])
+
+    def test_the_pinned_engine_is_current_and_offers_nothing(self):
+        with open(os.path.join(self.bin, self.serve), "wb") as fh:
+            fh.write(self.NEW)
+        state = crow_core.engine_state(self.install, self.stack)
+        self.assertEqual((state["installed"], state["current"], state["offer"]),
+                         ("0.12.0", True, False))
+        self.assertIn("already installed", self.update())
+        self.assertEqual(self.fetched, [], "a current engine was downloaded again")
+
+    def test_the_update_replaces_the_listed_files_and_keeps_the_old_ones(self):
+        said = self.update()
+        old8 = hashlib.sha256(self.OLD).hexdigest()[:8]
+        self.assertEqual(self.fetched, [self.URL])
+        self.assertEqual(self.read(self.serve), self.NEW)
+        self.assertEqual(self.read("LICENSE"), b"licence")
+        self.assertEqual(self.read("%s.bak-%s" % (self.serve, old8)), self.OLD)
+        self.assertEqual(self.read("MANIFEST.json.bak-%s" % old8), b"old manifest")
+        self.assertIn(b'"path"', self.read("MANIFEST.json"))
+        self.assertTrue(crow_core.engine_state(self.install, self.stack)["current"])
+        self.assertIn("v0.12.0 installed", said)
+
+    def test_a_running_serve_from_bin_stops_the_update(self):
+        line = "%s\t\"%s\" --port 8099" % ("4242", os.path.join(self.bin, self.serve))
+        with self.assertRaisesRegex(RuntimeError, "running \\(pid 4242\\)"):
+            self.update(servers=lambda: line)
+        self.assertEqual(self.fetched, [])
+        self.assertEqual(self.read(self.serve), self.OLD)
+
+    def test_a_serve_elsewhere_does_not_stop_it(self):
+        line = "77\t\"%s\" --port 8099" % os.path.join(self.root, "lab", self.serve)
+        self.update(servers=lambda: line)
+        self.assertEqual(self.read(self.serve), self.NEW)
+
+    def test_a_download_that_is_not_the_pin_changes_nothing(self):
+        other = self.package({self.serve: b"tampered", "LICENSE": b"licence"})
+        with self.assertRaisesRegex(RuntimeError, "not the pinned package"):
+            self.update(other)
+        self.assertEqual(self.read(self.serve), self.OLD)
+        self.assertEqual(sorted(os.listdir(self.bin)), sorted([self.serve, "MANIFEST.json"]))
+
+    def test_a_member_off_its_manifest_changes_nothing(self):
+        bad = self.package({self.serve: self.NEW, "LICENSE": b"licence"},
+                           manifest=[{"path": self.serve, "bytes": len(self.NEW),
+                                      "sha256": hashlib.sha256(self.NEW).hexdigest()},
+                                     {"path": "LICENSE", "bytes": 7, "sha256": "0" * 64}])
+        self.stack = self.pin(bad)
+        with self.assertRaisesRegex(RuntimeError, "does not match MANIFEST.json: LICENSE"):
+            self.update(bad)
+        self.assertEqual(self.read(self.serve), self.OLD)
+
+    def test_an_unlisted_member_or_a_path_is_refused(self):
+        bad = self.package({self.serve: self.NEW}, extra={"x.dll": b"x"})
+        self.stack = self.pin(bad)
+        with self.assertRaisesRegex(RuntimeError, "not listed in MANIFEST.json: x.dll"):
+            self.update(bad)
+        evil = self.package({self.serve: self.NEW},
+                            manifest=[{"path": "../evil", "bytes": 1, "sha256": "0" * 64}])
+        self.stack = self.pin(evil)
+        with self.assertRaisesRegex(RuntimeError, "unsafe path"):
+            self.update(evil)
+        self.assertEqual(self.read(self.serve), self.OLD)
+
+    def test_a_url_off_crow_nest_releases_is_no_pin(self):
+        with open(self.stack, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        for plat in ("windows", "linux"):
+            doc["engine_package"][plat]["url"] = "https://example.com/engine.zip"
+        with open(self.stack, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        self.assertIsNone(crow_core.engine_pin(self.stack))
+        self.assertFalse(crow_core.engine_state(self.install, self.stack)["offer"])
+        with self.assertRaisesRegex(RuntimeError, "pins no engine"):
+            self.update()
+        self.assertEqual(self.fetched, [])
