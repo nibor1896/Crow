@@ -5214,7 +5214,7 @@ ENGINE_STACK = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             os.pardir, "manifests", "stack.json")
 # The ONE place a download may come from. A pin naming anything else is no pin.
 ENGINE_RELEASES = "https://github.com/nibor1896/crow-nest/releases/download/"
-# #367, robin 2026-10-12: the engine entry asks crow-nest's GitHub for its newest
+# #367, the owner 2026-10-12: the engine entry asks crow-nest's GitHub for its newest
 # release exactly as Crow's own entry asks Crow's (RELEASES_API).
 ENGINE_RELEASES_API = "https://api.github.com/repos/nibor1896/crow-nest/releases/latest"
 # Written into bin by an update: which version those bytes are. serve has no

@@ -3644,7 +3644,7 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
           <p class="about">CROW <span id="aboutver"></span></p>
           <p class="mcpsaid" id="updsaid"></p>
           <button id="updbtn" hidden onclick="crow.updateRun()"></button>
-          <!-- #367, robin 2026-10-12: the crow-nest engine in bin, shown and
+          <!-- #367, the owner 2026-10-12: the crow-nest engine in bin, shown and
                updated the same way as Crow above: its version, crow-nest's
                newest release on github.com, install or reinstall. -->
           <p class="about">CROW-NEST <span id="engver"></span></p>
@@ -6427,7 +6427,7 @@ const crow = {
     $("#updsaid").textContent=e.t;
     if(e.done){ $("#updbtn").hidden=true; } },
 
-  // #367, robin 2026-10-12: the engine entry is Crow's entry again, for
+  // #367, the owner 2026-10-12: the engine entry is Crow's entry again, for
   // crow-nest: the installed version as the heading, the newest release from
   // github.com, and the button either way (install / reinstall).
   engineShow(s, keepSaid){
