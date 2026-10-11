@@ -133,6 +133,37 @@ def webview_start_kwargs() -> dict:
             "storage_path": os.path.join(state_dir(), "webview")}
 
 
+# #368. THE WINDOW RENDERS WITHOUT THE GPU. The WebView2 loader reads this
+# variable when it creates an environment and APPENDS it to the arguments
+# pywebview passes (learn.microsoft.com, CreateCoreWebView2EnvironmentWithOptions).
+WEBVIEW2_ARGS_ENV = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
+WEBVIEW2_NO_GPU = "--disable-gpu --disable-gpu-compositing"
+
+
+def webview_without_gpu(environ=None) -> None:
+    """#368: before `import webview`, in every process that opens a window.
+
+    The window renders without the GPU so WebView2 does not time-slice the
+    card with the local engine's CUDA kernels (GLM-5.3-Flash in the window:
+    14.17 tok/s with the flag, 7.6-8.3 without, 2026-10-11). An explicit
+    value in the environment is kept. Linux (WebKitGTK) is untouched."""
+    environ = os.environ if environ is None else environ
+    if IS_WINDOWS:
+        environ.setdefault(WEBVIEW2_ARGS_ENV, WEBVIEW2_NO_GPU)
+
+
+def browser_env(environ=None) -> dict:
+    """#368: the environment for render_page's own headless browser.
+
+    The window's WebView2 switch is not the render's: the render picks its GPU
+    or SwiftShader flags itself (#213/#293, `render_gpu_flags`), so the
+    variable the window set for its WebView2 is dropped here."""
+    env = dict(os.environ if environ is None else environ)
+    for key in [k for k in env if k.upper() == WEBVIEW2_ARGS_ENV]:
+        del env[key]
+    return env
+
+
 def cache_dir() -> str:
     """Throwaway: anything here may be deleted between two starts."""
     return _windows_base() if IS_WINDOWS else _xdg("XDG_CACHE_HOME", (".cache",))

@@ -21,6 +21,7 @@
 | temperature / top_p / min_p | `1.0` / `0.95` / `0.01` | the floor, written once in `cli/crow_core.py`. The manifest's shared block and the served model's entry override it: the two Qwen3.8-Flash-Next points send `min_p` 0.0, `top_k` 20, `presence_penalty` 0.0 ([thinking and sampling](../operating-points.md#thinking-and-sampling-per-point)) |
 | output cap | `16384` | `max_tokens` on every request, local and remote (`MAX_TOKENS`). No flag: `CROW_MAX_TOKENS` sets it once per process. It also sets how large a file one `write_file` carries ([tools](tools.md#write_file-and-append_file-244-251-252-254)) |
 | goal step budget | `60` min, `10` nudges | the window's goal engine. No flag: `CROW_GOAL_STEP_MINUTES` and `CROW_GOAL_NO_PROGRESS_TURNS` override the `goal_step_minutes` / `goal_no_progress_turns` settings; `0` switches one off ([settings](settings.md#294--goal-step-budget), #294) |
+| window rendering (Windows) | WebView2 without the GPU | no flag: the window and the operating-point window set `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--disable-gpu --disable-gpu-compositing` before they open, so the page does not share the card with the local engine (GLM-5.3-Flash: 7.6-7.9 tok/s decode without, 14.17 with, 2026-10-11, #368). A value already in the environment is kept. `render_page`'s own browser does not get it; it keeps its own GPU flags ([tools](tools.md)). Linux is unchanged |
 
 The retry cap needs no flag: the fourth identical failing call to an uncached tool is refused
 before it runs, always.

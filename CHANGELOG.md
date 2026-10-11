@@ -5,6 +5,22 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 3.3.1 — 2026-10-11
+
+**The window leaves the GPU to the local engine on Windows, and Crow updates the crow-nest engine from Settings → About.** Windows assets only, as for v3.3.0. CrowSetup still installs engine v0.12.0.
+
+### Added
+
+- **Crow updates the crow-nest engine from Settings → About** (#367, 2026-10-11). Before, only CrowSetup wrote `bin\`, on an install: an existing copy kept its engine, and the owner's ran Crow 3.3.0, which needs engine v0.12.0, on the engine of 2026-10-06 (`serve.exe` sha256 `314E306C…`). Nothing said so. About now shows `engine crow-nest: installed …, pinned v0.12.0` beside Crow's own version. The pin is the new `engine_package` in `manifests/stack.json`: asset, url, bytes, sha256 and `serve_sha256`; `tools/check_stack.py` checks it. When `bin\serve.exe` differs from the pin, **update engine (crow-nest) to v0.12.0** downloads only the pinned asset from crow-nest's GitHub release. It checks the size and sha256, then every file against the zip's `MANIFEST.json`, and keeps each replaced file as `*.bak-<old serve sha8>`. It refuses while a `serve` from `bin\` runs. Tested offline with fake packages (10 core and 5 window tests); not run live against GitHub yet. Windows only: v0.12.0 has no Linux engine asset.
+
+### Changed
+
+- **Version 3.3.1** in `cli/crow_core.py`, `install.ps1` and `manifests/operating-point.json`; the README image's version pill.
+
+### Fixed
+
+- **The window no longer shares the GPU with the local engine on Windows** (#368, 2026-10-11). The chat window and the operating-point window now start WebView2 with `--disable-gpu --disable-gpu-compositing` (through `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`; a value already set is kept). Measured with GLM-5.3-Flash on crow-nest, same serve config: the v3.3.0 window decoded 7.6 and 7.9 tok/s (engine.log 2026-10-11 20:54Z and 20:56Z), the same window with the switch 14.17 tok/s (turn t3, n = 1). `render_page`'s own headless browser does not inherit the switch and keeps its GPU/SwiftShader choice (#213, #293). The operating-point window's effect on decode and the browser panel's WebGL under the switch are not measured. Linux is unchanged.
+
 ## 3.3.0 — 2026-10-11
 
 **GLM-5.3-Flash on crow-nest is Crow's third operating point, CrowSetup installs engine v0.12.0, and new chats in different folders share more of the server's prompt cache.** Windows assets only, as for v3.2.x. The GLM-5.3-Flash container is still uploading: until it is published, CrowSetup installs that point from a local folder (`--source`) only.
