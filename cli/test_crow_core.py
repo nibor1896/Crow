@@ -30019,14 +30019,14 @@ class TheEngineFollowsItsPinTests(unittest.TestCase):
         with open(os.path.join(self.bin, name), "rb") as fh:
             return fh.read()
 
-    def test_the_shipped_pin_is_crow_nest_0_12_0(self):
+    def test_the_shipped_pin_is_crow_nest_0_13_0(self):
         pin = crow_core.engine_pin()
         if not crow_core.crow_platform.IS_WINDOWS:
-            self.assertIsNone(pin, "v0.12.0 publishes no Linux engine")
+            self.assertIsNone(pin, "v0.13.0 publishes no Linux engine")
             return
-        self.assertEqual(pin["version"], "0.12.0")
-        self.assertEqual(pin["sha256"], "e22443e624105f8741831963d91ac350de30c5b5d8be0a705685f062c7fe0c29")
-        self.assertEqual(pin["serve_sha256"], "670a93f9101d3896b4f70df5e9bae88e90df68bb422fc429e37320d297196200")
+        self.assertEqual(pin["version"], "0.13.0")
+        self.assertEqual(pin["sha256"], "4b3d2e4b33be78e54d5aa2b5622996cd53d22b8f7c38a6e560a54272d1b285a8")
+        self.assertEqual(pin["serve_sha256"], "7d73f8de681bed915bfd02242a7e618428ca22136898d7e4ed6677038dfd8cd3")
 
     def test_an_older_engine_is_reported_and_offered(self):
         state = crow_core.engine_state(self.install, self.stack)
