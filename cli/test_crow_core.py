@@ -24048,8 +24048,17 @@ class TurnCostTests(unittest.TestCase):
         # for the two rounds. Prefill: 10,020 / (150.19681 + 2.0034) s = 65.83, against 66.36 and
         # 26.46 per round -- the first round dominates because it carries 9,967 of the tokens.
         self.assertIn("252 tok @ 15.50 tok/s", line)
-        self.assertIn("prefill 10,020 @ 65.83 tok/s", line)
+        self.assertIn("prefill 10,020 tok in 2m32s @ 65.83 tok/s", line)
         self.assertNotIn("1.49", line)
+
+    def test_the_prefill_names_its_seconds(self):
+        """#370: robin's GLM task of 2026-10-12 (engine.log): 55 / 154 / 86 new tokens in
+        2,680.8 / 4,539.0 / 3,105.1 ms. The line printed only `prefill 295 @ 28.57 tok/s`, which read
+        as a broken prefill; the 10.3 s the user waited were not on it."""
+        cost = crow_core.TurnCost()
+        for n, ms in ((55, 2680.8), (154, 4539.0), (86, 3105.1)):
+            cost.add_round({"predicted_n": 10, "predicted_ms": 700.0, "prompt_n": n, "prompt_ms": ms})
+        self.assertIn("| prefill 295 tok in 10.3s @ 28.57 tok/s |", cost.line())
 
     def test_a_server_that_sends_only_rates_still_produces_one(self):
         """`*_ms` is llama.cpp's field. A server that reports the rate and not the duration must
@@ -24059,7 +24068,7 @@ class TurnCostTests(unittest.TestCase):
                         "prompt_n": 400, "prompt_per_second": 80.0})
         line = cost.line()
         self.assertIn("100 tok @ 20.00 tok/s", line)
-        self.assertIn("prefill 400 @ 80.00 tok/s", line)
+        self.assertIn("prefill 400 tok in 5.0s @ 80.00 tok/s", line)
 
     def test_cached_is_the_last_state_not_a_sum(self):
         """`cached` describes the prefix as it stands. Adding two rounds of it produces a number
