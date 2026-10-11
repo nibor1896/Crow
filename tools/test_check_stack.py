@@ -149,6 +149,13 @@ class UpstreamHosts(Base):
         f["host"], f["gated"] = "github", True
         self.red("schema", "gated only on host huggingface")
 
+    def test_the_upload_pending_container_is_green_and_null_pinned(self):
+        # #365: the GLM container is our own file before its upload.
+        self.assertEqual(file_(REAL, "glm-cnq")["status"], "upload-pending")
+        self.assertFalse(C.run(self.doc).failed)
+        file_(self.doc, "glm-cnq")["revision"] = "a" * 40
+        self.red("schema", "glm-cnq is upload-pending: revision and source must be null")
+
     def test_a_mirror_pending_file_takes_its_host_from_source(self):
         pending_hotset(self.doc)["host"] = "github"
         self.red("schema", "mirror-pending: the host is its source's")
@@ -481,6 +488,8 @@ class TheWindowsLine(Base):
         self.assertEqual({p["id"]: p["menu"]["gui"] for p in REAL["points"]}, {
             "flash-next": "200k context. Great for coding and vision.",
             "27b": "128k context. Great speed, coding and vision.",
+            # #365: written with the point, not yet approved by the owner.
+            "glm53-flash": "200k context. The big MoE, experts streamed from NVMe.",
             "image-stack": "27B with Qwen-Image 2.1. Create pictures.",
             "media-stack": "Qwen3.5-9B with Qwen-Image 2.1 and LTX-2.5. Create pictures and videos.",
         })

@@ -1,7 +1,7 @@
 """Hold manifests/stack.json to its own promises, offline; with --online, to Hugging Face.
 
 WHAT THE MANIFEST IS. The one machine-readable description of the three
-operating points (flash-next, 27b, image-stack) that the installer and the boot
+operating points (flash-next, 27b, glm53-flash, image-stack, media-stack) that the installer and the boot
 script consume: every file with a pinned revision, bytes and sha256, the engine
 env and argv, the ports, the readiness probe and the identity. A wrong number in
 it is a download that never verifies or a serve that boots the wrong model, on a
@@ -80,14 +80,18 @@ REPO = os.path.dirname(HERE)
 MANIFEST = os.path.join(REPO, "manifests", "stack.json")
 
 SCHEMA = "crow-stack/1"
-POINT_IDS = ("flash-next", "27b", "image-stack", "media-stack")
+POINT_IDS = ("flash-next", "27b", "glm53-flash", "image-stack", "media-stack")
 # engine.kind: crow-nest's serve (the default, a CNQ container in CROW_CNQ) or
 # llama.cpp's llama-server (a GGUF given with -m), #340.
 ENGINE_KINDS = ("serve", "llama-server")
 # A point's optional video server (#340): started by Crow on first use, never at
 # boot; its program lives in an unpacked runtime (runtime.<platform>.dir).
 VIDEO_FIELDS = ("binary", "argv", "port", "readiness", "runtime")
-STATUSES = ("published", "mirror-pending", "upstream")
+# upload-pending (#365): our own file, not yet in our repo and with no upstream
+# source; revision and source are null, bytes and sha256 are the local file's.
+# CrowSetup installs it from a local --source only, until the upload flips it
+# to published.
+STATUSES = ("published", "mirror-pending", "upload-pending", "upstream")
 PLACEHOLDERS = ("INSTALL", "MODELS")
 FILE_FIELDS = ("id", "repo", "path", "revision", "bytes", "sha256", "dest", "source",
                "status", "license", "role")
@@ -240,6 +244,11 @@ def check_schema(doc) -> "list[str]":
                 p.append("file %s (%s) needs a 40-hex commit revision" % (fid, f["status"]))
             if f["source"] is not None:
                 p.append("file %s (%s) carries a source; only mirror-pending does" % (fid, f["status"]))
+        elif f["status"] == "upload-pending":
+            if f["revision"] is not None or f["source"] is not None:
+                p.append("file %s is upload-pending: revision and source must be null until the upload" % fid)
+            if "host" in f:
+                p.append("file %s is upload-pending: it has no host until the upload" % fid)
         elif f["status"] == "mirror-pending":
             if f["revision"] is not None:
                 p.append("file %s is mirror-pending: revision must be null until the upload" % fid)
@@ -544,8 +553,9 @@ def point_sums(doc, pt) -> dict:
     s = {"published": 0, "mirror_pending": 0, "upstream": 0}
     for fid in pt["files"]:
         f = files[fid]
-        s[f["status"].replace("-", "_")] += f["bytes"]
-    s["files"] = s["published"] + s["mirror_pending"] + s["upstream"]
+        key = f["status"].replace("-", "_")
+        s[key] = s.get(key, 0) + f["bytes"]  # upload_pending only where a point has one
+    s["files"] = sum(v for k, v in s.items() if k in ("published", "mirror_pending", "upload_pending", "upstream"))
     s["derived"] = sum(derived[d]["bytes"] for d in pt["derived"])
     # #340: an unpacked runtime is produced on the machine like a derived file
     # (its archive is deleted afterwards; the peak holds both).
@@ -956,6 +966,19 @@ def check_online(doc, report: Report):
     for f in doc["files"]:
         problems = []
         try:
+            if f["status"] == "upload-pending":
+                try:
+                    ours = hub.measure(f["repo"], hub.head(f["repo"]), f["path"])
+                except LookupError:
+                    ours = None
+                if ours is None:
+                    report.note("%s is not in %s yet (upload-pending)" % (f["id"], f["repo"]))
+                elif ours == (f["bytes"], f["sha256"]):
+                    report.note("%s is in %s: flip it to published with the revision" % (f["id"], f["repo"]))
+                else:
+                    problems.append("%s at %s/%s differs from the manifest" % (f["id"], f["repo"], f["path"]))
+                report.check("online " + f["id"], problems, "%d B, upload-pending" % f["bytes"])
+                continue
             if f["status"] == "mirror-pending":
                 s = f["source"]
                 if s["host"] == "github":

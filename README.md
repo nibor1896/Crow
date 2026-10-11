@@ -41,6 +41,7 @@ irm https://raw.githubusercontent.com/nibor1896/Crow/main/install.ps1 | iex
 <p align="center"><sub>
 MIT · <a href="https://github.com/nibor1896/crow">nibor1896/crow</a> ·
 Model: <a href="https://huggingface.co/nibor1896/Qwen3.8-Flash-Next-CNQ4.5-M">Qwen3.8-Flash-Next CNQ4.5-M</a> (Qwen Community License 1.0) ·
+Model: <a href="https://huggingface.co/zai-org/GLM-5.3-Flash">GLM-5.3-Flash</a> (MIT) ·
 Engine: <a href="https://github.com/nibor1896/crow-nest">crow-nest</a> ·
 Images: <a href="https://huggingface.co/Qwen/Qwen-Image-2.1">Qwen-Image 2.1</a> (Qwen Research License, non-commercial) ·
 GGUF line: <a href="https://huggingface.co/unsloth">Unsloth</a>, <a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a>

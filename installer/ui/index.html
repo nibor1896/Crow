@@ -124,13 +124,14 @@ button.sec:hover{color:var(--soft)}
   var DESC = {
     'flash-next': '200k context. Needs 64 GB RAM.',
     '27b': '128k context. Great speed.',
+    'glm53-flash': '200k context. Needs 64 GB RAM. Local source only until the container is published.',
     'image-stack': '27B with Qwen-Image 2.1.',
     'media-stack': '9B with Qwen-Image 2.1 and LTX-2.5 video. Windows.'
   };
 
   var S = {
     init: null, info: null, report: null, phase: 'selection',
-    sel: { 'flash-next': true, '27b': true, 'image-stack': false, 'media-stack': false },
+    sel: { 'flash-next': true, '27b': true, 'glm53-flash': false, 'image-stack': false, 'media-stack': false },
     root: '', rootLabel: '%LOCALAPPDATA%\\Crow', free: null, optOpen: false,
     plan: null, jobs: {}, files: {}, steps: {}, started: false, paused: false,
     done: null, fatal: null, shortcutDir: null, shortcutLabel: 'Desktop'

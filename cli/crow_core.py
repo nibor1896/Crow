@@ -1952,7 +1952,7 @@ def crow_nest_ready(base_url: str, timeout: float = 2.0) -> bool:
     return isinstance(doc, dict) and doc.get("status") == "ok"
 
 
-ACTIVE_POINTS = ("flash-next", "27b", "image-stack", "media-stack")
+ACTIVE_POINTS = ("flash-next", "27b", "glm53-flash", "image-stack", "media-stack")
 ACTIVE_POINT_IMAGE = "image-stack"
 # #340: images and videos, one at a time on the card (use_mode).
 ACTIVE_POINT_MEDIA = "media-stack"

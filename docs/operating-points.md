@@ -2,7 +2,7 @@
 
 # Operating points
 
-An operating point is one model on one engine at one measured placement. Crow ships four of
+An operating point is one model on one engine at one measured placement. Crow ships five of
 them. The default is crow-nest, the Rust engine: it is started from its own repository and the
 window connects with `--base-url http://127.0.0.1:8099/v1`. The window boots the llama.cpp lines
 from its model menu — the lines below are what it builds, written out for a shell.
@@ -19,6 +19,7 @@ raw text. Editing a flag here without editing the manifest turns the checker red
 | Second, Windows | `Qwen3.8-Flash-Next-UD-Q2_K_XL` | 41.76 tok/s | 8083 | llama.cpp, local build |
 | Second, Linux | `Qwen3.8-Flash-Next-UD-Q2_K_XL` | 41.8 tok/s | 8083 | llama.cpp, built here |
 | Third | `Qwen3.8-27B-UD-Q4_K_XL` | 123.05 / 133.18 tok/s | 8082 | llama.cpp, packaged |
+| GLM-5.3-Flash, Windows | `GLM-5.3-Flash-MUL1K3` container | 14.17 tok/s in a live Crow session, 2026-10-11 ([below](#glm-53-flash--the-third-operating-point-on-crow-nest-365)) | 8099 | crow-nest (Rust) |
 
 crow-nest figures: measured on `v0.3.0` ([crow-nest — the Rust engine](#crow-nest--the-rust-engine)), except the Linux 35.8, which is
 the newest post-fix reading (2026-09-24, below). "The PLE fix" is crow-nest 85a48e7 (2026-09-23): until then the engine read the
@@ -167,6 +168,25 @@ token and the smaller download, and it runs on the **packaged** engine.
 ```
 
 ---
+
+## GLM-5.3-Flash — the third operating point on crow-nest (#365)
+
+Owner decision, 2026-10-11: GLM-5.3-Flash on crow-nest is Crow's third operating point, beside
+Flash-Next and the 27B. It overrides crow-nest#151's rule of no manifest entry before G7.
+
+| | |
+|---|---|
+| Model | [zai-org/GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash) @ `eb9eb208`, MIT |
+| Container | `GLM-5.3-Flash-MUL1K3.cnq`, 124,591,634,567 B (116 GiB), 3.05-bit MUL1 experts from the original FP8; the FP8 original is not needed at runtime |
+| Engine | crow-nest `serve` v0.12.0 or later (glm5_next path, expert tiers over VRAM, pinned host RAM and NVMe) |
+| Environment | crow-nest `runs/glm53-flash/quick/arm4.env`, carried in `manifests/stack.json` point `glm53-flash` |
+| Context | 200,000 (the glm5_next floor, its default) |
+| Hardware | RTX 5090 (32 GB VRAM), 64 GB host RAM (up to 46 GiB pinned) |
+| Sampling | temperature 1.0 / top_p 0.95 from GLM's `generation_config.json`; min_p 0.01 from Crow's shared row; top_k not sent |
+| Thinking | as served: no fixed word, no cap |
+| Decode in Crow | **14.17 tok/s**, prefill 460.97 tok/s (8,910-token prompt, 8,519 cached), turn t3, 3 rounds, n = 1, crow-nest `2a18fbc`, Windows, 2026-10-11; answers checked correct. Same day on `6944330`: 8.29 tok/s |
+| Install | CrowSetup point `glm53-flash`. The container goes to [nibor1896/GLM-5.3-Flash-MUL1K3](https://huggingface.co/nibor1896/GLM-5.3-Flash-MUL1K3) (upload running on 2026-10-11); until it is pinned there, install from a local folder (`--source`) |
+| Not measured | boot time, vision, a reasoning cap or level ladder, more than one session |
 
 ## Media Stack — pictures and short videos (Windows)
 
@@ -356,6 +376,7 @@ delete it.
 | `flash-next-q2-k-xl` | `high` | 1.0 / 0.95 / 20 / 0.0 / 0.0 | 1024 |
 | `flash-next-cnq45-m` | `high` | 1.0 / 0.95 / 20 / 0.0 / 0.0 | 1024 |
 | `qwen38-27b-cnq` | `high` | 1.0 / 0.95 / 20 / 0.0 / 0.0 | 1024 |
+| `glm53-flash-mul1k3` | not fixed (the chat's level, none by default) | 1.0 / 0.95 / not sent / 0.01 / not sent | none |
 
 The rows are the card's Best Practices
 ([Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next), re-read 2026-09-22):

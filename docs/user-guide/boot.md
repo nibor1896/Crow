@@ -15,7 +15,7 @@ Header **CROW · Operating points**. The shortcut runs it with `pythonw.exe`, so
 | State | What it shows |
 |---|---|
 | Nothing runs | "Which model should Crow fly with?": the points of this platform with a Start button each (the Media Stack on Windows only), the optional llama.cpp lines dimmed below them. **Open Crow window** is greyed |
-| Starting | "Flying to the nest. N s": the crow fills against the point's usual start time (the 27B and the Image Stack about 15 s, Flash-Next about 80 s, measured; the Media Stack 15 s, not measured) and is full when the server answers. The other points are disabled. **Cancel** stops what was started. Closing the window hides it; the start finishes and the contract file is written |
+| Starting | "Flying to the nest. N s": the crow fills against the point's usual start time (the 27B and the Image Stack about 15 s, Flash-Next about 80 s, measured; GLM-5.3-Flash 60 s and the Media Stack 15 s, not measured) and is full when the server answers. The other points are disabled. **Cancel** stops what was started. Closing the window hides it; the start finishes and the contract file is written |
 | Landed | the running point on top, blue, with its port, context and vision, and **Stop**. **Open Crow window** opens Crow's window on it (like **Start Crow** in the terminal menu) |
 | A second start | "One model at a time.": the point needs the card for itself; stop the running one first |
 
@@ -35,14 +35,15 @@ python cli\crow_boot.py
    1  🚀 Start Crow                     open the window on the running point
    2  🧠 Qwen3.8-Flash-Next             200k context — great for coding & vision
    3  ⚡ Qwen3.8-27B                    128k context — great speed, awesome for coding & vision
-   4  🎨 Image Stack                    27B + Qwen-Image 2.1 — create AWESOME pictures
-   5  🎬 Media Stack                    9B + Qwen-Image 2.1 + LTX-2.5 — pictures and short videos
+   4  🐋 GLM-5.3-Flash                  200k context — the big MoE, experts streamed from NVMe
+   5  🎨 Image Stack                    27B + Qwen-Image 2.1 — create AWESOME pictures
+   6  🎬 Media Stack                    9B + Qwen-Image 2.1 + LTX-2.5 — pictures and short videos
 
   Optional (llama.cpp)
-   6  🦙 Qwen3.8-27B (optional)         llama.cpp, port 8082
-   7  🦙 Qwen3.8-Flash-Next (optional)  llama.cpp, port 8083
+   7  🦙 Qwen3.8-27B (optional)         llama.cpp, port 8082
+   8  🦙 Qwen3.8-Flash-Next (optional)  llama.cpp, port 8083
 
-   8  🛑 Stop the running point
+   9  🛑 Stop the running point
    0  👋 Quit
 ```
 
@@ -51,6 +52,7 @@ python cli\crow_boot.py
 | Start Crow | opens the window with `--base-url` of what runs: a baseline point, or a llama-server (its port), and says which. Only when no model server runs it says so and starts nothing |
 | Qwen3.8-Flash-Next | starts crow-nest's `serve` with the Flash-Next container (200k context) |
 | Qwen3.8-27B | starts `serve` with the 27B container at 131,072 context (`CROW_CONTEXT`; 200k waits for an 8-bit KV cache in crow-nest) |
+| GLM-5.3-Flash | starts `serve` with the GLM-5.3-Flash container (200k context) and crow-nest's `arm4.env` operating set (#365; needs crow-nest v0.12.0 or later) |
 | Image Stack | starts the 27B at 65,536 context (room for Qwen-Image beside it), then `sd-server` with Qwen-Image 2.1 once `serve` is ready |
 | Media Stack | Windows only. Starts `llama-server` with Qwen3.5-9B Q8_0 and its projector on 8099 at 65,536 context. Crow's window warms `sd-server` when it opens; ComfyUI (LTX-2.5) starts on the first `animate_image`; for a clip the language model leaves the card and comes back afterwards ([operating points](../operating-points.md#media-stack--pictures-and-short-videos-windows)) |
 | *(optional)* lines | a llama.cpp line from `manifests/operating-point.json` (ports 8081/8082/8083), started like Crow's own `start_server`: ready when `/props` answers, 600 s. Drawn dimmed; plain consoles show only the tag |
@@ -59,7 +61,7 @@ python cli\crow_boot.py
 
 | | |
 |---|---|
-| While starting | an animated line instead of the server log. Timeouts: Flash-Next 600 s, the 27B and the Media Stack's 9B 300 s, `sd-server` 300 s more, a llama.cpp line 600 s |
+| While starting | an animated line instead of the server log. Timeouts: Flash-Next and GLM-5.3-Flash 600 s, the 27B and the Media Stack's 9B 300 s, `sd-server` 300 s more, a llama.cpp line 600 s |
 | Landed | shows for 5 s, then the menu comes back by itself |
 | Failure or timeout | what was started is stopped, the last 10 log lines are shown |
 | One point at a time | in both directions: a llama-server blocks a baseline start and a baseline point blocks an optional one. The message names what runs and how to stop it: the menu entry, `--stop`, or `taskkill /PID <pid> /F` |

@@ -29849,3 +29849,28 @@ class VideoNotesKeepFactsTests(unittest.TestCase):
             "k": "video", "at": 2, "t": "", "path": "/w/videos/a.mp4", "name": "a.mp4",
             "w": 1920, "h": 1088, "bytes": 1642079, "source": "animate_image",
             "job": "vid-1"}])
+
+
+class TheGlmOperatingPointPairsAndKeepsTheMeasuredRequestTests(unittest.TestCase):
+    """#365: GLM-5.3-Flash on crow-nest is the third operating point (owner
+    decision 2026-10-11). /props reports the container path; the entry pairs it
+    and sends exactly the request of the measured session: the shared row, no
+    top_k, no fixed reasoning word, no cap."""
+
+    PROPS = "converter/GLM-5.3-Flash-MUL1K3.cnq"
+
+    def test_the_container_pairs_with_its_entry(self):
+        name = crow_core.model_display_name(self.PROPS)
+        self.assertEqual(crow_core.model_key_for(name), "glm53-flash-mul1k3")
+
+    def test_the_request_is_the_measured_one(self):
+        name = crow_core.model_display_name(self.PROPS)
+        self.assertEqual(crow_core.sampling_for(name),
+                         crow_core.sampling_for(crow_core.DEFAULT_MODEL))
+        self.assertIsNone(crow_core.reasoning_budget_for(name))
+        self.assertIsNone(crow_core.effective_reasoning(name, None))
+        self.assertEqual(crow_core.reasoning_menu_for(name),
+                         crow_core.reasoning_menu_for(crow_core.DEFAULT_MODEL))
+
+    def test_it_is_an_active_point(self):
+        self.assertEqual(crow_core.ACTIVE_POINTS[:3], ("flash-next", "27b", "glm53-flash"))

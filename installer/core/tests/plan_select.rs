@@ -272,10 +272,38 @@ fn unknown_point_is_an_error_and_a_repeated_one_is_not() {
 }
 
 #[test]
+fn glm_point_plans_its_upload_pending_container_without_a_url() {
+    // #365: GLM-5.3-Flash is the third point; its container is not in our repo yet,
+    // so the job has no URL and comes from a local --source at <repo>/<path>.
+    let p = plan_for(&["glm53-flash"]);
+    let s = Stack::embedded();
+    let job = |id: &str| p.jobs.iter().find(|j| j.id == id).unwrap().clone();
+    let cnq = job("glm-cnq");
+    assert_eq!(s.file("glm-cnq").unwrap().status, Status::UploadPending);
+    assert_eq!(cnq.bytes, 124_591_634_567);
+    assert_eq!(cnq.url, "");
+    assert_eq!(cnq.local_rel, "nibor1896/GLM-5.3-Flash-MUL1K3/GLM-5.3-Flash-MUL1K3.cnq");
+    assert_eq!(cnq.sha256, "9ce11456c68f80926e1fe8289888a3571309a1f8558bc73d1578f0db2b30213e");
+    assert_eq!(
+        job("glm-tokenizer").url,
+        "https://huggingface.co/zai-org/GLM-5.3-Flash/resolve/eb9eb208eb0d988989d07a6a12d0fdeb5f52574a/tokenizer.json"
+    );
+    let models: u64 = p.jobs.iter().filter(|j| j.kind == FileKind::Model).map(|j| j.bytes).sum();
+    assert_eq!(models, 124_611_919_069);
+    assert_eq!(models, point_files("glm53-flash"));
+    assert_eq!(s.point("glm53-flash").unwrap().bytes.upload_pending, 124_591_634_567);
+    // the arena-warm file is already in our repo
+    assert_eq!(
+        job("glm-arena-warm").url,
+        "https://huggingface.co/nibor1896/GLM-5.3-Flash-MUL1K3/resolve/f8d7ece2f1e1b387ae1299faf260d5cd05aebfde/glm53-cal4-decode-counts.json"
+    );
+}
+
+#[test]
 fn embedded_stack_parses_with_its_crow_files() {
     let s = Stack::embedded();
-    assert_eq!(s.points.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["flash-next", "27b", "image-stack", "media-stack"]);
-    assert_eq!(s.files.len(), 36);
+    assert_eq!(s.points.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["flash-next", "27b", "glm53-flash", "image-stack", "media-stack"]);
+    assert_eq!(s.files.len(), 42);
     assert_eq!(s.crow_files.len(), 4);
     assert_eq!(s.crow_files.iter().map(|f| f.bytes).sum::<u64>(), WHISPER);
     assert!(Stack::parse("{").is_err());

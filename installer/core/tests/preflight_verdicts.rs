@@ -139,12 +139,16 @@ fn sentences_are_short_and_plain() {
 fn verdict_table_ram_vram_disk() {
     let s = Stack::embedded();
 
-    // 32 GB of RAM: Flash-Next pins up to 46 GiB host RAM
+    // 32 GB of RAM: Flash-Next and GLM-5.3-Flash (#365) pin up to 46 GiB host RAM
     let mut f = robins_machine();
     f.ram_bytes = 34_190_000_000; // a "32 GB" host, 31.84 GiB visible
     assert_eq!(
         blocked(&verdicts(&f, &s).blocked),
-        vec![("flash-next", "Needs 64 GB RAM. This machine has 32 GB."), ("media-stack", "Needs 64 GB RAM. This machine has 32 GB.")]
+        vec![
+            ("flash-next", "Needs 64 GB RAM. This machine has 32 GB."),
+            ("glm53-flash", "Needs 64 GB RAM. This machine has 32 GB."),
+            ("media-stack", "Needs 64 GB RAM. This machine has 32 GB."),
+        ]
     );
 
     // 60 GiB visible still counts as a 64 GB host (firmware and iGPU reserve some)
@@ -153,7 +157,11 @@ fn verdict_table_ram_vram_disk() {
     f.ram_bytes = 60 * GIB - 1;
     assert_eq!(
         blocked(&verdicts(&f, &s).blocked),
-        vec![("flash-next", "Needs 64 GB RAM. This machine has 60 GB."), ("media-stack", "Needs 64 GB RAM. This machine has 60 GB.")]
+        vec![
+            ("flash-next", "Needs 64 GB RAM. This machine has 60 GB."),
+            ("glm53-flash", "Needs 64 GB RAM. This machine has 60 GB."),
+            ("media-stack", "Needs 64 GB RAM. This machine has 60 GB."),
+        ]
     );
 
     // an RTX 5080: Blackwell, but 16 GB of VRAM blocks every point
@@ -162,7 +170,7 @@ fn verdict_table_ram_vram_disk() {
     let why = "Needs 32 GB of VRAM. This GPU has 16 GB.";
     let r = verdicts(&f, &s);
     assert_eq!(r.hard_block, None);
-    assert_eq!(blocked(&r.blocked), vec![("flash-next", why), ("27b", why), ("image-stack", why), ("media-stack", why)]);
+    assert_eq!(blocked(&r.blocked), vec![("flash-next", why), ("27b", why), ("glm53-flash", why), ("image-stack", why), ("media-stack", why)]);
 
     // 50 GB free: the 27B fits (17.5 GiB), Flash-Next (98.4 GiB) and the image stack (64.7 GiB peak) do not
     let mut f = robins_machine();
@@ -171,6 +179,7 @@ fn verdict_table_ram_vram_disk() {
         blocked(&verdicts(&f, &s).blocked),
         vec![
             ("flash-next", "Needs 99 GB free disk. This drive has 46 GB free."),
+            ("glm53-flash", "Needs 117 GB free disk. This drive has 46 GB free."),
             ("image-stack", "Needs 65 GB free disk. This drive has 46 GB free."),
             ("media-stack", "Needs 100 GB free disk. This drive has 46 GB free."),
         ]
@@ -183,6 +192,7 @@ fn verdict_table_ram_vram_disk() {
         blocked(&verdicts(&f, &s).blocked),
         vec![
             ("flash-next", "Needs 99 GB free disk. This drive has 64 GB free."),
+            ("glm53-flash", "Needs 117 GB free disk. This drive has 64 GB free."),
             ("media-stack", "Needs 100 GB free disk. This drive has 64 GB free."),
         ]
     );
@@ -196,6 +206,7 @@ fn verdict_table_ram_vram_disk() {
         vec![
             ("flash-next", "Needs 64 GB RAM. This machine has 16 GB."),
             ("27b", "Needs 18 GB free disk. This drive has 10 GB free."),
+            ("glm53-flash", "Needs 64 GB RAM. This machine has 16 GB."),
             ("image-stack", "Needs 65 GB free disk. This drive has 10 GB free."),
             ("media-stack", "Needs 64 GB RAM. This machine has 16 GB."),
         ]
