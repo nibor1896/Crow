@@ -7626,7 +7626,7 @@ class TurnCost:
             rate = self.prefilled / self.prefill_s if self.prefill_s > 0 else None
             # #370: the seconds, not only the rate. A tool round that prefills 55 new tokens in
             # 2.7 s is a fixed per-call cost, and `prefill 295 @ 28.57 tok/s` alone read as a
-            # broken prefill (robin, 2026-10-12). llama.cpp logs duration, count and rate together.
+            # broken prefill (the owner, 2026-10-12). llama.cpp logs duration, count and rate together.
             took = f" in {format_clock(self.prefill_s)}" if self.prefill_s > 0 else ""
             bits.append(f"prefill {self.prefilled:,} tok{took}" + (f" @ {rate:.2f} tok/s" if rate else ""))
         if self.cached is not None:
