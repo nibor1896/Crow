@@ -5,13 +5,25 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
-### Changed
+## 3.3.0 — 2026-10-11
 
-- **New chats in different folders share more of the server's prompt cache** (#364, 2026-10-11). The system prompt now carries what is the same in every chat first (machine line, user profile, skills) and the folder's parts last (working area, project memory, goal). Before, the working area sat at char 363, so two chats in two folders shared only the tool block and the base prompt. Measured offline on the two stored G5 chats (t1/t2, 2026-10-11), each rendered with its model's chat template and tokenizer: shared prefix GLM-5.3-Flash 6,052 → 6,357 tokens (the engine counted 6,043 before), Qwen3.8-Flash-Next 6,548 → 6,873. Not measured on a live server yet. Existing chats keep their pinned head; the first new chat, folder change or rollover after the update pins the new order and is cold once.
+**GLM-5.3-Flash on crow-nest is Crow's third operating point, CrowSetup installs engine v0.12.0, and new chats in different folders share more of the server's prompt cache.** Windows assets only, as for v3.2.x. The GLM-5.3-Flash container is still uploading: until it is published, CrowSetup installs that point from a local folder (`--source`) only.
 
 ### Added
 
 - **GLM-5.3-Flash on crow-nest is Crow's third operating point** (#365, 2026-10-11, owner decision). `manifests/operating-point.json` has the entry `glm53-flash-mul1k3`, so Crow recognises the served container; the request stays the one measured (temperature 1.0 / top_p 0.95 from GLM's `generation_config.json`, min_p 0.01, no top_k, thinking as served, no cap). `manifests/stack.json` has the point `glm53-flash`: `serve` on 8099 at 200k context with crow-nest's `arm4.env` (needs crow-nest v0.12.0 or later), a 124,591,634,567 B container (116 GiB; the FP8 original is not needed at runtime), RTX 5090 and 64 GB RAM. CrowSetup and the boot menu offer it. Measured in the Crow window on Windows, crow-nest `2a18fbc`, turn t3, n = 1: decode **14.17 tok/s**, prefill 460.97 tok/s on 8,910 tokens (8,519 cached), answers correct; the same day on `6944330`: 8.29 tok/s. Its container is still uploading to `nibor1896/GLM-5.3-Flash-MUL1K3` (the arena-warm file is there), so until it is pinned CrowSetup installs this point from a local folder (`--source`) only; a download names the file and stops (new status `upload-pending`). Boot time not measured.
+
+### Changed
+
+- **New chats in different folders share more of the server's prompt cache** (#364, 2026-10-11). The system prompt now carries what is the same in every chat first (machine line, user profile, skills) and the folder's parts last (working area, project memory, goal). Before, the working area sat at char 363, so two chats in two folders shared only the tool block and the base prompt. Measured offline on the two stored G5 chats (t1/t2, 2026-10-11), each rendered with its model's chat template and tokenizer: shared prefix GLM-5.3-Flash 6,052 → 6,357 tokens (the engine counted 6,043 before), Qwen3.8-Flash-Next 6,548 → 6,873. Not measured on a live server yet. Existing chats keep their pinned head; the first new chat, folder change or rollover after the update pins the new order and is cold once.
+- **CrowSetup installs crow-nest engine v0.12.0** (#365, 2026-10-11). It installed v0.9.5 up to 3.2.9. The GLM-5.3-Flash point needs v0.12.0 or later (`arm4.env`, device sampler). `crow-nest-engine-0.12.0-win-x64.zip`: 4,518,677 B, sha256 `e22443e6…0c29`. crow-nest's release notes say Flash-Next and the 27B keep their default path there; Crow did not measure them again on v0.12.0 for this release.
+- **The setup window describes GLM-5.3-Flash as "200k context. The big MoE, experts streamed from NVMe."** (#365, 2026-10-11, owner decision).
+- **Version 3.3.0** in `cli/crow_core.py`, `install.ps1` and `manifests/operating-point.json`; the README image has a GLM-5.3-Flash row (14.17 tok/s, live Crow session, 2026-10-11).
+
+### Known limitations
+
+- **The GLM-5.3-Flash container is not on Hugging Face yet** (#365). `nibor1896/GLM-5.3-Flash-MUL1K3` holds the arena-warm file; the 124,591,634,567 B container is `upload-pending` in `manifests/stack.json`. CrowSetup installs this point only with `--source <folder>`; asked to download it, it names the file and stops. A follow-up pins the upload and flips the status to `published`.
+- GLM-5.3-Flash: boot time not measured (the boot menu allows 600 s); decode measured once (n = 1). #364's longer shared prefix is measured offline only, not on a live server. Both tickets stay open for the owner's live check.
 
 ## 3.2.9 — 2026-10-07
 
