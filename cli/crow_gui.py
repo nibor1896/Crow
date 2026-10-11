@@ -2451,11 +2451,11 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
    form -- and because the row has to read as on or off from across the sheet.
    Every colour comes from the palette, so all three themes answer for it. */
 .shint{color:var(--dimmer);font-size:11.5px;margin:0 0 10px}
-#updbtn{margin:0 0 9px;padding:5px 12px;border:1px solid var(--line);
+#updbtn,#engbtn{margin:0 0 9px;padding:5px 12px;border:1px solid var(--line);
   border-radius:6px;background:var(--raised);color:var(--accent);
   font-size:12px;cursor:pointer}
-#updbtn:hover{border-color:var(--accent)}
-#updbtn:disabled{color:var(--dimmer);border-color:var(--line);cursor:default}
+#updbtn:hover,#engbtn:hover{border-color:var(--accent)}
+#updbtn:disabled,#engbtn:disabled{color:var(--dimmer);border-color:var(--line);cursor:default}
 .srow{display:flex;align-items:flex-start;gap:10px;padding:8px 0;
   border-top:1px solid var(--raised)}
 .srow:first-child{border-top:none}
@@ -3644,6 +3644,10 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
           <p class="about">CROW <span id="aboutver"></span></p>
           <p class="mcpsaid" id="updsaid"></p>
           <button id="updbtn" hidden onclick="crow.updateRun()"></button>
+          <!-- #367: the crow-nest engine in bin, installed against the one this
+               Crow is pinned to (stack.json engine_package), and its update. -->
+          <p class="mcpsaid" id="engsaid"></p>
+          <button id="engbtn" hidden onclick="crow.engineRun()"></button>
           <!-- THE DIRECTORY IS FILLED IN, NOT WRITTEN OUT. This said
                `%LOCALAPPDATA%\Crow` until the Linux port, which is a true
                sentence on one of the two platforms and a puzzle on the other:
@@ -6382,7 +6386,7 @@ const crow = {
     // ASKED WHEN THE PANE OPENS, not on every start. It is a call to
     // github.com, and this window already refuses to spend one on a catalogue
     // nobody asked to see.
-    if(name==="about") this.updateCheck();
+    if(name==="about"){ this.updateCheck(); this.engineCheck(); }
   },
 
   updateCheck(){
@@ -6420,6 +6424,31 @@ const crow = {
   updated(e){
     $("#updsaid").textContent=e.t;
     if(e.done){ $("#updbtn").hidden=true; } },
+
+  // #367: the engine line. No network: the pin ships with this Crow.
+  engineCheck(){
+    const said=$("#engsaid"), btn=$("#engbtn");
+    btn.hidden=true;
+    pywebview.api.engine_check().then(s=>{
+      const inst=s.installed ? (s.current ? "v"+s.installed : s.installed)
+                             : "none in "+s.bin_dir;
+      said.textContent="engine crow-nest: installed "+inst
+        +(s.pinned ? ", pinned v"+s.pinned : ", none pinned for this system");
+      if(!s.offer) return;
+      btn.textContent="update engine (crow-nest) to v"+s.pinned;
+      btn.disabled=false; btn.hidden=false; }); },
+
+  engineRun(){
+    const btn=$("#engbtn");
+    btn.disabled=true;
+    $("#engsaid").textContent="updating the engine \u2026";
+    pywebview.api.engine_update_start().then(why=>{
+      if(why){ btn.disabled=false; $("#engsaid").textContent=why; } }); },
+
+  engineDone(e){
+    $("#engsaid").textContent=e.t;
+    if(e.done){ $("#engbtn").disabled=false;
+      pywebview.api.engine_check().then(s=>{ $("#engbtn").hidden=!s.offer; }); } },
 
   setTheme(name){
     // PAINTED FIRST, WRITTEN SECOND. The attribute swap is one frame; the write
@@ -8743,6 +8772,7 @@ const crow = {
       case "code_open": this.codeOpen(e.lang); break;
       case "format": this.format(e.blocks); break;
       case "update": this.updated(e); break;
+      case "engine": this.engineDone(e); break;
       case "voice": this.voice(e); break;
       case "code_close": this.codeClose(e.closed); break;
       case "tool": this.tool(e.name,e.args,e.raw,e.code); break;
@@ -9172,6 +9202,7 @@ REMOTE_PROXIED = frozenset({
     "set_chat_root", "set_mode", "set_reasoning", "set_server_key",
     "set_tools", "skills", "stop", "toggle_server", "toggle_skill",
     "tools_cleared", "unstage_image", "update_check", "update_start",
+    "engine_check", "engine_update_start",  # #367, as update_check/_start
     "view_live",
     # #311: the phone sees the previews, the lightbox and its (i) panel --
     # `image_full` answers a phone with the bytes, never a `file://` URL.
@@ -9674,7 +9705,7 @@ details.trace>summary,details.think>summary,details.rollcard summary{
   font-size:16px;min-height:var(--tap)}
 .keyrow{flex-wrap:wrap}
 .keyrow input{flex:1 1 100%}
-.keyrow button,.sform button,#updbtn,.subout{min-height:var(--tap);font-size:13.5px;
+.keyrow button,.sform button,#updbtn,#engbtn,.subout{min-height:var(--tap);font-size:13.5px;
   padding:0 16px;flex:1 1 auto}
 /* MCP: head wraps to two lines, tool rows put the class segment under the text */
 .mcphead{flex-wrap:wrap;align-items:center;row-gap:6px;padding-top:12px}
@@ -11872,6 +11903,8 @@ class Api:
         # ONE INSTALLER AT A TIME. Two of them writing the same
         # directory is the one way an update leaves a broken copy.
         self._updating = False
+        # #367: the engine update, one at a time like Crow's own.
+        self._engine_updating = False
         # #88: one open question at a time. The worker waits on the Event, the
         # page's click sets it. Not a Queue -- there is never a second question
         # in flight, because the loop that asks is the one that blocks.
@@ -16498,6 +16531,34 @@ class Api:
             self.push({"k": "update", "done": True,
                        "t": "the installer stopped with %d: %s" % (code, last)})
         self._updating = False
+
+    def engine_check(self) -> dict:
+        """#367: the About pane's engine line -- installed against pinned.
+        Never raises; no network (the pin ships in manifests/stack.json)."""
+        try:
+            return crow_core.engine_state()
+        except Exception:                  # noqa: BLE001 - a pane, never fatal
+            return {"pinned": None, "installed": None, "current": False,
+                    "offer": False, "bin_dir": crow_core.engine_bin_dir()}
+
+    def engine_update_start(self) -> str:
+        """#367: press "update engine". Empty when it started, else why not.
+        One at a time, for the reason `update_start` gives."""
+        if self._engine_updating:
+            return "an engine update is already running"
+        self._engine_updating = True
+        threading.Thread(target=self._engine_update_run, daemon=True).start()
+        return ""
+
+    def _engine_update_run(self) -> None:
+        def say(line: str) -> None:
+            self.push({"k": "engine", "t": line, "done": False})
+        try:
+            last = crow_core.update_engine(say)
+        except Exception as exc:           # noqa: BLE001 - reported, never raised
+            last = "the engine was not updated: %s" % exc
+        self.push({"k": "engine", "t": last, "done": True})
+        self._engine_updating = False
 
     def rail_width(self, px) -> bool:
         """Die gezogene Breite merken. False, wenn es keine brauchbare ist.

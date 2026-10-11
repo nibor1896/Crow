@@ -366,6 +366,32 @@ def crow_file(doc, fid):
     return next(f for f in doc["crow_files"] if f["id"] == fid)
 
 
+class EnginePackage(Base):
+    """#367: the engine pin Crow's About pane compares and downloads."""
+
+    def test_missing(self):
+        del self.doc["engine_package"]
+        self.red("engine package", "engine_package missing")
+
+    def test_url_elsewhere_refused(self):
+        self.doc["engine_package"]["windows"]["url"] = "https://example.com/crow-nest-engine-0.12.0-win-x64.zip"
+        self.red("engine package", "is not https://github.com/nibor1896/crow-nest/releases/download/v0.12.0/")
+
+    def test_url_of_another_version_refused(self):
+        self.doc["engine_package"]["version"] = "0.13.0"
+        self.red("engine package", "asset 'crow-nest-engine-0.12.0-win-x64.zip' is not version 0.13.0")
+
+    def test_bad_serve_sha(self):
+        self.doc["engine_package"]["windows"]["serve_sha256"] = "670A93F9"
+        self.red("engine package", "windows serve_sha256 is not 64 lowercase hex")
+
+    def test_real_pin(self):
+        e = REAL["engine_package"]
+        self.assertEqual(e["version"], "0.12.0")
+        self.assertEqual(e["windows"]["bytes"], 4518677)
+        self.assertEqual(e["windows"]["sha256"], "e22443e624105f8741831963d91ac350de30c5b5d8be0a705685f062c7fe0c29")
+
+
 class CrowFiles(Base):
     """The Crow-wide group: the dictation model every install gets (#196 P2-T2)."""
 

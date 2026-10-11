@@ -405,6 +405,23 @@ installs it. A restart is needed afterwards. The button runs the same installer 
 install does — PowerShell with `install.ps1 -NoPause` on Windows, `bash install.sh` on Linux —
 so re-running the command at the top of this page by hand is the same update.
 
+That button updates Crow only; the crow-nest engine in `bin\` is the line below it (#367).
+`engine crow-nest: installed …, pinned …` compares the sha256 of `bin\serve.exe` with the
+engine this Crow version is pinned to (`manifests/stack.json` `engine_package`, crow-nest
+v0.12.0 for 3.3.x; the package carries no version, so its bytes are its identity). When they
+differ, **update engine (crow-nest) to v…** appears:
+
+| step | what happens |
+|---|---|
+| refused first | while a `serve` started from `bin\` runs: stop the point (boot menu *Stop*, or `--stop`), then press again |
+| download | only the pinned asset from crow-nest's GitHub release; size and sha256 must equal the pin, otherwise nothing is changed |
+| check | every file in the zip against the `MANIFEST.json` inside it, and `serve.exe` against the pinned sha256; nothing unlisted, no paths |
+| replace | each listed file is renamed to `<name>.bak-<first 8 hex of the old serve.exe's sha256>` and written new, `MANIFEST.json` last |
+| afterwards | start the point again. Crow itself needs no restart |
+
+Linux: crow-nest v0.12.0 publishes no Linux engine, so no engine is pinned there and the line
+says so.
+
 ---
 
 ## Where things live

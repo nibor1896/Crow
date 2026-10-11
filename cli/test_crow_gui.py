@@ -7266,6 +7266,63 @@ class TheFormattedAnswerTests(ApiCase):
 
 
 
+class TheEngineUpdateEntryTests(ApiCase):
+    """#367, robin 2026-10-11: beside "update Crow" in About, an entry "update
+    engine (crow-nest)" with the installed and the pinned engine version, run
+    by `crow_core.update_engine`."""
+
+    def _about(self) -> str:
+        source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        about = source[source.index('<section data-cat="about"'):]
+        return about[:about.index("</section>")]
+
+    def test_the_about_pane_carries_the_engine_line_and_button(self):
+        about = self._about()
+        self.assertIn('id="engsaid"', about)
+        self.assertIn('id="engbtn"', about)
+        self.assertLess(about.index('id="updbtn"'), about.index('id="engbtn"'),
+                        "the engine entry is not beside Crow's own update")
+        source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        self.assertIn('"update engine (crow-nest) to v"+s.pinned', source)
+        self.assertIn('"engine crow-nest: installed "+inst', source)
+
+    def test_opening_about_asks_for_the_engine_too(self):
+        source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        switch = source[source.index("  settingsCat(name){"):]
+        switch = switch[:switch.index("\n  },")]
+        self.assertIn("engineCheck()", switch)
+
+    def test_the_check_hands_installed_and_pinned_to_the_page(self):
+        state = {"pinned": "0.12.0", "installed": "other (314e306c)",
+                 "current": False, "offer": True, "bin_dir": "X"}
+        real = crow_core.engine_state
+        crow_core.engine_state = lambda *a, **k: state
+        self.addCleanup(setattr, crow_core, "engine_state", real)
+        self.assertEqual(self.api().engine_check(), state)
+
+    def test_a_second_press_while_one_runs_is_refused(self):
+        api = self.api()
+        api._engine_updating = True
+        self.assertTrue(api.engine_update_start(), "the second press was allowed")
+
+    def test_the_run_pushes_its_lines_and_the_reason_it_stopped(self):
+        api = self.api()
+        seen = []
+        api.push = seen.append
+        real = crow_core.update_engine
+
+        def refused(say):
+            say("downloading")
+            raise RuntimeError("serve from X is running (pid 1)")
+        crow_core.update_engine = refused
+        self.addCleanup(setattr, crow_core, "update_engine", real)
+        api._engine_update_run()
+        self.assertEqual(seen[0], {"k": "engine", "t": "downloading", "done": False})
+        self.assertTrue(seen[-1]["done"])
+        self.assertIn("pid 1", seen[-1]["t"])
+        self.assertFalse(api._engine_updating, "the button stays locked after a refusal")
+
+
 class TheUpdateButtonTests(ApiCase):
     """robin, 2026-08-23: the window should be able to update itself.
 
@@ -14304,7 +14361,7 @@ class RemoteApiParityTests(RemoteCase):
     to the desktop with a stated replacement -- and a call from one client
     produces the push the other one needs."""
 
-    PAGE_METHODS = 106         # 88 at fb31ca2 + the six pairing controls (#249 stage 5) + stage_image_data, drop_seen (#312) + the eight image_* (#311) + video_src, video_reveal (#340)
+    PAGE_METHODS = 108         # 88 at fb31ca2 + the six pairing controls (#249 stage 5) + stage_image_data, drop_seen (#312) + the eight image_* (#311) + video_src, video_reveal (#340) + engine_check, engine_update_start (#367)
 
     def page_methods(self) -> set:
         page = crow_gui.PAGE

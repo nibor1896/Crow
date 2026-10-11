@@ -5199,6 +5199,191 @@ def update_state(timeout: float = 4.0, current: str = "") -> dict:
             "install_dir": install_dir()}
 
 
+
+# ---------------------------------------------------------------------------
+# #367: the crow-nest engine in <install>/bin, against the engine this Crow is
+# pinned to. Crow's own update (install.ps1) never touches bin/, and CrowSetup
+# writes the engine only on an install, so an existing copy kept whatever engine
+# it was set up with -- the owner's ran a Crow that needs v0.12.0 on the engine of
+# 2026-10-06 and nothing said so. The pin is manifests/stack.json
+# `engine_package`; the package carries no version (installer/core/src/layout.rs)
+# and serve has no --version, so serve's sha256 IS the installed engine's identity.
+# ---------------------------------------------------------------------------
+
+ENGINE_STACK = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            os.pardir, "manifests", "stack.json")
+# The ONE place a download may come from. A pin naming anything else is no pin.
+ENGINE_RELEASES = "https://github.com/nibor1896/crow-nest/releases/download/"
+
+
+def engine_pin(stack_path: str = "") -> dict | None:
+    """This platform's pinned engine package (asset, url, bytes, sha256,
+    serve_sha256, version), or None when this Crow pins none for it."""
+    try:
+        with open(stack_path or ENGINE_STACK, encoding="utf-8") as fh:
+            pkg = json.load(fh).get("engine_package") or {}
+    except (OSError, ValueError, AttributeError):
+        return None
+    entry = pkg.get("windows" if crow_platform.IS_WINDOWS else "linux")
+    if (not isinstance(entry, dict) or not pkg.get("version")
+            or not str(entry.get("url", "")).startswith(ENGINE_RELEASES)):
+        return None
+    return dict(entry, version=str(pkg["version"]))
+
+
+def engine_bin_dir(install: str = "") -> str:
+    """Where CrowSetup puts the engine: `<install>/bin`."""
+    return os.path.join(install or install_dir(), "bin")
+
+
+def _engine_serve(install: str = "") -> str:
+    return os.path.join(engine_bin_dir(install),
+                        "serve.exe" if crow_platform.IS_WINDOWS else "serve")
+
+
+def _sha256_of(path: str) -> str | None:
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            for block in iter(lambda: fh.read(1 << 20), b""):
+                digest.update(block)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+def engine_state(install: str = "", stack_path: str = "") -> dict:
+    """The installed engine against the pinned one. Never raises.
+
+    `installed` is the pinned version when serve's bytes are the pinned ones,
+    "other (<sha8>)" when they are not, None when there is no serve in bin.
+    `offer` is the button: a pin exists and the bytes differ from it.
+    """
+    pin = engine_pin(stack_path)
+    sha = _sha256_of(_engine_serve(install))
+    pinned = pin["version"] if pin else None
+    current = bool(pin and sha and sha == str(pin["serve_sha256"]).lower())
+    installed = (pinned if current else
+                 ("other (%s)" % sha[:8]) if sha else None)
+    return {"pinned": pinned, "installed": installed, "installed_sha": sha,
+            "current": current, "offer": bool(pin) and not current,
+            "bin_dir": engine_bin_dir(install)}
+
+
+def _fetch_engine(url: str, timeout: float = 60.0) -> str:
+    """The pinned asset, streamed to a temp file. Returns the path."""
+    request = urllib.request.Request(url, headers={
+        "User-Agent": f"crow/{CLIENT_VERSION}"})
+    handle, path = tempfile.mkstemp(prefix="crow-engine-", suffix=".zip")
+    try:
+        with os.fdopen(handle, "wb") as out, \
+                urllib.request.urlopen(request, timeout=timeout) as resp:
+            shutil.copyfileobj(resp, out, 1 << 20)
+    except BaseException:
+        os.remove(path)
+        raise
+    return path
+
+
+def _engine_files(zip_path: str, pin: dict) -> list:
+    """Every file of the package as (name, bytes), MANIFEST.json last, after
+    checking each against the MANIFEST.json inside the zip and serve against
+    the pin -- CrowSetup's rule (layout.rs): nothing is written before all hold."""
+    import zipfile
+
+    with zipfile.ZipFile(zip_path) as z:
+        members = {i.filename: i for i in z.infolist() if not i.is_dir()}
+        key = next((n for n in members if n.lower() == "manifest.json"), None)
+        if key is None:
+            raise RuntimeError("the package has no MANIFEST.json")
+        raw = z.read(key)
+        entries = json.loads(raw.decode("utf-8-sig"))
+        if isinstance(entries, dict):
+            entries = entries.get("files")
+        if not isinstance(entries, list) or not entries:
+            raise RuntimeError("the package's MANIFEST.json lists no files")
+        out, listed = [], {key}
+        for e in entries:
+            name = str((e or {}).get("path", ""))
+            if (not name or name in (".", "..") or "/" in name or "\\" in name
+                    or ":" in name):
+                raise RuntimeError("unsafe path in MANIFEST.json: %r" % name)
+            if name not in members:
+                raise RuntimeError("MANIFEST.json lists %s, the package lacks it" % name)
+            data = z.read(members[name])
+            if (len(data) != e.get("bytes") or hashlib.sha256(data).hexdigest()
+                    != str(e.get("sha256", "")).lower()):
+                raise RuntimeError("does not match MANIFEST.json: %s" % name)
+            listed.add(name)
+            out.append((name, data))
+        extra = sorted(set(members) - listed)
+        if extra:
+            raise RuntimeError("not listed in MANIFEST.json: %s" % ", ".join(extra))
+    serve = os.path.basename(_engine_serve())
+    if not any(n == serve and hashlib.sha256(d).hexdigest()
+               == str(pin["serve_sha256"]).lower() for n, d in out):
+        raise RuntimeError("%s in the package is not the pinned one" % serve)
+    return out + [(key, raw)]
+
+
+def update_engine(say: Callable[[str], None] = lambda _t: None,
+                  install: str = "", stack_path: str = "",
+                  fetch: Callable[[str], str] | None = None,
+                  servers: Callable[[], str] | None = None) -> str:
+    """Put the pinned engine into `<install>/bin`. Returns the closing line;
+    raises RuntimeError with the reason when it does not run.
+
+    Refused while a serve started from that bin runs (the user stops it; Crow
+    does not kill a model server it did not start). Downloaded only from the
+    pinned url, checked against bytes and sha256, every file against the zip's
+    MANIFEST.json. Each file it replaces stays beside the new one as
+    `<name>.bak-<sha8 of the old serve>`: the engine carries no version, its
+    bytes are the name. MANIFEST.json is written last.
+    """
+    pin = engine_pin(stack_path)
+    if pin is None:
+        raise RuntimeError("this Crow pins no engine for this platform")
+    state = engine_state(install, stack_path)
+    if state["current"]:
+        return "engine v%s is already installed" % pin["version"]
+    bin_dir = os.path.normcase(os.path.abspath(state["bin_dir"]))
+    for pid, line in running_servers(servers, include_image=True):
+        if (crow_platform.server_kind(line) == crow_platform.KIND_CROW_NEST
+                and bin_dir in os.path.normcase(line)):
+            raise RuntimeError("serve from %s is running (pid %s): stop the "
+                               "server first, then update the engine"
+                               % (state["bin_dir"], pid))
+    say("downloading %s (%s B) from github.com" % (pin["asset"],
+                                                  format(int(pin["bytes"]), ",")))
+    path = (fetch or _fetch_engine)(pin["url"])
+    try:
+        size, sha = os.path.getsize(path), _sha256_of(path)
+        if size != pin["bytes"] or sha != str(pin["sha256"]).lower():
+            raise RuntimeError("the download is not the pinned package "
+                               "(%d B, sha256 %s); nothing was changed"
+                               % (size, (sha or "?")[:16]))
+        say("checking every file against the package's MANIFEST.json")
+        files = _engine_files(path, pin)
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    label = "bak-" + (state["installed_sha"] or "none")[:8]
+    os.makedirs(state["bin_dir"], exist_ok=True)
+    for name, data in files:
+        dest = os.path.join(state["bin_dir"], name)
+        if os.path.exists(dest):
+            os.replace(dest, "%s.%s" % (dest, label))
+        with open(dest + ".new", "wb") as fh:
+            fh.write(data)
+        os.replace(dest + ".new", dest)
+    if not engine_state(install, stack_path)["current"]:
+        raise RuntimeError("the files were written but serve is not the pinned one")
+    return ("engine v%s installed, the old files kept as *.%s -- start the "
+            "server again to run it" % (pin["version"], label))
+
+
 def parse_version(text: str) -> tuple[int, ...] | None:
     """"0.0.5" -> (0, 0, 5). None when it is not a plain dotted number.
 
