@@ -5,9 +5,17 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 3.3.1 — 2026-10-11
+
+**The window leaves the GPU to the local engine on Windows, and Crow updates the crow-nest engine from Settings → About.** Windows assets only, as for v3.3.0. CrowSetup still installs engine v0.12.0.
+
 ### Added
 
 - **Crow updates the crow-nest engine from Settings → About** (#367, 2026-10-11). Before, only CrowSetup wrote `bin\`, on an install: an existing copy kept its engine, and the owner's ran Crow 3.3.0, which needs engine v0.12.0, on the engine of 2026-10-06 (`serve.exe` sha256 `314E306C…`). Nothing said so. About now shows `engine crow-nest: installed …, pinned v0.12.0` beside Crow's own version. The pin is the new `engine_package` in `manifests/stack.json`: asset, url, bytes, sha256 and `serve_sha256`; `tools/check_stack.py` checks it. When `bin\serve.exe` differs from the pin, **update engine (crow-nest) to v0.12.0** downloads only the pinned asset from crow-nest's GitHub release. It checks the size and sha256, then every file against the zip's `MANIFEST.json`, and keeps each replaced file as `*.bak-<old serve sha8>`. It refuses while a `serve` from `bin\` runs. Tested offline with fake packages (10 core and 5 window tests); not run live against GitHub yet. Windows only: v0.12.0 has no Linux engine asset.
+
+### Changed
+
+- **Version 3.3.1** in `cli/crow_core.py`, `install.ps1` and `manifests/operating-point.json`; the README image's version pill.
 
 ### Fixed
 
