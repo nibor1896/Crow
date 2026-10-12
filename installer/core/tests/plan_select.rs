@@ -272,16 +272,20 @@ fn unknown_point_is_an_error_and_a_repeated_one_is_not() {
 }
 
 #[test]
-fn glm_point_plans_its_upload_pending_container_without_a_url() {
-    // #365: GLM-5.3-Flash is the third point; its container is not in our repo yet,
-    // so the job has no URL and comes from a local --source at <repo>/<path>.
+fn glm_point_plans_its_published_container_from_our_repo() {
+    // #365: GLM-5.3-Flash is the third point. Its container was upload-pending
+    // (no URL, local --source only) until the upload finished on 2026-10-12;
+    // since then it downloads from our repo at that commit.
     let p = plan_for(&["glm53-flash"]);
     let s = Stack::embedded();
     let job = |id: &str| p.jobs.iter().find(|j| j.id == id).unwrap().clone();
     let cnq = job("glm-cnq");
-    assert_eq!(s.file("glm-cnq").unwrap().status, Status::UploadPending);
+    assert_eq!(s.file("glm-cnq").unwrap().status, Status::Published);
     assert_eq!(cnq.bytes, 124_591_634_567);
-    assert_eq!(cnq.url, "");
+    assert_eq!(
+        cnq.url,
+        "https://huggingface.co/nibor1896/GLM-5.3-Flash-MUL1K3/resolve/f78b8307d7f1dc1f36f806dd23634021d8b7fb3a/GLM-5.3-Flash-MUL1K3.cnq"
+    );
     assert_eq!(cnq.local_rel, "nibor1896/GLM-5.3-Flash-MUL1K3/GLM-5.3-Flash-MUL1K3.cnq");
     assert_eq!(cnq.sha256, "9ce11456c68f80926e1fe8289888a3571309a1f8558bc73d1578f0db2b30213e");
     assert_eq!(
@@ -291,7 +295,8 @@ fn glm_point_plans_its_upload_pending_container_without_a_url() {
     let models: u64 = p.jobs.iter().filter(|j| j.kind == FileKind::Model).map(|j| j.bytes).sum();
     assert_eq!(models, 124_611_919_069);
     assert_eq!(models, point_files("glm53-flash"));
-    assert_eq!(s.point("glm53-flash").unwrap().bytes.upload_pending, 124_591_634_567);
+    assert_eq!(s.point("glm53-flash").unwrap().bytes.upload_pending, 0);
+    assert_eq!(s.point("glm53-flash").unwrap().bytes.published, 124_591_688_846);
     // the arena-warm file is already in our repo
     assert_eq!(
         job("glm-arena-warm").url,

@@ -150,10 +150,16 @@ class UpstreamHosts(Base):
         self.red("schema", "gated only on host huggingface")
 
     def test_the_upload_pending_container_is_green_and_null_pinned(self):
-        # #365: the GLM container is our own file before its upload.
-        self.assertEqual(file_(REAL, "glm-cnq")["status"], "upload-pending")
+        # #365: an own file before its upload. The GLM container was one until
+        # 2026-10-12; it is published since, so the case is built here.
+        self.assertEqual(file_(REAL, "glm-cnq")["status"], "published")
+        f = file_(self.doc, "glm-cnq")
+        f["status"], f["revision"] = "upload-pending", None
+        pt = next(p for p in self.doc["points"] if p["id"] == "glm53-flash")
+        pt["bytes"]["published"] -= f["bytes"]
+        pt["bytes"]["upload_pending"] = f["bytes"]
         self.assertFalse(C.run(self.doc).failed)
-        file_(self.doc, "glm-cnq")["revision"] = "a" * 40
+        f["revision"] = "a" * 40
         self.red("schema", "glm-cnq is upload-pending: revision and source must be null")
 
     def test_a_mirror_pending_file_takes_its_host_from_source(self):

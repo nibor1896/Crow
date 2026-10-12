@@ -5,6 +5,10 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+### Changed
+
+- **CrowSetup downloads the GLM-5.3-Flash container** (#365, 2026-10-12). Its upload to `nibor1896/GLM-5.3-Flash-MUL1K3` finished on 2026-10-12 (commit `f78b8307`, `GLM-5.3-Flash-MUL1K3.cnq` 124,591,634,567 B, sha256 `9ce11456…` as in that repo's `SHA256SUMS`). `manifests/stack.json` marks the file published at that commit, so the `glm53-flash` point no longer needs a local `--source`.
+
 ## 3.4.0 — 2026-10-12
 
 **GLM-5.3-Flash reuses the server's prompt state across tool rounds and chats, CrowSetup installs crow-nest engine v0.13.0, and the turn line names how long prefill took.** Windows assets only, as for v3.3.x.
