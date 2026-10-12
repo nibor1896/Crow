@@ -185,7 +185,7 @@ Flash-Next and the 27B. It overrides crow-nest#151's rule of no manifest entry b
 | Sampling | temperature 1.0 / top_p 0.95 from GLM's `generation_config.json`; min_p 0.01 from Crow's shared row; top_k not sent |
 | Thinking | as served: no fixed word, no cap |
 | Decode in Crow | **14.17 tok/s**, prefill 460.97 tok/s (8,910-token prompt, 8,519 cached), turn t3, 3 rounds, n = 1, crow-nest `2a18fbc`, Windows, 2026-10-11; answers checked correct. Same day on `6944330`: 8.29 tok/s |
-| Install | CrowSetup point `glm53-flash`. The container goes to [nibor1896/GLM-5.3-Flash-MUL1K3](https://huggingface.co/nibor1896/GLM-5.3-Flash-MUL1K3) (upload running on 2026-10-11); until it is pinned there, install from a local folder (`--source`) |
+| Install | CrowSetup point `glm53-flash`. The container downloads from [nibor1896/GLM-5.3-Flash-MUL1K3](https://huggingface.co/nibor1896/GLM-5.3-Flash-MUL1K3) at commit `f78b8307` (published 2026-10-12); a local folder (`--source`) still works |
 | Not measured | boot time, vision, a reasoning cap or level ladder, more than one session |
 
 ## Media Stack — pictures and short videos (Windows)

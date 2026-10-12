@@ -318,12 +318,12 @@
    "id": "glm-cnq",
    "repo": "nibor1896/GLM-5.3-Flash-MUL1K3",
    "path": "GLM-5.3-Flash-MUL1K3.cnq",
-   "revision": null,
+   "revision": "f78b8307d7f1dc1f36f806dd23634021d8b7fb3a",
    "bytes": 124591634567,
    "sha256": "9ce11456c68f80926e1fe8289888a3571309a1f8558bc73d1578f0db2b30213e",
    "dest": "${MODELS}/GLM-5.3-Flash-MUL1K3/GLM-5.3-Flash-MUL1K3.cnq",
    "source": null,
-   "status": "upload-pending",
+   "status": "published",
    "license": "mit-zai",
    "role": "container"
   },
@@ -1119,7 +1119,7 @@
     "line": "200k context — the big MoE, experts streamed from NVMe",
     "gui": "200k context. The big MoE, experts streamed from NVMe."
    },
-   "_status": "Crow's third operating point, owner decision 2026-10-11 (#365). The container is upload-pending: its upload to the repo of its file entry was still running on 2026-10-11 (SHA256SUMS there at f8d7ece2 already lists its sha256), so until the upload commits and this file is flipped to published with that revision, CrowSetup installs it from a local --source only. The arena-warm file is published there at f8d7ece2.",
+   "_status": "Crow's third operating point, owner decision 2026-10-11 (#365). The container is published in the repo of its file entry at f78b8307 (upload finished 2026-10-12, size and sha256 equal to SHA256SUMS); the arena-warm file at f8d7ece2.",
    "files": [
     "glm-cnq",
     "glm-arena-warm",
@@ -1130,9 +1130,8 @@
    ],
    "derived": [],
    "bytes": {
-    "published": 54279,
+    "published": 124591688846,
     "mirror_pending": 0,
-    "upload_pending": 124591634567,
     "upstream": 20230223,
     "files": 124611919069,
     "derived": 0,

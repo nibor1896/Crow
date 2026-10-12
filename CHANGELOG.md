@@ -5,6 +5,16 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 3.4.1 — 2026-10-12
+
+**CrowSetup installs the GLM-5.3-Flash point from Hugging Face; the README images show the shipped points.** Windows assets only, as for v3.4.0.
+
+### Changed
+
+- **CrowSetup downloads the GLM-5.3-Flash container** (#365, 2026-10-12). Its upload to `nibor1896/GLM-5.3-Flash-MUL1K3` finished on 2026-10-12 (commit `f78b8307`, `GLM-5.3-Flash-MUL1K3.cnq` 124,591,634,567 B, sha256 `9ce11456…` as in that repo's `SHA256SUMS`). `manifests/stack.json` marks the file published at that commit, so the `glm53-flash` point no longer needs a local `--source`.
+- **Version 3.4.1** in `cli/crow_core.py`, `install.ps1` and `manifests/operating-point.json`; the README image's version pill.
+- **The README image shows the five operating points CrowSetup installs** (`bf2742f`, 2026-10-12): Flash-Next, 27B, GLM-5.3-Flash, Image Stack, Media Stack, instead of the earlier llama.cpp lines; two features added (engine updates in About, operating points).
+
 ## 3.4.0 — 2026-10-12
 
 **GLM-5.3-Flash reuses the server's prompt state across tool rounds and chats, CrowSetup installs crow-nest engine v0.13.0, and the turn line names how long prefill took.** Windows assets only, as for v3.3.x.
