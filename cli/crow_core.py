@@ -2018,6 +2018,20 @@ def read_active_point() -> "dict | None":
 CROW_NEST_POINT_FILES = {"qwen3.8-flash-next-cnq4.5-m.cnq": "flash-next",
                          "qwen3.8-27b-cnq4.5.cnq": "27b"}
 
+# #374: the GLM-5.3-Flash container (point `glm53-flash`, no vision, no image
+# tools). Not in CROW_NEST_POINT_FILES: that table also decides vision-token
+# counts (`serves_crow_nest`) and the boot's point detection, which #374 does
+# not touch.
+GLM_POINT_FILE = "glm-5.3-flash-mul1k3.cnq"
+
+
+def serves_glm(base_url: str, timeout: float = 1.0) -> bool:
+    """True when the serve at `base_url` has the GLM-5.3-Flash container open
+    (/props `model_path`); nothing answering is False."""
+    path = server_model_path(base_url, timeout)
+    name = (path or "").replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return name == GLM_POINT_FILE
+
 
 def point_for_server(base_url: str, timeout: float = 3.0) -> "str | None":
     """The operating point the serve at `base_url` is, or None.
@@ -12792,12 +12806,21 @@ def image_tools_unavailable() -> "str | None":
     leaves 73-185 MiB of VRAM free. No contract file is today's behaviour. An
     sd-server that already answers is still used: image_server_start asks
     the port before it asks this.
+
+    #374: with no live contract (a window started by hand against its own
+    serve), a crow-nest serve on CROW_NEST_PORT that has the GLM-5.3-Flash
+    container open refuses too: GLM has no image tools, and an sd-server
+    warmed beside it halved decode (7.4-7.7 vs 13.6-14.4 tok/s, 2026-10-13).
+    Only GLM: every other serve, or none, keeps today's behaviour.
     """
     point = read_active_point()
     if point is not None and point["point"] not in (ACTIVE_POINT_IMAGE,
                                                     ACTIVE_POINT_MEDIA):
         return ("image generation needs the Image Stack operating point; the "
                 "running point is %s (%s)" % (point["point"], active_point_path()))
+    if point is None and serves_glm("http://127.0.0.1:%d/v1" % CROW_NEST_PORT):
+        return ("image generation is off beside GLM-5.3-Flash: crow-nest's "
+                "serve on port %d has its container open" % CROW_NEST_PORT)
     if point is not None and point.get("mode") == "video":
         # #340: ComfyUI holds the card; an sd-server beside it would overbook it.
         return ("the card is in video mode: a clip is rendering on the video "

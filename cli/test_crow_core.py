@@ -29129,10 +29129,14 @@ class TheActivePointGatesTheImageServerTests(unittest.TestCase):
                  mock.Mock(return_value=os.path.join(self.dir, "sd-server"))),
                 (crow_core, "_image_model_files", lambda _m: [weights] * 3),
                 (crow_core, "_image_server_answers", lambda *a, **k: False),
+                # #374: no serve on 8099 unless a test says which file it has
+                (crow_core, "server_model_path", lambda *a, **k: self.serving),
                 (crow_core.subprocess, "Popen", self.popen)):
             patcher = mock.patch.object(target, attr, value)
             patcher.start()
             self.addCleanup(patcher.stop)
+
+    serving = None
 
     def _point(self, text):
         with open(os.path.join(self.dir, "active-point.json"), "w",
@@ -29160,6 +29164,34 @@ class TheActivePointGatesTheImageServerTests(unittest.TestCase):
                                 "started_at": "t",
                                 "pids": {"serve": os.getpid(), "image": None}}))
         self.assertIn("Image Stack", crow_core.image_tools_unavailable() or "")
+
+    def test_no_contract_and_a_glm_serve_never_starts_the_image_server(self):
+        """#374: a window started by hand against a GLM serve (no contract):
+        nothing is warmed and an image call does not start sd-server."""
+        self.serving = "C:\\Crow\\models\\GLM-5.3-Flash-MUL1K3\\GLM-5.3-Flash-MUL1K3.cnq"
+        self.assertFalse(crow_core.image_tools_available())
+        self.assertIn("GLM-5.3-Flash", crow_core.image_tools_unavailable() or "")
+        self.assertIsNone(crow_core.image_server_warm())
+        self.assertIn("GLM-5.3-Flash", crow_core.image_server_start() or "")
+        self.popen.assert_not_called()
+
+    def test_no_contract_and_any_other_serve_is_todays_behaviour(self):
+        """#374 is GLM only: Flash-Next, the 27B, a GGUF or nothing on 8099
+        leave the image tools as they were."""
+        for path in ("C:\\Crow\\models\\Qwen3.8-Flash-Next-CNQ4.5-M.cnq",
+                     "/opt/crow/models/Qwen3.8-27B-CNQ4.5.cnq",
+                     "/m/GLM-5.3-Flash-Q4_K_M.gguf", None):
+            self.serving = path
+            self.assertIsNone(crow_core.image_tools_unavailable(), path)
+
+    def test_a_contract_is_read_before_the_serve_is_asked(self):
+        """#374: a live image-stack contract wins; the GLM check runs only
+        without one."""
+        self.serving = "/c/GLM-5.3-Flash-MUL1K3.cnq"
+        self._point(json.dumps({"point": "image-stack", "base_url": "x",
+                                "started_at": "t",
+                                "pids": {"serve": os.getpid(), "image": 2}}))
+        self.assertIsNone(crow_core.image_tools_unavailable())
 
     def test_absent_or_corrupt_file_is_todays_behaviour(self):
         self.assertIsNone(crow_core.image_tools_unavailable())       # absent
