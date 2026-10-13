@@ -5,6 +5,10 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+### Fixed
+
+- **A window started by hand against a GLM-5.3-Flash serve no longer warms the image server** (#374, 2026-10-13, owner decision: GLM point only). With no live `active-point.json` (the window started with `--base-url` against a serve the boot script did not start), `image_tools_unavailable` treated the image tools as available, so the window warmed `sd-server` on open (#300) beside GLM. In robin's run of 2026-10-13 decode fell to 7.44 / 7.71 / 7.42 tok/s; with `sd-server` stopped the same tasks ran at 13.55–14.40 tok/s (n = 1 per run, cause by elimination, crow-nest #222 comment). Now, without a contract, the gate asks crow-nest's serve on port 8099 for `/props` `model_path` (1 s timeout); the GLM container `GLM-5.3-Flash-MUL1K3.cnq` makes the image tools unavailable, with the reason. Every other serve, or none, and every contract keep the behaviour they had. Not yet seen live.
+
 ## 3.4.1 — 2026-10-12
 
 **CrowSetup installs the GLM-5.3-Flash point from Hugging Face; the README images show the shipped points.** Windows assets only, as for v3.4.0.
