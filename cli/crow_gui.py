@@ -2312,32 +2312,83 @@ details.rollcard pre.rtp{max-height:220px;overflow:auto;white-space:pre-wrap;
 .as{display:block}
 .col{min-width:0}
 
-/* #131. THE TRACE. Same furniture as a reasoning block, one level up: it holds
-   the ROUNDS, each of which holds its own thoughts. Folded it is one line, so a
-   turn of any length costs the reader one line before the answer. */
-details.trace{margin:0 0 14px}
-details.trace>summary{list-style:none;cursor:pointer;display:inline-flex;
-  align-items:center;gap:8px;font-size:11.5px;color:var(--dimmer);padding:2px 0}
-details.trace>summary::-webkit-details-marker{display:none}
-details.trace>summary:hover{color:var(--dim)}
-details.trace[open]>summary .caret{transform:rotate(90deg)}
-details.trace .tl{color:var(--text-soft)}
-details.trace .tn{font-variant-numeric:tabular-nums}
-details.trace .tb{margin-top:8px;padding-left:11px;
-  border-left:2px solid var(--line)}
+/* #383. THE TURN'S HEAD BLOCK (mockup Main.dc.html, robin 2026-10-14): the
+   head line, the trace strip and the delegate cards, 12 px apart and 12 px
+   above the round under them -- the mockup's article gap. */
+.turn.crowturn{display:flex;flex-direction:column;gap:12px}
+#flow > .turn.crowturn + .turn{margin-top:12px}
+.thd{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dim)}
+.thd .thw{font-weight:650;color:var(--text);letter-spacing:.02em}
+.thd .thm,.thd .tht{font-size:11.5px}
+.thd .thsp{flex:1 1 auto}
+/* #131 / #383. THE TRACE STRIP. It still holds the finished ROUNDS, folded
+   (`.tb`, opened by its head); above them one segment per tool call of the
+   turn in call order, coloured by kind, and a legend. */
+.trace{display:flex;flex-direction:column;gap:9px;width:100%;padding:11px 13px;
+  border:1px solid var(--line-soft);border-radius:12px;background:var(--panel);
+  color:var(--text-soft);font-size:13px;text-align:left}
+.trace:hover{border-color:var(--line)}
+.trace[hidden],.trace .segs[hidden],.trace .leg[hidden],.trace .tb[hidden],
+.subref[hidden]{display:none}
+.trh{display:flex;align-items:center;gap:8px;width:100%;padding:0;border:0;
+  background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.trh svg{width:14px;height:14px;color:var(--dim);flex:none;transition:transform .12s ease}
+.trh[aria-expanded="true"] svg{transform:rotate(90deg)}
+.trh .tl{font-weight:600;color:var(--text)}
+.trh .tn{font-size:11.5px;color:var(--dim)}
+.segs{display:flex;gap:3px;height:6px;width:100%}
+.segs>.seg{flex:1;min-width:0;height:6px;padding:0;border:0;border-radius:3px;
+  cursor:pointer}
+.segs>.seg:focus-visible,.trh:focus-visible{outline:1px solid var(--accent);
+  outline-offset:2px}
+/* THE KINDS, ONCE (#383, read by #384's dots too): goal_* dim, the
+   delegation calls in the --sub channel, everything else in the accent; a
+   failed call in --bad, last so it wins. */
+.k-goal{background:var(--dim)}
+.k-cmd{background:var(--accent)}
+.k-sub{background:var(--sub)}
+.k-bad{background:var(--bad)}
+.leg{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--dim)}
+.leg span{display:inline-flex;align-items:center;gap:6px}
+.leg .dot{width:7px;height:7px;border-radius:50%;flex:none;display:inline-block}
+.trace .tb{padding-left:11px;border-left:2px solid var(--line)}
 /* The rounds inside carry their own turn padding, and a second column width
    inside a column is an indent nobody asked for. */
-details.trace .tb .turn{padding:0;max-width:none;margin-inline:0}
+.trace .tb .turn{padding:0;max-width:none;margin-inline:0}
+/* #383. THE DELEGATE CARD, one line in the flow (the full card is the
+   inspector's): fork, id, task, model, status, tokens and seconds. */
+.subref{display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;
+  padding:10px 13px;border:1px solid var(--line-soft);border-radius:12px;
+  background:var(--sub-soft);color:var(--text-soft);font:inherit;font-size:13px;
+  text-align:left;cursor:pointer}
+.subref:hover{border-color:var(--line)}
+.subref:focus-visible{outline:1px solid var(--accent);outline-offset:2px}
+.subref svg{width:15px;height:15px;color:var(--sub);flex:none}
+.subref .sid{color:var(--text);font-size:12px}
+.subref .stk{flex:1 1 200px;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.subref .smd,.subref .sts{font-size:11px;color:var(--dim)}
+.subref .pill{display:inline-flex;align-items:center;gap:5px;height:22px;
+  padding:0 8px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.subref .pill.ok{background:var(--ok-soft);color:var(--ok)}
+.subref .pill.run{background:var(--accent-soft);color:var(--accent)}
+.subref .pill.bad{background:var(--raised);color:var(--bad)}
+@media (max-width:760px){.subref .smd{display:none}}
 
+/* #383. THE THOUGHT FOLD, the mockup's `.fold`: a chevron, "Thought" in
+   --text-soft, the share in --dim, no bar between them. */
 details.think{margin:0 0 10px}
 details.think>summary{list-style:none;cursor:pointer;display:inline-flex;
-  align-items:center;gap:7px;font-size:11.5px;color:var(--dimmer);padding:1px 0}
+  align-items:center;gap:6px;height:26px;padding:0 8px 0 4px;border-radius:6px;
+  font-size:12.5px;color:var(--dim)}
 details.think>summary::-webkit-details-marker{display:none}
-details.think>summary:hover{color:var(--dim)}
+details.think>summary:hover{background:var(--hover);color:var(--text)}
+details.think>summary svg{width:14px;height:14px;flex:none;transition:transform .12s ease}
+details.think[open]>summary svg{transform:rotate(90deg)}
+details.think .dur{color:var(--text-soft)}
 .caret{display:inline-block;transition:transform .12s ease;font-size:9px;
   color:var(--bevel)}
-details.think[open] .caret{transform:rotate(90deg)}
-.pct{color:var(--dimmer);border-left:1px solid var(--line);padding-left:7px}
+.pct{color:var(--dim)}
 .tbody{margin:8px 0 2px;padding:10px 13px;border-left:2px solid var(--line);
   color:var(--think);font-size:12px;line-height:1.65;background:var(--think-bg);
   border-radius:0 6px 6px 0;white-space:pre-wrap}
@@ -2354,12 +2405,18 @@ details.think[open] .caret{transform:rotate(90deg)}
 .md .mdh:first-child{margin-top:0}
 .md .mdh1{font-size:16px}
 .md .mdh2{font-size:14.5px}
-.md .mdh3,.md .mdh4,.md .mdh5,.md .mdh6{font-size:13px}
+.md .mdh4,.md .mdh5,.md .mdh6{font-size:13px}
+/* #383: the mockup's h3 -- the size of its prose, set off by weight. */
+.md .mdh3{font-size:14.5px;line-height:1.4;margin:16px 0 6px;font-weight:650;
+  color:var(--text)}
 .md ul,.md ol{margin:0 0 9px;padding-left:21px}
 .md li{margin:2px 0}
+.md li::marker{color:var(--dim)}
 .md strong{color:var(--text-hi);font-weight:600}
-.md code{font-family:var(--mono);font-size:12px;background:var(--raised);
-  border-radius:4px;padding:1px 5px}
+/* #383: inline code as a chip, the mockup's `.ic`. */
+.md code{font-family:var(--mono);font-size:.86em;background:var(--raised);
+  border:1px solid var(--line-soft);border-radius:5px;padding:1px 5px;
+  color:var(--text)}
 .md a.lnk{color:var(--accent);text-decoration:underline;cursor:pointer}
 /* -- #228: what can be selected, in BOTH spellings ------------------------
    WEBKITGTK DROPS THE UNPREFIXED PROPERTY. Measured 2026-09-23, WebKitGTK
@@ -2554,8 +2611,23 @@ a.lnk:focus-visible,.pth:focus-visible
    stack; the body around it does not. */
 code,.asktop code,#url,.cost{font-family:var(--mono)}
 .cost{margin-top:11px;font-size:10.5px;color:var(--dimmer);
-  border-top:1px dashed var(--line);padding-top:7px;overflow-x:auto;
-  white-space:nowrap}
+  border-top:1px dashed var(--line);padding-top:7px}
+/* #383. THE TELEMETRY STRIP, the mockup's `.tele`: labelled cells that wrap
+   (a 112 px basis each) instead of one line that scrolled sideways -- no
+   nowrap, nothing to scroll. Two classes, so it wins over `.cost` above. */
+.cost.tele{display:flex;flex-wrap:wrap;margin-top:12px;padding:0;
+  border:1px solid var(--line-soft);border-radius:12px;background:var(--panel);
+  overflow:hidden;overflow-wrap:normal;font-family:var(--ui);font-size:13px;
+  color:var(--dim)}
+.tele .m{flex:1 1 112px;display:flex;flex-direction:column;gap:1px;
+  padding:9px 13px;box-shadow:1px 0 0 var(--line-soft)}
+.tele .ml{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--dim);font-weight:600}
+.tele .mv{font-size:15px;color:var(--text);font-weight:500;line-height:1.35}
+.tele .mv small{font-size:11px;color:var(--dim);margin-left:3px;font-weight:400}
+.tele .ms{font-size:11px;color:var(--dim)}
+.tele .m.dlg .mv{color:var(--sub)}
+.tcut{margin-top:6px;font-size:11.5px;color:var(--warn)}
 .fail{color:var(--bad);font-size:11.5px;margin-top:8px;
   /* `failure_line` puts advice on a second line. Without this the
      newline renders as a space and the advice reads as part of the
@@ -3530,7 +3602,6 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
   color:var(--dimmer);flex:none}
 #submenu .hint{font-size:10.5px;color:var(--dimmer);padding:5px 9px 3px;
   border-top:1px solid var(--line);margin-top:3px}
-.cost .subshare{color:var(--sub)}
 .tool.sub .ico{color:var(--sub)}
 </style>
 <style>/* __REMOTE_CSS__ */</style></head><body data-rail="__RAIL__" data-code="__CODE__" data-git="__GIT__" data-browser="__BROWSER__">
@@ -4603,9 +4674,12 @@ const crow = {
   // WHAT `fold` WILL MOVE NEXT TIME. Set by `start`, cleared by anything that
   // ends the trace: a new user line, a reset, a reopened chat.
   round: null, trace: null, traceN: 0,
+  // #383: the turn's head block (`frame`), its tool calls and its rounds.
+  frameEl: null, tcalls: [], trounds: 0, traceSeq: 0, refItems: null,
   // #264: {t, i} -- a line typed mid-turn, queued, drawn at the turn's end.
   held: null,
-  endTrace(){ this.round=null; this.trace=null; this.traceN=0; },
+  endTrace(){ this.round=null; this.trace=null; this.traceN=0;
+    this.frameEl=null; this.tcalls=[]; this.trounds=0; },
 
   // DRAWN, NOT RUN: the line carries the user's login name, which is a string
   // off the machine. textContent, like every other name in this file.
@@ -4920,6 +4994,256 @@ const crow = {
       $("#lightbox").close(); });
   },
 
+  // -- #383: the turn as the mockup draws it -------------------------------
+  //
+  // ONE BLOCK ABOVE THE ROUNDS (mockup Main.dc.html, robin 2026-10-14): the
+  // head -- who answered, with which model and level, when, a copy button --
+  // the trace strip, and a one-line card for each subtask the turn delegated.
+  // Made at the turn's first `start`, or by the first fold or call that needs
+  // it on a page that never saw that start (#209). Names and numbers go in by
+  // textContent; the only markup is the page's own icons.
+  turnIcon(d){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+    +' stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"'
+    +' aria-hidden="true" focusable="false">'+d+'</svg>'; },
+
+  turnFrame(){
+    if(this.frameEl && this.frameEl.isConnected) return this.frameEl;
+    const f=this.turn("crowturn");
+    const hd=document.createElement("div"); hd.className="thd";
+    const who=document.createElement("span"); who.className="thw";
+    who.textContent="Crow"; hd.appendChild(who);
+    // A LIVE TURN SAYS WHAT ANSWERS AND WHEN, stamped here, at its first
+    // round. A replayed one does not: the chip's model and the clock now are
+    // not the ones it ran with.
+    if(this.running){ const now=new Date();
+      this.headParts(this.modelName, this.levelLabel().replace(/^ · /,""), now)
+        .forEach(([cls, text])=>{
+          const el=document.createElement(cls==="tht" ? "time" : "span");
+          el.className="mono "+cls; el.textContent=text;
+          if(cls==="tht") el.dateTime=now.toISOString();
+          hd.appendChild(el); }); }
+    const gap=document.createElement("span"); gap.className="thsp"; hd.appendChild(gap);
+    const cp=document.createElement("button"); cp.type="button"; cp.className="ib thcopy";
+    cp.setAttribute("aria-label","Copy answer"); cp.title="Copy answer";
+    cp.innerHTML=this.turnIcon('<rect x="9" y="9" width="11" height="11" rx="2"></rect>'
+      +'<path d="M5 15V6a2 2 0 0 1 2-2h8"></path>');
+    cp.onclick=()=>this.turnCopy(f, cp);
+    hd.appendChild(cp);
+    // THE TRACE STRIP: its head is the disclosure of the folded rounds (APG
+    // disclosure: a button with aria-expanded), hidden until the turn has a
+    // call or a folded round.
+    const tr=document.createElement("div"); tr.className="trace"; tr.hidden=true;
+    const id="tb"+(++this.traceSeq);
+    tr.innerHTML='<button class="trh" type="button" aria-expanded="false"'
+      +' aria-controls="'+id+'">'+this.turnIcon('<path d="m9 6 6 6-6 6"></path>')
+      +'<span class="tl">Trace</span><span class="tn mono"></span></button>'
+      +'<div class="segs" role="group" aria-label="Tool calls" hidden></div>'
+      +'<div class="leg" hidden></div><div class="tb" id="'+id+'" hidden></div>';
+    const head=tr.querySelector(".trh"), tb=tr.querySelector(".tb");
+    head.onclick=()=>{ tb.hidden=!tb.hidden;
+      head.setAttribute("aria-expanded", String(!tb.hidden)); };
+    f.append(hd, tr);
+    this.frameEl=f; return f; },
+
+  // THE HEAD'S STAMP, pure (the suite runs it): model · level in mono, then
+  // the local time as HH:MM. No model, no model part.
+  headParts(model, level, now){
+    const out=[];
+    if(model) out.push(["thm", String(model)+(level ? " · "+level : "")]);
+    out.push(["tht", String(now.getHours()).padStart(2,"0")+":"
+                     +String(now.getMinutes()).padStart(2,"0")]);
+    return out; },
+
+  // FROM THE `start` CASE, before `start` opens the round: the block goes
+  // above round one, and every round of the turn is counted.
+  turnStart(){ this.turnFrame(); this.trounds++; this.traceHead(); },
+
+  // A CALL OF THIS TURN, one segment in call order -- fed from the `tool`
+  // case beside the inspector's row builder, never inside it. The number is
+  // the call's place in the chat, as the inspector's Tools list counts it.
+  traceTool(name, raw){
+    const tr=this.turnFrame().querySelector(".trace");
+    const no=flow.querySelectorAll(".segs .seg").length+1;
+    const kind=this.toolKind(name), b=document.createElement("button");
+    b.type="button"; b.className="seg k-"+kind;
+    const lab="Call "+String(no).padStart(2,"0")+": "+String(name||"");
+    b.title=lab; b.setAttribute("aria-label", lab);
+    b.onclick=()=>{ if(this.inspectorShow) this.inspectorShow("tools", no); };
+    tr.querySelector(".segs").appendChild(b);
+    const call={name:String(name||""), kind, seg:b, ref:null};
+    if(call.name==="delegate") call.ref=this.refOpen(raw);
+    this.tcalls.push(call); this.traceHead(); },
+
+  // A CALL THAT ANSWERED `error: ` FAILED -- the inspector's own test
+  // (`toolRes`) -- and a failed `delegate` started nothing to show a card of.
+  traceRes(name, text){
+    const c=this.tcalls[this.tcalls.length-1];
+    if(!c || c.name!==String(name||"") || !String(text||"").startsWith("error: ")) return;
+    c.seg.classList.add("k-bad");
+    c.seg.title=c.seg.getAttribute("aria-label")+", failed";
+    c.seg.setAttribute("aria-label", c.seg.title);
+    if(c.ref){ c.ref.remove(); c.ref=null; } },
+
+  // "Trace · N tool calls · M rounds", the segments' visibility, the legend.
+  traceHead(){
+    const f=this.frameEl; if(!f) return;
+    const tr=f.querySelector(".trace"), n=this.tcalls.length, m=this.trounds;
+    const many=(k,w)=>k+" "+w+(k===1 ? "" : "s");
+    tr.querySelector(".tn").textContent=[n ? many(n,"tool call") : "",
+      m ? many(m,"round") : ""].filter(Boolean).join(" · ");
+    tr.hidden=!(n || this.traceN);
+    tr.querySelector(".segs").hidden=!n;
+    const leg=tr.querySelector(".leg"); leg.hidden=!n; leg.textContent="";
+    this.traceLegend(this.tcalls).forEach(([kind, text])=>{
+      const s=document.createElement("span"), d=document.createElement("span");
+      d.className="dot k-"+kind; s.append(d, document.createTextNode(text));
+      leg.appendChild(s); }); },
+
+  // THE LEGEND, pure (the suite runs it): goal n · the two most frequent
+  // other names n · the delegation names n.
+  traceLegend(calls){
+    const out=[], cmd=new Map(), sub=[];
+    let goal=0, subs=0;
+    (calls||[]).forEach(c=>{
+      if(c.kind==="goal") goal++;
+      else if(c.kind==="sub"){ subs++; if(sub.indexOf(c.name)<0) sub.push(c.name); }
+      else cmd.set(c.name, (cmd.get(c.name)||0)+1); });
+    if(goal) out.push(["goal", "goal "+goal]);
+    [...cmd].sort((a,b)=>b[1]-a[1]).slice(0,2)
+      .forEach(([nm,k])=>out.push(["cmd", nm+" "+k]));
+    if(subs) out.push(["sub", sub.join(" · ")+" "+subs]);
+    return out; },
+
+  // THE SUBTASK'S CARD (#255 kept it out of the flow; the mockup puts one
+  // line back, the full card stays in the inspector). Opened by its
+  // `delegate` call, drawn once a `subs` push names the subtask. The key is
+  // the task the call sent: the registry's `task` is its first line, cut.
+  refOpen(raw){
+    let task="";
+    try{ const a=JSON.parse(raw||"{}"); task=String((a && a.task)||""); }catch(_){ task=""; }
+    const b=document.createElement("button"); b.type="button"; b.className="subref";
+    b.hidden=true; b.dataset.task=task.trim().split(/\r\n|\r|\n/)[0] || "";
+    this.turnFrame().appendChild(b); return b; },
+
+  // FROM THE `subs` CASE: bind the open cards, draw every bound one by its
+  // id, and redraw the strips that count them. `here` only -- another
+  // chat's subtask is not this chat's card.
+  refSubs(items){
+    const list=(items||[]).filter(it=>it && it.here);
+    this.refItems=new Map(list.map(it=>[String(it.i), it]));
+    const open=[...flow.querySelectorAll(".subref:not([data-sub])")];
+    const taken=[...flow.querySelectorAll(".subref[data-sub]")].map(b=>b.dataset.sub);
+    this.refBind(open.map(b=>b.dataset.task||""), list, taken)
+      .forEach(([k, id])=>{ open[k].dataset.sub=id; });
+    flow.querySelectorAll(".subref[data-sub]").forEach(b=>{
+      const it=this.refItems.get(b.dataset.sub); if(it) this.refDraw(b, it); });
+    flow.querySelectorAll(".cost.tele").forEach(d=>{ if(d.teleStats) this.teleDraw(d); }); },
+
+  // WHICH OPEN CARD IS WHICH SUBTASK, pure (the suite runs it): each card's
+  // task head, in call order, takes the first `here` subtask not yet taken
+  // whose registry head it starts with. [card index, id] pairs.
+  refBind(heads, items, taken){
+    const used=new Set((taken||[]).map(String)), out=[];
+    (heads||[]).forEach((h, k)=>{
+      const it=(items||[]).find(x=>x && x.here && x.task && !used.has(String(x.i))
+                                   && String(h||"").startsWith(String(x.task)));
+      if(it){ used.add(String(it.i)); out.push([k, String(it.i)]); } });
+    return out; },
+
+  // THE CARD'S LINE, pure: id, task, model (without its vendor), status,
+  // tokens and seconds -- [class, text] in the mockup's order.
+  refParts(it, task){
+    const st=String(it.st||""), model=String(it.model||"");
+    return [["mono sid", String(it.i)], ["stk", task || String(it.task||"")],
+            ["mono smd", model.split("/").pop()],
+            ["pill "+(st==="done" ? "ok" : st==="running" ? "run" : "bad"), st],
+            ["mono sts", Number(it.tok||0).toLocaleString("en-US")+" tok · "
+                         +Number(it.s||0).toFixed(1)+" s"]]; },
+
+  // DRAWN AGAIN ON EVERY PUSH, by its id: the card has no state to keep.
+  refDraw(b, it){
+    b.hidden=false; b.textContent="";
+    b.insertAdjacentHTML("beforeend", this.turnIcon('<circle cx="6" cy="5" r="2"></circle>'
+      +'<circle cx="18" cy="5" r="2"></circle><circle cx="12" cy="19" r="2"></circle>'
+      +'<path d="M6 7v1a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4V7M12 12v5"></path>'));
+    this.refParts(it, b.dataset.task).forEach(([cls, text])=>{
+      const s=document.createElement("span"); s.className=cls;
+      s.textContent=text; b.appendChild(s); });
+    const md=b.querySelector(".smd"); if(md) md.title=String(it.model||"");
+    b.title="Open "+it.i+" in the inspector";
+    b.onclick=()=>{ if(this.inspectorShow) this.inspectorShow("subs", String(it.i)); }; },
+
+  // THE TELEMETRY STRIP, drawn (again) from its own numbers: `stats` as the
+  // push brought them, and the cards of its turn for the Delegated cell.
+  teleDraw(d){
+    const f=d.teleFrame, items=this.refItems || new Map();
+    let n=0, tok=0;
+    if(f && f.isConnected) f.querySelectorAll(".subref[data-sub]").forEach(b=>{
+      n++; tok+=Number((items.get(b.dataset.sub)||{}).tok||0); });
+    d.textContent="";
+    this.teleCells(d.teleStats, n ? {n, tok} : null).forEach(c=>{
+      const m=document.createElement("div"); m.className="m"+(c.dlg ? " dlg" : "");
+      const l=document.createElement("span"); l.className="ml"; l.textContent=c.label;
+      const v=document.createElement("span"); v.className="mv mono"; v.textContent=c.value;
+      if(c.unit){ const u=document.createElement("small"); u.textContent=c.unit;
+        v.appendChild(u); }
+      m.append(l, v);
+      if(c.note){ const s=document.createElement("span"); s.className="ms mono";
+        s.textContent=c.note; m.appendChild(s); }
+      d.appendChild(m); }); },
+
+  // THE CELLS, pure (the suite runs it), in the formats of TurnCost.line():
+  // en-US thousands, a rate to two places, a time as format_clock writes it,
+  // the model/tools split only from half a second of tools on. NEVER PARSED
+  // OUT OF THE LINE -- a second formatter would drift from the core's.
+  teleCells(st, del){
+    st=st || {};
+    const n=x=>Number(x||0).toLocaleString("en-US");
+    const two=x=>String(x).padStart(2,"0");
+    const clock=s=>{ s=Number(s||0); if(s<60) return s.toFixed(1)+"s";
+      const t=Math.round(s), h=Math.floor(t/3600), m=Math.floor(t%3600/60);
+      return h ? h+"h"+two(m)+"m"+two(t%60)+"s" : m+"m"+two(t%60)+"s"; };
+    const rate=(label, r, k)=>typeof r==="number"
+      ? {label, value:r.toFixed(2), unit:"tok/s", note:n(k)+" tok"}
+      : {label, value:n(k), unit:"tok", note:""};
+    const out=[];
+    if(st.decoded) out.push(rate("Decode", st.decode_rate, st.decoded));
+    if(st.prefilled) out.push(rate("Prefill", st.prefill_rate, st.prefilled));
+    if(typeof st.cached==="number") out.push({label:"Cache",
+      value:String(st.cached_of>0 ? Math.round(100*st.cached/st.cached_of) : 0),
+      unit:"%", note:n(st.cached)+" / "+n(st.cached_of)});
+    const k=Number(st.tool_calls||0);
+    out.push({label:"Rounds", value:String(Number(st.rounds||0)), unit:"",
+      note:k ? k+" tool call"+(k===1 ? "" : "s")
+               +(st.tool_errors ? ", "+st.tool_errors+" failed" : "")
+               +(st.tool_declined ? ", "+st.tool_declined+" declined" : "") : ""});
+    const w=Number(st.waited_s||0);
+    out.push({label:"Waited", value:w<60 ? w.toFixed(1) : clock(w), unit:w<60 ? "s" : "",
+      note:Number(st.tool_s||0)>=0.5
+        ? "model "+clock(st.model_s)+" + tools "+clock(st.tool_s) : ""});
+    if(del && del.n) out.push({label:"Delegated", value:String(del.n), unit:"", dlg:true,
+      note:(del.n===1 ? "subtask" : "subtasks")+" · "+n(del.tok)+" tok"});
+    return out; },
+
+  // THE COPY BUTTON: the turn's answer as text -- prose and code of the
+  // rounds under this block (the folded ones are its trace; with nothing
+  // there, the last folded round that said something) -- through `clip`,
+  // the path the right-click menu copies by.
+  turnCopy(f, btn){
+    this.clip(this.turnText(f)).then(ok=>{ if(!ok) return;
+      btn.classList.add("on"); btn.setAttribute("aria-label","Copied");
+      setTimeout(()=>{ btn.classList.remove("on");
+        btn.setAttribute("aria-label","Copy answer"); }, 1400); }); },
+  turnText(f){
+    const out=[], take=el=>el.querySelectorAll(".say, .code pre").forEach(x=>{
+      const s=(x.innerText||x.textContent||"").trim(); if(s) out.push(s); });
+    for(let t=f.nextElementSibling; t && !t.classList.contains("crowturn")
+        && !t.querySelector(".you"); t=t.nextElementSibling) take(t);
+    if(!out.length){ const r=[...f.querySelectorAll(".tb > .turn")].reverse()
+      .find(t=>t.querySelector(".say")); if(r) take(r); }
+    return out.join("\n\n"); },
+  // -- end #383 ------------------------------------------------------------
+
   // #131. VARIANT A (the owner, 2026-08-22). A 24-round turn put 24 rounds of
   // thoughts and running commentary between the question and the answer, and
   // the answer was below the fold when it finally arrived.
@@ -4937,18 +5261,12 @@ const crow = {
     const done=this.round; this.round=null;
     if(!done.textContent.trim() && !done.querySelector("details")){
       done.remove(); return; }
+    // #383: THE TRACE IS THE STRIP in the turn's head block, made with it.
     if(!this.trace || !this.trace.isConnected){
-      const t=this.turn("");
-      const d=document.createElement("details"); d.className="trace";
-      d.innerHTML='<summary><span class="caret"></span>'
-        + '<span class="tl">Trace</span><span class="tn"></span></summary>'
-        + '<div class="tb"></div>';
-      d.querySelector(".caret").textContent=String.fromCharCode(9654);
-      t.appendChild(d); this.trace=d; this.traceN=0; }
+      this.trace=this.turnFrame().querySelector(".trace"); this.traceN=0; }
     this.trace.querySelector(".tb").appendChild(done);
     this.traceN++;
-    this.trace.querySelector(".tn").textContent =
-      this.traceN + (this.traceN===1 ? " round" : " rounds"); },
+    this.traceHead(); },
 
   start(){
     this.fold();
@@ -4977,7 +5295,12 @@ const crow = {
   thinkOpen(){
     this.here();
     const d=document.createElement("details"); d.className="think";
-    d.innerHTML='<summary><span class="caret">&#9654;</span><span class="dur">'+
+    // #383: the mockup's chevron. Written out, not built by `turnIcon`: the
+    // suite runs this slice in node without the rest of the object.
+    d.innerHTML='<summary><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"'+
+      ' stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"'+
+      ' aria-hidden="true" focusable="false"><path d="m9 6 6 6-6 6"></path></svg>'+
+      '<span class="dur">'+
       (this.col.querySelectorAll("details").length? "Thought again":"Thought")+
       '</span></summary><div class="tbody"></div>';
     this.col.insertBefore(d,this.cursor); this.think=d.querySelector(".tbody");
@@ -5246,6 +5569,13 @@ const crow = {
 
   // #138. EIN LAUFENDER AUFRUF SCHLIESST SEINEN BLOCK. Ab hier sind die
   // Argumente vollstaendig -- was jetzt noch kaeme, gehoert zur naechsten Runde.
+  // #383/#384. THE KIND OF A TOOL CALL, ONCE: the trace strip and the inspector's dots read it.
+  toolKind(name){
+    const n=String(name||"");
+    if(n.startsWith("goal_")) return "goal";
+    if(n==="delegate"||n==="collect"||n==="subtasks"||n==="verify") return "sub";
+    return "cmd";
+  },
   tool(name,args,raw,code){
     // #138. Der Block im Panel ist fertig, sobald der Aufruf laeuft -- ab hier
     // darf er Farbe bekommen. Die Sprache steht im Pfad, den das Werkzeug
@@ -5548,7 +5878,7 @@ const crow = {
     // -- gefunden, nachdem der Owner das Fenster neu gestartet hatte.
     pywebview.api.tools_cleared(); },
 
-  cost(line,share,sub){
+  cost(line,share,stats,cut){
     if(this.cursor){ this.cursor.remove(); this.cursor=null; }
     // THE SAME NUMBER ON EVERY BLOCK IS CORRECT, because the number is the TURN's and the label
     // says so. It was not until #117: the turn object kept the LAST ROUND's ratio, and this loop
@@ -5564,15 +5894,19 @@ const crow = {
           s.textContent=share.toFixed(0)+" % of the turn";
           el.parentNode.appendChild(s);} });
     }
-    if(line){ const d=document.createElement("div"); d.className="cost";
-      // #143. The delegation share rides the cost line in its own channel:
-      // the closing bracket moves into the coloured span so the share sits
-      // INSIDE the brackets, exactly as the agreed mockup draws it.
-      if(sub){ d.textContent=line.replace(/\]$/," | ");
-        const s=document.createElement("span"); s.className="subshare";
-        s.textContent=sub+"]"; d.appendChild(s); }
-      else d.textContent=line;
-      (this.col||flow).appendChild(d); }
+    // #383. THE TELEMETRY STRIP replaces the bracket line: labelled cells
+    // that wrap, drawn from `stats` (`teleDraw`). Class `cost` stays -- the
+    // phone layer addresses it. A cut-off turn says so under the strip, in
+    // the core's words. The line itself is drawn only where a push brought
+    // no numbers (a chat remembered from before #382).
+    if(line && stats){ const d=document.createElement("div"); d.className="cost tele";
+      d.setAttribute("role","group"); d.setAttribute("aria-label","Turn statistics");
+      d.teleStats=stats; d.teleFrame=this.frameEl; this.teleDraw(d);
+      (this.col||flow).appendChild(d);
+      if(cut){ const w=document.createElement("div"); w.className="tcut";
+        w.textContent=cut; (this.col||flow).appendChild(w); } }
+    else if(line){ const d=document.createElement("div"); d.className="cost";
+      d.textContent=line; (this.col||flow).appendChild(d); }
     this.bottom();
   },
 
@@ -8899,6 +9233,9 @@ const crow = {
     // Fassung desselben Textes, und die beiden koennten sich widersprechen.
     // Der Stempel kommt aus `push`, nicht aus dem Nachrichtentyp.
     if(e.bg) return;
+    // #383: the delegate cards in the flow follow every subtask push, beside
+    // the inspector's own cards (`subs`).
+    if(e.k==="subs") this.refSubs(e.items);
     switch(e.k){
       case "up": $("#dot").className="up"; $("#state").textContent="connected";
         $("#engine").dataset.state="up";
@@ -8975,7 +9312,7 @@ const crow = {
       case "user": this.user(e.t); if(e.i) this.userImages(e.i); break;
       // #211. DIE BANDGRENZE ALS KARTE -- vom Schnitt selbst oder vom Replay.
       case "roll": this.rollCard(e); break;
-      case "start": this.start(); break;
+      case "start": this.turnStart(); this.start(); break;
       case "think_open": this.thinkOpen(); break;
       case "think": this.thinkText(e.t); break;
       case "think_close": this.thinkClose(); break;
@@ -8986,13 +9323,13 @@ const crow = {
       case "engine": this.engineDone(e); break;
       case "voice": this.voice(e); break;
       case "code_close": this.codeClose(e.closed); break;
-      case "tool": this.tool(e.name,e.args,e.raw,e.code); break;
+      case "tool": this.tool(e.name,e.args,e.raw,e.code); this.traceTool(e.name,e.raw); break;
       case "toolend": this.toolEnd(e.name,e.s,e.rep); break;
-      case "toolres": this.toolRes(e.name,e.t,e.cut); break;
+      case "toolres": this.toolRes(e.name,e.t,e.cut); this.traceRes(e.name,e.t); break;
       // #382: `stats` is the turn's numbers as numbers; the page keeps the last
       // one (a chat switch re-sends the line without it) and the engine chip
       // shows its decode rate. #383 draws the strip from it.
-      case "cost": this.cost(e.line,e.share,e.sub); if(e.stats) this.stats=e.stats;
+      case "cost": this.cost(e.line,e.share,e.stats,e.cut); if(e.stats) this.stats=e.stats;
         this.ctx(e.tokens,e.n_ctx); break;
       case "ctx": this.ctx(e.tokens,e.n_ctx); break;
       case "subs": this.subs(e.items); break;
@@ -13218,6 +13555,10 @@ class Api:
         self.push({"k": "cost",
                    "line": (kept or {}).get("line", ""),
                    "share": (kept or {}).get("share"),
+                   # #383: the strip is drawn from the numbers, so they come
+                   # back with the line.
+                   "stats": (kept or {}).get("stats"),
+                   "cut": (kept or {}).get("cut", ""),
                    "tokens": tokens, "n_ctx": self._n_ctx})
 
     def _say_where(self, clients=None) -> None:
@@ -18998,7 +19339,11 @@ class Api:
                    # #143. This turn's delegation share, token counts only.
                    "sub": self._sub_share(sub_before) if line else "",
                    # #382. The same balance as numbers, for the page.
-                   "stats": turn_stats(record)})
+                   "stats": turn_stats(record),
+                   # #383. The cut-off warning under the strip, in the
+                   # core's words (the line carries it as its last bit).
+                   "cut": (crow_core.CUT_OFF_NOTE
+                           if (record or {}).get("finish") == "length" else "")})
         self._persist_live()
         # THE RAIL FOLLOWS THE TURN. A chat that had just been given its first
         # message went on calling itself "new chat" until something else

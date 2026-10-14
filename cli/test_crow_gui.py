@@ -6085,6 +6085,338 @@ class TheBubblesStandOnTheComposersEdgesTests(unittest.TestCase):
                 self.assertAlmostEqual(t_hi, b_lo + w, msg="right edge, %s/%s" % (width, reserve))
 
 
+# --------------------------------------------- #383: the turn as the mockup ----
+
+GOAL_RUN = HERE.parent / "tools" / "fixtures" / "goal-run-2026-09-16.json"
+
+
+class _TurnPage(unittest.TestCase):
+    """#383's page half. The pure members RUN in node (cut out of the crow
+    object by their own heads, the way the stream cases cut `start`); the
+    rest is held against the source and the stylesheet."""
+
+    PURE = (("  toolKind(name){", "  tool(name,args,raw,code){"),
+            ("  headParts(model, level, now){", "  // FROM THE `start` CASE"),
+            ("  traceLegend(calls){", "  // THE SUBTASK'S CARD"),
+            ("  refBind(heads, items, taken){", "  // THE CARD'S LINE, pure"),
+            ("  refParts(it, task){", "  // DRAWN AGAIN ON EVERY PUSH"),
+            ("  teleCells(st, del){", "  // THE COPY BUTTON"))
+
+    @classmethod
+    def setUpClass(cls):
+        cls.node = _node()
+        cls.source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        cls.css = cls.source[cls.source.index("<style>"):cls.source.index("</style>")]
+
+    def _js(self, start: str, end: str) -> str:
+        i = self.source.index(start)
+        return self.source[i:self.source.index(end, i)]
+
+    def _rule(self, selector: str) -> str:
+        found = self.css[self.css.index(selector):]
+        return found[:found.index(chr(125))]
+
+    def run_js(self, expr: str):
+        if not self.node:
+            self.skipTest("no node on this machine")
+        members = "".join(self._js(a, b) for a, b in self.PURE)
+        prog = ("const o={" + members + "};\nconsole.log(JSON.stringify("
+                + expr + "));\n")
+        done = subprocess.run([self.node, "-e", prog], capture_output=True,
+                              text=True, encoding="utf-8", timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def goal_run(self) -> list:
+        return json.loads(GOAL_RUN.read_text(encoding="utf-8"))["messages"]
+
+
+class TheTelemetryStripTests(_TurnPage):
+    """#383: the bracket line under an answer becomes labelled cells that
+    wrap, drawn from `stats` (#382) -- never parsed out of the line."""
+
+    def test_the_cells_are_the_goal_runs_numbers(self):
+        """The ticket's Expected result, from the fixture's own `stats`."""
+        stats = [m for m in self.goal_run() if m["k"] == "cost"][0]["stats"]
+        cells = self.run_js("o.teleCells(%s, {n:1, tok:65}).map(c=>"
+                            "[c.label, c.value+c.unit, c.note, !!c.dlg])"
+                            % json.dumps(stats))
+        self.assertEqual(cells, [
+            ["Decode", "35.85tok/s", "1,399 tok", False],
+            ["Prefill", "351.37tok/s", "2,785 tok", False],
+            ["Cache", "99%", "5,852 / 5,901", False],
+            ["Rounds", "12", "11 tool calls", False],
+            ["Waited", "48.1s", "", False],
+            ["Delegated", "1", "subtask · 65 tok", True]])
+
+    def test_the_numbers_are_the_cores_line(self):
+        """ONE SOURCE: every number a cell shows is in `TurnCost.line()` for
+        the same turn, in the same format -- the strip has no second idea of
+        how a rate, a count or a clock is written."""
+        cost = crow_core.TurnCost()
+        cost.add_round({"predicted_n": 12345, "prompt_n": 2000,
+                        "predicted_ms": 610000.0, "prompt_ms": 4000.0,
+                        "_client_total_s": 650.0, "_cached_tokens": 1000})
+        cost.add_tool(3.25, failed=True)
+        cost.add_tool(0.5, failed=False)
+        cost.started = time.monotonic() - 3725.0
+        line, record = cost.line(), cost.record()
+        cells = self.run_js("o.teleCells(%s, null)"
+                            % json.dumps(crow_gui.turn_stats(record)))
+        got = {c["label"]: c for c in cells}
+        self.assertEqual(list(got), ["Decode", "Prefill", "Cache", "Rounds", "Waited"])
+        self.assertIn("@ %s tok/s" % got["Decode"]["value"], line)
+        self.assertIn(got["Decode"]["note"], line)
+        self.assertIn("@ %s tok/s" % got["Prefill"]["value"], line)
+        self.assertIn("prefill " + got["Prefill"]["note"], line)
+        self.assertIn("cached " + got["Cache"]["note"].replace(" / ", "/"), line)
+        self.assertIn(got["Rounds"]["note"], line)
+        self.assertEqual(got["Rounds"]["note"], "2 tool calls, 1 failed")
+        self.assertIn("waited %s%s" % (got["Waited"]["value"], got["Waited"]["unit"]), line)
+        self.assertEqual(got["Waited"]["value"], "1h02m05s")
+        model, tools = got["Waited"]["note"].split(" + ")
+        self.assertIn("(%s, %s)" % (model, tools), line)
+
+    def test_a_cell_with_nothing_to_say_is_not_drawn(self):
+        """No rate -> the count; no cache figure -> no Cache cell; under half a
+        second of tools -> no model/tools split (the core's rule); no
+        subtasks -> no Delegated cell; declined calls are named."""
+        cells = self.run_js(
+            'o.teleCells({rounds:1, decoded:5, waited_s:2.04, tool_s:0.49,'
+            ' model_s:1.5, tool_calls:1, tool_declined:1}, null)')
+        self.assertEqual([(c["label"], c["value"], c["unit"], c["note"]) for c in cells],
+                         [("Decode", "5", "tok", ""), ("Rounds", "1", "", "1 tool call, 1 declined"),
+                          ("Waited", "2.0", "s", "")])
+
+    def test_the_strip_wraps_and_never_scrolls(self):
+        tele = self._rule(".cost.tele{")
+        self.assertIn("display:flex", tele)
+        self.assertIn("flex-wrap:wrap", tele)
+        self.assertIn("overflow:hidden", tele)
+        cost = self._rule("\n.cost{")
+        for rule in (tele, cost):
+            self.assertNotIn("nowrap", rule)
+            self.assertNotIn("overflow-x", rule)
+        self.assertIn("flex:1 1 112px", self._rule(".tele .m{"))
+        self.assertIn("font-size:10.5px", self._rule(".tele .ml{"))
+        self.assertIn("text-transform:uppercase", self._rule(".tele .ml{"))
+        self.assertIn("font-size:15px", self._rule(".tele .mv{"))
+        self.assertIn("font-size:11px", self._rule(".tele .ms{"))
+
+    def test_it_keeps_class_cost_and_is_a_labelled_group(self):
+        """`cost` stays: the phone layer addresses it (#387)."""
+        cost = self._js("  cost(line,share,stats,cut){", "  fail(msg){")
+        self.assertIn('d.className="cost tele"', cost)
+        self.assertIn('d.setAttribute("role","group")', cost)
+        self.assertIn('d.setAttribute("aria-label","Turn statistics")', cost)
+        self.assertIn('w.className="tcut"', cost)
+        self.assertNotIn("subshare", self.source)
+        self.assertIn(".cost{", crow_gui.REMOTE_CSS)
+
+
+class TheTraceStripTests(_TurnPage):
+    """#383: "Trace · N tool calls · M rounds", one segment per call coloured
+    by kind, a legend; a segment opens that call in the inspector."""
+
+    def test_the_kinds(self):
+        self.assertEqual(self.run_js(
+            '["goal_set","goal_step","delegate","collect","subtasks","verify",'
+            '"run_command","read_file",""].map(n=>o.toolKind(n))'),
+            ["goal", "goal", "sub", "sub", "sub", "sub", "cmd", "cmd", "cmd"])
+
+    def test_the_goal_run_is_eleven_segments_seven_two_two(self):
+        names = [m["name"] for m in self.goal_run() if m["k"] == "tool"]
+        kinds = self.run_js("%s.map(n=>o.toolKind(n))" % json.dumps(names))
+        self.assertEqual(len(kinds), 11)
+        self.assertEqual((kinds.count("goal"), kinds.count("cmd"), kinds.count("sub")),
+                         (7, 2, 2))
+        legend = self.run_js("o.traceLegend(%s.map(n=>({name:n, kind:o.toolKind(n)})))"
+                             % json.dumps(names))
+        self.assertEqual(legend, [["goal", "goal 7"], ["cmd", "run_command 2"],
+                                  ["sub", "delegate · collect 2"]])
+
+    def test_the_legend_names_the_two_most_frequent_others(self):
+        legend = self.run_js(
+            'o.traceLegend(["a","b","b","c","c","c","a","verify"]'
+            '.map(n=>({name:n, kind:o.toolKind(n)})))')
+        self.assertEqual(legend, [["cmd", "c 3"], ["cmd", "a 2"], ["sub", "verify 1"]])
+
+    def test_one_segment_per_call_fed_beside_the_inspector(self):
+        """Counted in a method of its own from the `tool`/`toolres` cases, never
+        inside the inspector's `tool()` builder (#384's)."""
+        self.assertIn('case "tool": this.tool(e.name,e.args,e.raw,e.code); '
+                      'this.traceTool(e.name,e.raw); break;', self.source)
+        self.assertIn('case "toolres": this.toolRes(e.name,e.t,e.cut); '
+                      'this.traceRes(e.name,e.t); break;', self.source)
+        self.assertNotIn("traceTool", self._js("  tool(name,args,raw,code){", "  toolRes("))
+        tool = self._js("  traceTool(name, raw){", "  traceRes(name, text){")
+        self.assertIn('b.type="button"; b.className="seg k-"+kind;', tool)
+        self.assertIn('if(this.inspectorShow) this.inspectorShow("tools", no);', tool)
+        res = self._js("  traceRes(name, text){", "  traceHead(){")
+        self.assertIn('startsWith("error: ")', res)
+        self.assertIn('c.seg.classList.add("k-bad")', res)
+
+    def test_the_kind_colours(self):
+        self.assertIn(".k-goal{background:var(--dim)}", self.css)
+        self.assertIn(".k-cmd{background:var(--accent)}", self.css)
+        self.assertIn(".k-sub{background:var(--sub)}", self.css)
+        self.assertGreater(self.css.index(".k-bad{background:var(--bad)}"),
+                           self.css.index(".k-sub{background:var(--sub)}"),
+                           "a failed call must win over its kind")
+        self.assertIn("height:6px", self._rule(".segs{"))
+        self.assertIn("gap:3px", self._rule(".segs{"))
+
+
+class TheDelegateCardTests(_TurnPage):
+    """#383: a one-line card in the flow where the turn delegated, bound to
+    its subtask and drawn again from every `subs` push by id."""
+
+    def test_a_card_binds_to_its_subtask_by_the_task_it_sent(self):
+        """The registry's `task` is the first line cut at SUBTASK_TITLE_MAX;
+        the call's task starts with it."""
+        cut = "x" * crow_core.SUBTASK_TITLE_MAX
+        pairs = self.run_js(
+            'o.refBind(["Compute 21 multiplied by 2 and state the numeric result.", "%s yz"],'
+            ' [{i:"d1", here:true, task:"Compute 21 multiplied by 2 and state the numeric result."},'
+            '  {i:"d2", here:true, task:"%s"}], [])' % (cut, cut))
+        self.assertEqual(pairs, [[0, "d1"], [1, "d2"]])
+
+    def test_another_chats_subtask_and_a_taken_one_are_skipped(self):
+        pairs = self.run_js(
+            'o.refBind(["same", "same", "same"],'
+            ' [{i:"d1", here:false, task:"same"}, {i:"d2", here:true, task:"same"},'
+            '  {i:"d3", here:true, task:"same"}], ["d2"])')
+        self.assertEqual(pairs, [[0, "d3"]])
+
+    def test_the_card_follows_the_push(self):
+        """The goal run's d1, running and then done: the same card's line."""
+        subs = [m["items"][0] for m in self.goal_run() if m["k"] == "subs"]
+        lines = self.run_js("%s.map(it=>o.refParts(it, ''))" % json.dumps(subs))
+        self.assertEqual(lines[-1], [
+            ["mono sid", "d1"],
+            ["stk", "Compute 21 multiplied by 2 and state the numeric result."],
+            ["mono smd", "ling-3.0-flash-vl:free"], ["pill ok", "done"],
+            ["mono sts", "65 tok · 1.1 s"]])
+        self.assertEqual(lines[0][3], ["pill run", "running"])
+
+    def test_every_push_redraws_the_cards_by_id_and_a_click_opens_the_inspector(self):
+        self.assertIn('if(e.k==="subs") this.refSubs(e.items);', self.source)
+        subs = self._js("  refSubs(items){", "  // WHICH OPEN CARD")
+        self.assertIn("this.refItems.get(b.dataset.sub)", subs)
+        self.assertIn("this.refDraw(b, it)", subs)
+        draw = self._js("  refDraw(b, it){", "  // THE TELEMETRY STRIP, drawn")
+        self.assertIn('if(this.inspectorShow) this.inspectorShow("subs", String(it.i));', draw)
+        self.assertIn('if(call.name==="delegate") call.ref=this.refOpen(raw);',
+                      self._js("  traceTool(name, raw){", "  traceRes(name, text){"))
+        self.assertIn("background:var(--sub-soft)", self._rule(".subref{"))
+        self.assertIn("text-overflow:ellipsis", self._rule(".subref .stk{"))
+        self.assertIn("@media (max-width:760px){.subref .smd{display:none}}", self.css)
+
+
+class TheTurnHeadTests(_TurnPage):
+    """#383: Crow · model · level · HH:MM, and a copy button for the answer."""
+
+    def test_the_stamp(self):
+        self.assertEqual(self.run_js(
+            'o.headParts("Qwen3.8-Flash-Next", "high", new Date(2026, 9, 14, 16, 41))'),
+            [["thm", "Qwen3.8-Flash-Next · high"], ["tht", "16:41"]])
+        self.assertEqual(self.run_js('o.headParts("", "", new Date(2026, 9, 14, 9, 5))'),
+                         [["tht", "09:05"]])
+
+    def test_only_a_live_turn_is_stamped_and_the_block_comes_first(self):
+        """A replayed turn would carry today's model and clock as its own."""
+        frame = self._js("  turnFrame(){", "  // THE HEAD'S STAMP")
+        self.assertIn('who.textContent="Crow"', frame)
+        self.assertIn("if(this.running){ const now=new Date();", frame)
+        self.assertIn('this.headParts(this.modelName, this.levelLabel()', frame)
+        self.assertIn('case "start": this.turnStart(); this.start(); break;', self.source)
+        self.assertIn("font-weight:650", self._rule(".thd .thw{"))
+
+    def test_the_copy_button_copies_the_answer_through_clip(self):
+        frame = self._js("  turnFrame(){", "  // THE HEAD'S STAMP")
+        self.assertIn('cp.className="ib thcopy"', frame)
+        self.assertIn('cp.setAttribute("aria-label","Copy answer")', frame)
+        self.assertIn("cp.onclick=()=>this.turnCopy(f, cp);", frame)
+        copy = self._js("  turnCopy(f, btn){", "  turnText(f){")
+        self.assertIn("this.clip(this.turnText(f))", copy)
+
+
+class TheThoughtFoldAndAnswerTypeTests(_TurnPage):
+    """#383: the Thought fold as the mockup's `.fold`, and the answer's h3,
+    list markers and inline code."""
+
+    def test_the_thought_fold(self):
+        think = self._js("  thinkOpen(){", "  thinkText(p){")
+        self.assertIn('<path d="m9 6 6 6-6 6"></path></svg>', think)
+        self.assertNotIn("&#9654;", think)
+        summary = self._rule("details.think>summary{")
+        for decl in ("gap:6px", "height:26px", "padding:0 8px 0 4px", "font-size:12.5px",
+                     "color:var(--dim)"):
+            self.assertIn(decl, summary)
+        self.assertIn("color:var(--text-soft)", self._rule("details.think .dur{"))
+        self.assertNotIn("border", self._rule("\n.pct{"))
+
+    def test_the_answer_type(self):
+        h3 = self._rule(".md .mdh3{")
+        self.assertIn("font-size:14.5px", h3)
+        self.assertIn("font-weight:650", h3)
+        self.assertIn(".md li::marker{color:var(--dim)}", self.css)
+        code = self._rule(".md code{")
+        for decl in ("font-family:var(--mono)", "font-size:.86em", "background:var(--raised)",
+                     "border:1px solid var(--line-soft)", "border-radius:5px"):
+            self.assertIn(decl, code)
+
+
+class TheStripsNumbersTravelTests(ApiCase):
+    """#383's Python half: the cut-off note rides the turn-end push, and a
+    chat switch brings the numbers back with the remembered line."""
+
+    def test_a_switch_brings_the_numbers_back(self):
+        api = self.api()
+        api._last_cost[""] = {"line": "[1 round]", "share": 50.0,
+                              "stats": {"rounds": 1}, "cut": "CUT"}
+        self.drained(api)
+        api._push_cost_for(None, 5)
+        cost = [m for m in self.drained(api) if m.get("k") == "cost"][-1]
+        self.assertEqual((cost["line"], cost["stats"], cost["cut"]),
+                         ("[1 round]", {"rounds": 1}, "CUT"))
+
+    def _turn(self, cost) -> dict:
+        crow_core.provider_key_set("openrouter", "not-a-real-key-0123456789")
+        doc = crow_core.provider_doc()
+        doc["catalog"] = {"openrouter": {"fetched": 1, "models": [
+            {"id": "z-ai/glm-5.2:free", "name": "glm", "context": 131072}]}}
+        crow_core.provider_write(doc)
+        self.assertIsNone(crow_core.provider_pick("openrouter", "z-ai/glm-5.2:free"))
+        api = self.api()
+
+        def fake_run(conversation, **kw):
+            conversation.append("assistant", "done")
+            return crow_core.TurnResult(cost=cost, context_tokens=9,
+                                        promised_warm=False, rolled=False,
+                                        stopped=False, reported=True)
+
+        api._conversation.append("user", "eine Frage")
+        with mock.patch.object(crow_gui, "run_turn", fake_run), \
+             mock.patch.object(crow_core, "review_due", lambda *a, **k: None):
+            api._run("eine Frage")
+        return [m for m in self.drained(api) if m.get("k") == "cost"][-1]
+
+    def test_a_cut_off_turn_carries_the_cores_note(self):
+        cost = crow_core.TurnCost()
+        cost.add_round({"predicted_n": 20, "predicted_ms": 1000.0,
+                        "_finish_reason": "length"})
+        pushed = self._turn(cost)
+        self.assertEqual(pushed["cut"], crow_core.CUT_OFF_NOTE)
+        self.assertTrue(pushed["line"].endswith(crow_core.CUT_OFF_NOTE + "]"))
+
+    def test_a_finished_turn_carries_none(self):
+        cost = crow_core.TurnCost()
+        cost.add_round({"predicted_n": 20, "predicted_ms": 1000.0,
+                        "_finish_reason": "stop"})
+        self.assertEqual(self._turn(cost)["cut"], "")
+
+
 class TheTraceFoldsFinishedRoundsTests(unittest.TestCase):
     """#131, variant A. `reply_started` fires once per ROUND, so a 24-round turn
     drew 24 blocks of thoughts and running commentary -- and the answer, which is
@@ -6126,8 +6458,15 @@ class TheTraceFoldsFinishedRoundsTests(unittest.TestCase):
         self.assertIn("done.remove()", fold)
 
     def test_it_says_how_many_rounds_it_holds(self):
+        """#383: the head is "Trace · N tool calls · M rounds" -- the turn's
+        rounds, as the strip's Rounds cell counts them -- written by
+        `traceHead`, which every fold calls."""
         fold = self._js("  fold(){", "  start(){")
-        self.assertIn('this.traceN===1 ? " round" : " rounds"', fold)
+        self.assertIn("this.traceHead()", fold)
+        head = self._js("  traceHead(){", "  traceLegend(calls){")
+        self.assertIn('many(n,"tool call")', head)
+        self.assertIn('many(m,"round")', head)
+        self.assertIn('(k===1 ? "" : "s")', head)
 
     def test_a_new_user_line_starts_a_new_trace(self):
         """One trace per turn. Without this the second question's rounds would
@@ -6138,11 +6477,15 @@ class TheTraceFoldsFinishedRoundsTests(unittest.TestCase):
         self.assertIn("this.endTrace()", drawn[:drawn.index("break;")])
 
     def test_folded_it_costs_one_line(self):
+        """#383: the head is a disclosure button (APG: aria-expanded) over the
+        folded rounds, which start hidden; the strip itself is the one block."""
         CLOSE = chr(125)
-        body = self.css[self.css.index("details.trace .tb{"):]
+        body = self.css[self.css.index(".trace .tb{"):]
         self.assertIn("border-left", body[:body.index(CLOSE)])
-        summary = self.css[self.css.index("details.trace>summary{"):]
-        self.assertIn("inline-flex", summary[:summary.index(CLOSE)])
+        frame = self._js("  turnFrame(){", "  turnStart(){")
+        self.assertIn('<button class="trh" type="button" aria-expanded="false"', frame)
+        self.assertIn('<div class="tb" id="\'+id+\'" hidden></div>', frame)
+        self.assertIn('head.setAttribute("aria-expanded", String(!tb.hidden))', frame)
 
 
 class ADismissedToolRowStaysDismissedTests(ApiCase):
@@ -9412,7 +9755,8 @@ class TheDelegationWearsTheMockupTests(unittest.TestCase):
         run = self._rule(".sdot.run{")
         self.assertIn("var(--sub)", run)
         self.assertIn("animation:subpulse", run)
-        self.assertIn(".cost .subshare{color:var(--sub)", self.css)
+        # #383: the share is the strip's Delegated cell now, same channel.
+        self.assertIn(".tele .m.dlg .mv{color:var(--sub)", self.css)
 
     def test_the_dot_is_its_own_class(self):
         """NEGATIV: `.dot` gehoert dem Mode-Chip, und der darf nicht atmen.
@@ -9613,9 +9957,13 @@ class TheDelegationWearsTheMockupTests(unittest.TestCase):
         self.assertNotIn("items.length))", chip)
 
     def test_the_cost_line_carries_the_share_in_channel(self):
-        self.assertIn('case "cost": this.cost(e.line,e.share,e.sub);',
+        """#383: the share is the telemetry strip's Delegated cell, drawn
+        from the turn's delegate cards and marked for the --sub channel."""
+        self.assertIn('case "cost": this.cost(e.line,e.share,e.stats,e.cut);',
                       self.source)
-        self.assertIn('s.className="subshare"', self.source)
+        self.assertIn('label:"Delegated", value:String(del.n), unit:"", dlg:true',
+                      self.source)
+        self.assertIn('m.className="m"+(c.dlg ? " dlg" : "");', self.source)
         self.assertIn('name==="delegate"||name==="collect"||name==="subtasks"',
                       self.source)
 
@@ -13976,7 +14324,7 @@ const flow=mk("div");
     def _run(self, calls: str) -> str:
         import subprocess
         body = (self._members("  start(){", "  // -- markdown, drawn")
-                + self._members("  cost(line,share,sub){", "  fail(msg){"))
+                + self._members("  cost(line,share,stats,cut){", "  fail(msg){"))
         prog = (self.FAKE_DOM
                 + "const o={ running:false, col:null, say:null, think:null,"
                   " fence:null, blocks:[], cursor:null,"
