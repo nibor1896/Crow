@@ -560,6 +560,68 @@ def greeting(now: float | None = None, name: str | None = None) -> str:
     return line % who
 
 
+def chat_goal(messages: "list | None") -> "list | None":
+    """#385. The goal a chat last reported, as `[done, total]`, or None.
+
+    FROM THE CHAT'S OWN TOOL RESULTS, not from goal.json: that file belongs to
+    the folder (`crow_core.goal_path`), and every chat bound there would carry
+    the goal of the one that set it. A rail row says "goal 3/3" only for a chat
+    in which `goal_set` / `goal_step` answered, with the last numbers they
+    answered. A result the core cleared (#263) is not JSON any more and is
+    skipped, as is every refusal.
+    """
+    names, goal = {}, None
+    for message in messages or []:
+        role = message.get("role")
+        if role == "assistant":
+            for call in message.get("tool_calls") or []:
+                names[call.get("id")] = (call.get("function") or {}).get("name")
+            continue
+        if role != "tool":
+            continue
+        name = names.get(message.get("tool_call_id"))
+        if name not in ("goal_set", "goal_step"):
+            continue
+        try:
+            said = json.loads(crow_core.message_text(message.get("content") or ""))
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(said, dict) or not said.get("ok"):
+            continue
+        try:
+            if "done" in said and "total" in said:
+                goal = [int(said["done"]), int(said["total"])]
+            elif name == "goal_set" and "steps" in said:
+                goal = [0, int(said["steps"])]
+        except (TypeError, ValueError):
+            continue
+    return goal
+
+
+def clock_of(path: str) -> str:
+    """#385. When a chat's file was last written, as `HH:MM`, or "" without one."""
+    try:
+        return time.strftime("%H:%M", time.localtime(os.path.getmtime(path)))
+    except (OSError, TypeError, ValueError, OverflowError):
+        return ""
+
+
+def tilde_path(path: str) -> str:
+    """#385. A path with the home folder written `~`, for the folder chip. The
+    chip's title keeps the whole path; this is only what fits beside the title."""
+    if not path:
+        return ""
+    home = os.path.expanduser("~")
+    if home and home != "~":
+        norm, top = os.path.normcase(os.path.normpath(path)), os.path.normcase(
+            os.path.normpath(home))
+        if norm == top:
+            return "~"
+        if norm.startswith(top.rstrip("\\/") + os.sep):
+            return "~" + os.path.normpath(path)[len(os.path.normpath(home).rstrip("\\/")):]
+    return path
+
+
 def rail_open() -> bool:
     """Is the chat rail unfolded? True for anything this build does not have.
 
@@ -1795,21 +1857,29 @@ body[data-git="shut"] #git{display:none}
 .gcommit button:hover:not([disabled]){border-color:var(--bevel);color:var(--accent)}
 .gcommit button[disabled]{color:var(--dimmer);cursor:default}
 
-#railhead{display:flex;align-items:center;padding:0 12px;min-height:var(--barh)}
-#railhead h2{margin:0;font-size:10.5px;font-weight:600;letter-spacing:.13em;
-  text-transform:uppercase;color:var(--dimmer)}
-#new{margin-left:auto;font:inherit;font-size:11px;color:var(--dim);
-  background:transparent;border:1px solid var(--line);border-radius:6px;
-  padding:2px 9px;cursor:pointer}
-#new:hover{border-color:var(--bevel);color:var(--accent)}
-#sessions{overflow-y:auto;padding:6px 6px 10px;flex:1;min-height:0}
-.sess{position:relative;display:block;width:100%;text-align:left;border:0;
-  background:transparent;font:inherit;color:inherit;padding:7px 9px 8px 12px;
-  border-radius:6px}
-.sess.on{background:var(--raised)}
-.sess.on .t{color:var(--model)}
-.sess.on::before{content:"";position:absolute;left:2px;top:8px;bottom:8px;
-  width:2px;background:var(--accent);border-radius:2px}
+/* #385. THE RAIL OF THE MOCKUP robin approved on 2026-10-14 (vault
+   Crow/02_docs/mockup-crow-gui-redesign-2026-10-14/Main.dc.html), its
+   `.newchat`, `.grp`, `.ri`, `.ri-t`, `.ri-s`, `.ri.child` and `.foot` on the
+   elements the rail already had: #new, .proj / #railsep, .sess, .subchat,
+   #archbar. A column with 2 px between rows, 8 px in from the rail's edges. */
+#railhead{display:flex;align-items:center;padding:12px 8px 2px}
+#new{display:flex;align-items:center;gap:8px;width:100%;height:34px;
+  padding:0 8px 0 10px;border:1px solid var(--line);border-radius:9px;
+  background:var(--panel);color:var(--text);font:inherit;font-size:13px;
+  font-weight:600;cursor:pointer;white-space:nowrap}
+#new:hover{background:var(--hover)}
+#new svg{width:15px;height:15px;flex:none}
+#new .nl{flex:1;text-align:left}
+#sessions{overflow-y:auto;padding:0 8px 24px;flex:1;min-height:0;
+  display:flex;flex-direction:column;gap:2px}
+#sessions>*{flex:none}
+/* A CHAT ROW: the title over its second line, the open one on --raised and
+   nothing else -- no accent bar beside it (#385, the mockup's `.ri.on`). */
+.sess{position:relative;display:flex;flex-direction:column;gap:1px;width:100%;
+  text-align:left;border:0;background:transparent;font:inherit;
+  color:var(--text-soft);padding:7px 10px;border-radius:8px;cursor:pointer}
+.sess:hover{background:var(--hover)}
+.sess.on{background:var(--raised);color:var(--text)}
 /* -- die Panelspalte im Chatfenster -------------------------------------- */
 /* ZWEI KARTEN, EINE SPALTE, UND KEINE ZEILE JAVASCRIPT DAFUER. Das Git-Panel
    steht unter dem Zielpanel, und ein Ziel faengt an und hoert auf -- es muss
@@ -1940,7 +2010,7 @@ body[data-git="shut"] #git{display:none}
    also genau dort, wo es niemand sucht.
    Die Maske ist, was daraus eine Umrandung macht: der Verlauf fuellt das ganze
    Feld, und ausgestanzt bleibt nur der 1 px breite Rahmen. */
-.sess .edge{position:absolute;inset:0;border-radius:6px;padding:1px;
+.sess .edge{position:absolute;inset:0;border-radius:8px;padding:1px;
   pointer-events:none;opacity:0;
   background:linear-gradient(135deg,transparent 30%,var(--warn) 50%,transparent 70%);
   background-size:300% 300%;
@@ -1952,17 +2022,17 @@ body[data-git="shut"] #git{display:none}
    Erste, was abgeschaltet wird. */
 .sess.running .edge{opacity:.55;animation:sessedge 3.2s linear infinite}
 @keyframes sessedge{from{background-position:0% 0%}to{background-position:100% 100%}}
-/* FERTIG UND UNGELESEN: derselbe Balken wie bei der offenen Zeile, in Amber.
-   Die Form ist dieselbe, damit sie ohne Erklaerung gelesen wird -- nur die
-   Farbe sagt, dass hier etwas wartet statt hier zu sein. `done` wird nur
-   gesetzt, solange die Zeile NICHT die offene ist, also kollidieren die beiden
-   ::before-Regeln nicht. */
+/* FERTIG UND UNGELESEN: ein Balken in Amber am linken Rand. `done` wird nur
+   gesetzt, solange die Zeile NICHT die offene ist. #385: die offene Zeile hat
+   seit dem Mockup keinen Balken mehr (nur --raised), also ist dieser der
+   einzige Balken der Rail -- und sagt allein "hier wartet etwas". */
 .sess.done::before{content:"";position:absolute;left:2px;top:8px;bottom:8px;
   width:2px;background:var(--warn);border-radius:2px}
-.sess.done .t{color:var(--text-soft)}
-.sess .t{font-size:12px;color:var(--text-faint);display:block;white-space:nowrap;
+.sess.done .t{color:var(--text)}
+/* #385: the mockup's `.ri-t` (13 px, one line) and `.ri-s` (11.5 px, --dim). */
+.sess .t{font-size:13px;display:block;width:100%;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis}
-.sess .s{font-size:10.5px;color:var(--dimmer);display:block;margin-top:1px}
+.sess .s{font-size:11.5px;color:var(--dim);display:block}
 /* -- #119: the line an empty chat carries -------------------------------- */
 /* CENTRED IN THE COLUMN THE CHAT WILL FILL, not in the window: the first turn
    lands in `.turn`, which is 960 wide and centred, so a greeting centred on
@@ -1986,8 +2056,12 @@ body[data-git="shut"] #git{display:none}
 /* SIZED IN THE PAGE, NOT IN THE FILE. Both drawings are 1024 square; a width
    here keeps them from filling the window, and `height:auto` keeps the square
    without the file having to know how big it is drawn. */
-.mk{width:200px;max-width:46vw;line-height:0}
+/* #385: the mockup's start screen -- the mark 200 px with its foot tucked
+   18 px under the gap, the greeting 26 px at 400 in the text colour. */
+.mk{width:200px;max-width:46vw;line-height:0;margin-bottom:-18px}
 .mk svg{width:100%;height:auto;display:block}
+.hellotext{margin:0;font-size:26px;font-weight:400;line-height:1.5;
+  letter-spacing:-.01em;color:var(--text)}
 /* WHICH ONE IS VISIBLE IS A CSS QUESTION, so switching theme needs no
    JavaScript and no second copy of which theme is live. Dark is the default
    because two of the three themes are dark; only `light` swaps. */
@@ -2132,55 +2206,46 @@ body:not([data-browser="shut"]) #browsertoggle,
 body:not([data-git="shut"]) #gittoggle{color:var(--accent);background:var(--accent-soft)}
 
 /* A PROJECT ROW IS NOT A CHAT ROW, and the difference has to survive a glance:
-   it is a heading you can fold, so it carries a caret and a count and never the
-   two-line shape a chat has. */
+   it is a heading you can fold, never the two-line shape a chat has.
+   #385: THE MOCKUP'S `.grp` -- a folder icon and the name in capitals, 11 px
+   at 600 in --dim. Folding is still a click on it; the count stands only on a
+   folded head, the one state in which nothing else says what is inside. */
 .proj{position:relative;display:flex;align-items:center;gap:7px;width:100%;
-  text-align:left;border:0;background:transparent;font:inherit;color:inherit;
-  padding:6px 9px 6px 8px;border-radius:6px;cursor:pointer;margin-top:2px}
-.proj:hover{background:var(--raised)}
+  text-align:left;border:0;background:transparent;font:inherit;color:var(--dim);
+  padding:14px 10px 4px;border-radius:8px;cursor:pointer;font-size:11px;
+  letter-spacing:.06em;text-transform:uppercase}
+.proj:hover{color:var(--text)}
+.proj svg,#railsep svg{width:13px;height:13px;flex:none}
 /* BOLD, the owner on sight: a heading and its children at one weight is a list
    with an indent, not a group. The chats under it stay at 400. */
-.proj .t{font-size:11.5px;font-weight:600;color:var(--text-hi);white-space:nowrap;
-  overflow:hidden;text-overflow:ellipsis;flex:1}
-.proj .n{font-size:10px;color:var(--dimmer);flex:none}
-/* THE CARET IS THE STATE, so it turns rather than swapping glyph: a rotation
-   reads as the same thing moving, and two different arrows read as two things.
-   The archive drawer beside this uses the same mark for the same reason. */
-.proj .caret{font-size:8px;color:var(--dimmer);flex:none;
-  transition:transform .14s ease}
-.proj.open .caret{transform:rotate(90deg)}
-/* THE INDENT IS THE MEMBERSHIP. A chat under a heading at the same offset as one
-   below it says nothing about which of the two it belongs to -- and a project
-   with its rows folded away leaves no other trace that they were there. */
-.sess.inproj{padding-left:24px}
-.sess.inproj::after{content:"";position:absolute;left:14px;top:0;bottom:0;
-  width:1px;background:var(--line-soft)}
-/* #235: IM PROJEKT LIEGT DER BALKEN AUF DER LINIE. Bei `left:2px`
-   standen in einer markierten Projektzeile zwei Senkrechte 12 px nebeneinander
-   -- Akzent links, Baumlinie rechts. Auf 13 px deckt der 2-px-Balken die
-   1-px-Linie bei 14 und wird zu ihrem hervorgehobenen Stueck. `z-index:1`,
-   weil `::after` spaeter gemalt wird und sonst die halbe Balkenbreite in
-   Linienfarbe uebermalt -- der Akzent las sich dann grau. */
-.sess.inproj.on::before,.sess.inproj.done::before{left:13px;z-index:1}
+.proj .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  flex:1}
+.proj .n{font-size:10.5px;letter-spacing:0;flex:none}
+.proj.open .n{display:none}
+/* #385: NO INDENT AND NO TREE LINE under a head any more -- the mockup's rows
+   stand flush under their `.grp`, and the head alone says which group a row
+   is in. `.inproj` stays on the row as the membership mark. */
 /* The rename field replaces the row in place, so the list never jumps. */
 .sess input{width:100%;font:inherit;font-size:12px;color:var(--model);
   background:var(--bg);border:1px solid var(--accent);border-radius:4px;
   padding:2px 5px;outline:0}
-#railsep{padding:12px 12px 4px;font-size:10.5px;letter-spacing:.13em;
-  text-transform:uppercase;color:var(--dimmer)}
+/* #385: the loose chats' head, "No folder" with a struck-through folder --
+   the same `.grp` shape as a project head, and not a button: it folds nothing. */
+#railsep{display:flex;align-items:center;gap:7px;padding:14px 10px 4px;
+  font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--dim)}
 /* THE FOOTER IS GONE. It said which file the chat came from, which is a thing
    the rail entry already says and nobody reads twice -- and it cost a bordered
-   box in the corner for it. */
-#archbar{display:flex;align-items:center;gap:6px;width:100%;font:inherit;
-  font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
-  color:var(--dimmer);background:transparent;border:0;cursor:pointer;
-  padding:12px 12px 4px}
-#archbar:hover{color:var(--dim)}
-#archbar .caret{font-size:9px;color:var(--bevel);transition:transform .12s ease}
-#arch.open + #archbar .caret,#archbar.open .caret{transform:rotate(90deg)}
-#archbar .count{margin-left:auto;letter-spacing:0;text-transform:none}
+   box in the corner for it.
+   #385: THE ARCHIVE IS A `.foot` ROW, beside Settings at the rail's foot: an
+   icon, the word, the count in mono. Its drawer opens above it. */
+#archbar{flex:none;width:auto;margin:0 8px}
+#archbar .al{flex:1}
+#archbar .count{font-size:11px}
+#archbar.open{color:var(--text)}
 #arch{display:none}
-#arch.open{display:block}
+#arch.open{display:flex;flex-direction:column;gap:2px;flex:0 1 auto;min-height:0;
+  max-height:40%;overflow-y:auto;padding:0 8px 6px}
 /* #382. SETTINGS AT THE RAIL'S FOOT, below the archive. The Help menu that
    held it as its only entry is gone from the title bar (mockup, robin
    2026-10-14). The mockup's `.foot` row; #385 restyles the rail around it. */
@@ -2243,10 +2308,44 @@ body[data-rail="shut"] #main{margin-left:calc(var(--railshut) - 1px)}
    and an empty bar is a band of nothing between the ribbon and the first line
    of the chat. The rule it drew is gone with it, which is half of the seam
    the owner asked to remove. */
-.chip{display:inline-flex;align-items:center;gap:6px;color:var(--dim);
-  border:1px solid var(--line);border-radius:999px;padding:2px 10px;
+/* #385. THE MOCKUP'S CHIP, PILL AND DOT, once for the composer row and the
+   chat head: a 28 px pill with a 13 px icon in --dim; the mono variant for a
+   path, a branch or a count (`.chip`'s `font:inherit` would undo `.mono`, so
+   it is named again); the 22 px status pill. */
+.chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;
+  border:1px solid var(--line);border-radius:999px;background:transparent;
+  color:var(--text-soft);font:inherit;font-size:12.5px;cursor:pointer;
   white-space:nowrap}
-.chip b{font-weight:500;color:var(--text-soft)}
+.chip:hover{background:var(--hover)}
+.chip svg{width:13px;height:13px;color:var(--dim);flex:none}
+.chip.mono{font-family:var(--mono);font-size:11.5px}
+.chip b{font-weight:400;color:var(--text)}
+.dot{width:7px;height:7px;border-radius:50%;flex:none;display:inline-block}
+.pill{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;
+  border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.pill svg{width:12px;height:12px}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+/* -- #385: the chat head ------------------------------------------------- */
+/* ONE ROW AT THE TOP OF THE PANEL, with the mockup's soft rule under it: the
+   title, the folder, the branch, then the goal pill on the far side. Above
+   #panels (5) so the folder menu that drops from it is not drawn under a
+   card. */
+#chathead{position:relative;z-index:7;display:flex;align-items:center;gap:8px;
+  flex-wrap:wrap;flex:none;padding:10px 24px;border-bottom:1px solid var(--line-soft)}
+#chathead h1{margin:0 6px 0 0;font-size:14px;font-weight:600;color:var(--text);
+  min-width:0;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#chathead .sp{flex:1 1 auto}
+#main.empty #chathead{display:none}
+#branchchip{cursor:default}
+#branchchip[hidden]{display:none}
+#branchchip:hover{background:transparent}
+#goalpill{border:0;cursor:pointer;font-family:inherit}
+#goalpill[hidden]{display:none}
+#goalpill.part svg{display:none}
+/* THE FOLDER MENU OPENS DOWNWARDS from the head and upwards from the composer
+   (#rootmenu's own rule), left-aligned with its chip in both. */
+#chathead #rootmenu{top:calc(100% + 6px);bottom:auto;left:0;right:auto}
+#foot #rootmenu{left:0;right:auto}
 #dot{width:6px;height:6px;border-radius:50%;background:var(--dimmer)}
 #dot.up{background:var(--ok);box-shadow:0 0 0 3px rgba(78,201,143,.14)}
 #dot.down{background:var(--bad);box-shadow:0 0 0 3px rgba(240,101,90,.14)}
@@ -3024,7 +3123,7 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
 /* #280: dieselben --sbw, --reserve und --colpad wie #flow und .turn. */
 #composer{position:absolute;bottom:0;z-index:6;
   left:calc(var(--sbw) + var(--reserve));right:calc(var(--sbw) + var(--reserve));
-  padding:26px var(--colpad) 14px;
+  padding:26px var(--colpad) 20px;
   background:linear-gradient(to bottom,transparent,var(--bg) 26px)}
 /* #233. WO PLATZ IST, WEICHT DIE SPALTE DEN KARTEN AUS. Die Karten
    bleiben absolut (#164), aber ueber der Leseflaeche lagen sie bei jeder
@@ -3052,6 +3151,42 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
   #main:has(#goalpanel:not([hidden])) #composer,
   #main:has(#subpanel:not([hidden])) #composer{--reserve:306px}
 }
+/* -- #385: the start screen ---------------------------------------------- */
+/* AN EMPTY CHAT IS ONE CENTRED GROUP (mockup Start.dc.html): the mark and the
+   greeting (#hello in #flow), the composer 26 px under them, then "Continue"
+   and up to two cards. `#main.empty` is set by `crow.emptyCheck` exactly while
+   #flow holds the greeting, so the first turn -- which removes it -- puts the
+   composer back at the bottom. CENTRED BY TWO EQUAL FLEX SPACERS and not by
+   `justify-content:center`: on a window too short for the group the spacers
+   shrink to nothing and #main scrolls, instead of cutting the mark off at the
+   top. The phone layer (below 700 px, #387) is left as it was. */
+@media (min-width:701px){
+  #main.empty{overflow-y:auto;padding:40px 0}
+  #main.empty::before,#main.empty::after{content:"";flex:1 0 0}
+  #main.empty #flow{flex:none;overflow:visible;padding:0;scrollbar-gutter:auto}
+  #main.empty #hello{min-height:0;max-width:calc(760px + 2 * var(--colpad))}
+  #main.empty #composer{position:relative;left:auto;right:auto;bottom:auto;
+    padding:26px var(--colpad) 0;background:none}
+  #main.empty #box{max-width:760px;border-radius:18px;padding:14px 10px 10px 16px;
+    gap:10px;box-shadow:0 14px 40px var(--shadow)}
+  #main.empty #in{font-size:15px;min-height:4.5em}
+  #main.empty #cont:not([hidden]){display:flex}
+}
+#cont{display:none;flex:none;flex-direction:column;gap:10px;width:100%;
+  max-width:calc(760px + 2 * var(--colpad));margin:32px auto 0;
+  padding:0 var(--colpad)}
+#cont .lbl{padding-left:2px;font-size:10.5px;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--dim)}
+#cont .cards{display:flex;gap:10px;flex-wrap:wrap}
+.cont{flex:1 1 240px;display:flex;flex-direction:column;gap:4px;min-width:0;
+  padding:12px 14px;border:1px solid var(--line-soft);border-radius:12px;
+  background:transparent;color:var(--text-soft);font:inherit;text-align:left;
+  cursor:pointer}
+.cont:hover{background:var(--hover);border-color:var(--line)}
+.cont-t{font-size:13.5px;color:var(--text);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.cont-s{font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
 /* DAS BAND LIEGT UEBER DEM PLATZHALTER, NICHT UEBER DER ZEILE (the owner,
    2026-08-23). Eine eigene Zeile machte die Maske hoeher, sobald jemand zu
    sprechen anfaengt, und schoebe alles darunter -- dieselbe Bewegung, die der
@@ -3078,10 +3213,15 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
 /* AT REST NO COLOUR (the owner, 2026-09-27): the idle frame was --bevel, the
    banner blue, plus a faint blue ring, so a box nobody was typing in
    read as selected. It is now the neutral --line of every other frame and no
-   ring; the glow belongs to #box.focus alone, which is unchanged. */
-#box{border:1px solid var(--line);border-radius:8px;background:var(--panel);
-  padding:9px 11px 8px;box-shadow:none;
-  transition:border-color .15s ease,box-shadow .15s ease;
+   ring; the glow belongs to #box.focus alone (#385: the accent frame alone). */
+/* #385: THE MOCKUP'S COMPOSER -- radius 16, --panel on a --line frame, lifted
+   off the chat by a soft drop shadow (`0 10px 30px var(--shadow)`, a lift and
+   not a ring: the frame itself stays neutral), the textarea over one row of
+   controls 8 px below it. */
+#box{border:1px solid var(--line);border-radius:16px;background:var(--panel);
+  padding:12px 10px 10px 14px;box-shadow:0 10px 30px var(--shadow);
+  display:flex;flex-direction:column;gap:8px;
+  transition:border-color .15s ease;
   /* --colw (900), the width .turn's text runs at: .turn is --colw plus
      --colpad either side. The same variable here puts this box's border on
      the same edge as the text above it (#280: and on the bubbles' edges).
@@ -3094,7 +3234,8 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
    also stuenden sonst beide uebereinander und die ruhenden Punkte laesen sich
    als Zeichen im Satz -- genau so sah es am 2026-08-23 beim Owner aus. */
 #box.rec #in::placeholder{color:transparent}
-#box.focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(126,176,248,.13)}
+/* #385: focus is the accent frame alone, as in the mockup (`:focus-within`). */
+#box.focus{border-color:var(--accent)}
 /* THE WHOLE BOX, NOT A SEPARATE ZONE. A drop target that is smaller than the
    thing it looks like is a target people miss; the window takes a file anywhere
    and the box is what says so. */
@@ -3106,6 +3247,7 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
 #line{display:flex;position:relative;align-items:flex-start}
 /* #142: staged images in the composer, and a sent one in the transcript. */
 #stage{display:flex;gap:6px;flex-wrap:wrap;padding:8px 8px 0}
+#stage[hidden]{display:none}
 #stage .imgchip{position:relative}
 #stage .imgchip img{height:46px;border-radius:6px;display:block;
   border:1px solid var(--bevel)}
@@ -3203,9 +3345,12 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 #lbinfo dt{color:var(--dim)}
 #lbinfo dd{margin:0;color:var(--text);overflow-wrap:anywhere;-webkit-user-select:text;
   user-select:text}
+/* #385: 14.5 px, two rows at rest (the mockup's `rows="2"`, as a minimum
+   height so the phone's one-row field keeps its own). */
 #in{flex:1;background:transparent;border:0;outline:0;resize:none;color:var(--text);
-  font:inherit;font-size:13px;line-height:1.5;max-height:140px;user-select:text}
-#in::placeholder{color:var(--dimmer)}
+  font:inherit;font-size:14.5px;line-height:1.5;min-height:3em;max-height:140px;
+  padding:0;user-select:text}
+#in::placeholder{color:var(--dim)}
 /* #138c. NICHTS RAGT AUS DER MASKE, UND ZWAR BEI JEDER BREITE.
    Der Owner, 2026-08-26: "die Icons gucken immer noch ausserhalb der Eingabemaske".
    Der Pfeil stand rechts NEBEN dem Rahmen statt darin.
@@ -3226,9 +3371,13 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    KEIN `flex-wrap`. Umbrechen wuerde die Maske hoeher machen, sobald ein Chip
    nicht passt -- und "das darf sich nicht verschieben" war die zweite Haelfte
    der Ansage. */
-#foot{display:flex;align-items:center;gap:10px;margin-top:9px;font-size:11px;
+#foot{display:flex;align-items:center;gap:6px;font-size:11px;
   color:var(--dimmer);min-width:0}
-#ctx{font-size:11.5px;white-space:nowrap;min-width:0;overflow:hidden;
+/* #385: THE CONTEXT METER of the mockup -- a 44x4 bar filled used / n_ctx
+   (accent; amber from half, red from 85 %, the colours the number carried
+   before), then `6.1k / 200k` in mono. */
+#ctx{display:inline-flex;align-items:center;gap:7px;padding:0 4px;
+  font-size:11.5px;color:var(--dim);white-space:nowrap;min-width:0;overflow:hidden;
   text-overflow:ellipsis;
   /* #231: .2 STATT 1, damit die Rangfolge oben stimmt. Schrumpfen
      verteilt sich nach Faktor MAL Basis; mit 1 verlor die kurze Zahl anteilig
@@ -3244,10 +3393,15 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    `test_the_chip_borrows_the_shape_of_its_new_neighbours` liest die ERSTE
    Regel dieses Selektors und fand statt der Pillenform zwei Zeilen Flexbox. */
 #model>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#ctx .fill{color:var(--ok)} #ctx .fill.w{color:var(--warn)} #ctx .fill.b{color:var(--bad)}
-#ctx .rest{color:var(--dimmer)}
-#ctx .n{color:var(--dim);margin-left:5px}
-/* STRETCH, NOT CENTER, AND THAT IS THE WHOLE FIX. Four controls sat here at
+#ctx:empty{display:none}
+#ctx .ctxbar{width:44px;height:4px;border-radius:2px;background:var(--line);
+  overflow:hidden;display:inline-flex;flex:none}
+#ctx .ctxbar span{background:var(--accent);height:100%}
+#ctx .ctxbar.w span{background:var(--warn)}
+#ctx .ctxbar.b span{background:var(--bad)}
+#ctx .mono{overflow:hidden;text-overflow:ellipsis}
+/* (#119; #385 below centres the row again, at the mockup's sizes per kind.)
+   STRETCH, NOT CENTER, AND THAT IS THE WHOLE FIX. Four controls sat here at
    four heights because each one was as tall as whatever it happened to hold:
    the level and the folder are a 11.5px line box at the inherited 1.55 factor
    (25.83px with padding and border), the arrow is 14px at 1.2 (22.8), and the
@@ -3265,12 +3419,16 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    (der Hinweis traegt 0 bei, siehe #hint), #acts schrumpft nie darunter und
    nimmt allen Rest der Zeile -- den der Hinweis fuellt. Der Mangel landet bei
    #ctx und #modelwrap, die dafuer min-width:0 und Ellipse haben. */
-#acts{margin-left:auto;display:flex;gap:8px;align-items:stretch;
+/* #385: CENTRED, AT THE MOCKUP'S OWN SIZES -- the chip 28 px, the microphone
+   32, the send 34. #119's stretch gave every control the tallest one's height;
+   the mockup draws them as three sizes on one centre line. */
+#acts{margin-left:auto;display:flex;gap:6px;align-items:center;
   min-width:0;flex:1 0 auto}
 /* #138c. DIE KNOEPFE GEBEN NICHT NACH. Sie sind das Angeklickte, und ein
    halber Knopf ist schlimmer als ein gekuerztes Wort -- also schrumpft in
-   dieser Reihe nur der Hinweis. */
-#acts>#rootwrap,#acts>#modewrap,#acts>#mic,#acts>#go{flex:none}
+   dieser Reihe nur der Hinweis. #385: der Ordner steht seither im Kopf des
+   Chats (oder, im leeren Chat, links in dieser Reihe) und gibt dort nicht nach. */
+#acts>#modewrap,#acts>#mic,#acts>#go,#rootwrap{flex:none}
 /* CENTRED, NOT STRETCHED: it is a bare word with no border to line up, and a
    stretched span puts its text at the top of the box instead of on the row. */
 #hint{color:var(--dimmer);font-size:10.5px;align-self:center;
@@ -3288,21 +3446,23 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    "1234 tok · 23.4 tok/s" waehrend eines Zuges auf zwei Zeilen um (1280x720)
    und machte die Fusszeile hoeher, genau in dem Moment, in dem gelesen wird. */
 #turnstate{white-space:nowrap;flex:none}
-/* A FLEX BOX SO THE GLYPH STAYS ON THE CENTRE LINE once #acts stretches this
-   button past its own line box. Left as a plain button it would grow at the
-   bottom and the arrow would ride high in it. */
-#go{font:inherit;font-size:11.5px;cursor:pointer;border-radius:6px;
-  padding:3px 13px;background:transparent;border:1px solid var(--line);
-  color:var(--dim);display:flex;align-items:center;justify-content:center}
-/* THE ARROW IS THE LABEL, so the button is one glyph wide plus its padding --
-   about half of what "send" needed. The larger size applies only while idle:
-   "Stop" keeps 11.5px, because a word set at 14px would grow the button in the
-   one state where it is already the wider of the two. */
-#go:not(.stop){font-size:14px;line-height:1.2;padding:2px 11px}
-#go:hover{border-color:var(--bevel);color:var(--accent)}
-#go.stop{color:var(--bad-text);background:rgba(240,101,90,.10);
-  border-color:rgba(240,101,90,.45)}
-#go.stop:hover{background:rgba(240,101,90,.18)}
+/* #385: THE MOCKUP'S ROUND SEND, 34 px in --accent with the arrow in
+   --on-accent. The button's TEXT stays the state's word (the arrow, "Stop",
+   "Queue") -- it is what a screen reader says and what the page's own code
+   sets -- at size 0; the glyph is the mockup's stroke arrow, drawn as a mask,
+   and Stop keeps its meaning as a square on the alarm colour. */
+#go{position:relative;width:34px;height:34px;flex:none;border-radius:50%;
+  border:0;padding:0;background:var(--accent);color:var(--on-accent);
+  font:inherit;font-size:0;cursor:pointer;display:inline-flex;align-items:center;
+  justify-content:center}
+#go::before{content:"";width:16px;height:16px;background:currentColor;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 19V5M6 11l6-6 6 6' fill='none' stroke='%23000' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 19V5M6 11l6-6 6 6' fill='none' stroke='%23000' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
+#go:hover{filter:brightness(1.1)}
+#go.stop{color:var(--bad);background:rgba(240,101,90,.16);
+  box-shadow:inset 0 0 0 1px rgba(240,101,90,.55)}
+#go.stop:hover{background:rgba(240,101,90,.24);filter:none}
+#go.stop::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='7' y='7' width='10' height='10' rx='2'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='7' y='7' width='10' height='10' rx='2'/%3E%3C/svg%3E")}
 
 /* -- the microphone, between the level and the arrow ------------------- */
 /* IT BORROWS #go's SHAPE rather than inventing one. The two sit against each
@@ -3311,12 +3471,10 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    that lacks it would draw a box, and an emoji would drag its own colour into
    a row that takes every colour from state. `currentColor` means the drawing
    follows the button, including into the recording red. */
-#mic{font:inherit;cursor:pointer;border-radius:6px;padding:2px 10px;
-  background:transparent;border:1px solid var(--line);color:var(--dim);
-  display:flex;align-items:center;
-  transition:color .15s ease,border-color .15s ease,background .15s ease}
-#mic:hover:not([disabled]){border-color:var(--bevel);color:var(--accent)}
-#mic[disabled]{cursor:default;color:var(--dimmer);border-color:var(--line-soft)}
+/* #385: the mockup's 32 px icon button (`.ib`), no frame of its own. */
+#mic{display:inline-flex;align-items:center;justify-content:center;
+  transition:color .15s ease,background .15s ease}
+#mic[disabled]{cursor:default;color:var(--dimmer);background:transparent}
 /* TWO STATES AND NO THIRD. Grey is snoozed, blue glow is recording -- the owner's
    rule, and both halves of it were earned. The first build painted recording
    RED, which is the colour every conference tool on the machine uses for MUTE:
@@ -3327,8 +3485,8 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    while the icon stays the icon it was, and `box-shadow` spreads past the border
    without touching layout, so the row beside it does not move while someone
    speaks. */
-#mic.rec{color:var(--accent);border-color:rgba(126,176,248,.55);
-  background:rgba(126,176,248,.10);animation:micglow 1.8s ease-in-out infinite}
+#mic.rec{color:var(--accent);background:var(--accent-soft);
+  animation:micglow 1.8s ease-in-out infinite}
 @keyframes micglow{
   0%,100%{box-shadow:0 0 0 0 rgba(126,176,248,.32)}
   50%    {box-shadow:0 0 0 6px rgba(126,176,248,0)}}
@@ -3377,15 +3535,15 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    transparent div. The menu is position:absolute and is not a flex item, so
    it is untouched by this. */
 #modewrap{position:relative;display:flex}
-#mode{font:inherit;font-size:11.5px;cursor:pointer;border-radius:6px;
-  padding:3px 11px;background:transparent;border:1px solid var(--line);
-  color:var(--dim);display:flex;align-items:center;gap:6px}
-#mode:hover{border-color:var(--bevel)}
+/* #385: a `.chip` like its neighbours; the colour stays the state. `auto` is
+   the mockup's: --warn on --warn-soft with a --warn dot. */
+#mode{gap:6px}
 #mode .dot{width:7px;height:7px;border-radius:50%;background:currentColor;
   flex:none}
 #mode[data-mode="manual"]{color:var(--text-strong);border-color:var(--bevel)}
 #mode[data-mode="allowedit"]{color:var(--ok);border-color:rgba(78,201,143,.45)}
-#mode[data-mode="auto"]{color:var(--gold);border-color:rgba(229,192,75,.45)}
+#mode[data-mode="auto"]{color:var(--warn);border-color:var(--warn-soft);
+  background:var(--warn-soft)}
 /* YOLO IS THE ALARM COLOUR, on purpose (#bad is what an escaped working area
    and a failed call draw in): a level that asks nothing has to be the loudest
    thing on the strip, not a fourth calm pill. */
@@ -3414,16 +3572,14 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    it. The level is the loud control -- it decides whether a shell runs unasked;
    the boundary decides where, and only ever refuses. Same shape so the two read
    as one row of controls, no colour of its own so it does not compete. */
+/* #385: THE FOLDER CHIP of the chat head (`.chip.mono`, a folder icon and the
+   path with `~` for home); the full path is its title. */
 #rootwrap{position:relative;display:flex}
-#root{font:inherit;font-size:11.5px;cursor:pointer;border-radius:6px;
-  padding:3px 11px;background:transparent;border:1px solid var(--line);
-  color:var(--dimmer);max-width:150px;overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap}
-#root:hover{border-color:var(--bevel)}
+#root{max-width:320px;min-width:0;overflow:hidden}
+#root .rt{overflow:hidden;text-overflow:ellipsis}
 /* UNBOUND IS THE STATE THAT MUST BE VISIBLE, so it is the dashed one: a solid
    quiet button reads as "set and fine", and "no folder" is neither. */
-#root[data-bound="0"]{border-style:dashed}
-#root[data-bound="1"]{color:var(--dim)}
+#root[data-bound="0"]{border-style:dashed;color:var(--dim)}
 
 #rootmenu{position:absolute;bottom:calc(100% + 6px);right:0;min-width:300px;
   max-width:420px;background:var(--panel);border:1px solid var(--bevel);
@@ -3449,18 +3605,21 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    root button sits at the bottom; everything else here is the same list. */
 .chipwrap{position:relative;display:inline-block}
 .chip.pick{cursor:pointer}
-.chip.pick:hover{border-color:var(--bevel)}
 /* #119. IT BORROWS #mode's SHAPE, not the bar's. `.chip` is a pill because the status bar is a
    row of pills; this control now stands in the composer beside #root and #mode, and the rule the
    microphone was built under applies unchanged: a neighbour with its own radius and padding
-   reads as an accident. Same 6px, same 3px/11px, same 11.5px as the two on the other side. */
-#model{border-radius:6px;padding:3px 11px;font-size:11.5px;gap:0;
+   reads as an accident. #385: the shape they share is the mockup's `.chip` now. */
+/* #385: THE MOCKUP'S MODEL CHIP -- the server's dot in --ok, the name, the
+   level in --dim, a chevron -- in the `.chip` shape its neighbours wear. */
+#model{
   /* #138c. DER LAENGSTE TEXT DER REIHE gibt nach, damit die Knoepfe rechts
      nicht aus der Maske gedraengt werden. */
   min-width:0;overflow:hidden}
+#model .dot{background:var(--ok)}
 /* THE LEVEL IS DIMMER THAN THE MODEL because it is the setting, not the subject -- the same
    split #modelmenu draws between a model row and the level rows under it. */
-#model .lvl{color:var(--dimmer)}
+#model .lvl{color:var(--dim)}
+#model .lvl:empty{display:none}
 /* #235. `pre`, WEIL DER RAUM VOR DEM PUNKT SONST STIRBT. `levelLabel`
    liefert " · high", und `.lvl` ist ein eigenes Flex-Item -- also eine eigene
    Zeile, an deren Anfang CSS Text Phase II zusammenfallende Leerzeichen
@@ -3593,21 +3752,24 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 .sdot.ok{background:var(--ok)}
 .sdot.bad{background:var(--bad)}
 @keyframes subpulse{0%,100%{opacity:1}50%{opacity:.25}}
-.subchat{display:flex;align-items:center;gap:7px;margin:1px 0 1px 18px;padding:4px 8px;
-  width:calc(100% - 18px);background:none;border:0;border-left:1px solid var(--line);
-  border-radius:0 6px 6px 0;font:inherit;font-size:11.5px;color:var(--dim);
-  text-align:left;cursor:default}
+/* #385: THE MOCKUP'S `.ri.child` -- a fork in --sub, the subtask's id in mono,
+   its task, its state as a word (done --ok, running --accent, failed --bad),
+   20 px in under the chat that spawned it. */
+.subchat{display:flex;align-items:center;gap:7px;width:100%;padding:5px 10px 5px 20px;
+  background:transparent;border:0;border-radius:8px;font:inherit;font-size:12px;
+  color:var(--text-soft);text-align:left;cursor:default}
 .subchat[data-open]{cursor:pointer}
-.subchat:hover{background:var(--panel)}
-.subchat .glyph{color:var(--sub);font-weight:600}
+.subchat:hover{background:var(--hover)}
+.subchat svg{width:13px;height:13px;color:var(--sub);flex:none}
+.subchat .sid{color:var(--text);flex:none}
 /* THE TASK IS THE ROW'S SUBJECT and keeps the space: measured 2026-08-27 in
    the 236px rail, an unclamped mono model slug ate the whole line and the
-   title rendered as nothing. The model may truncate; the task may not vanish. */
+   title rendered as nothing. The model went into the row's title (#385). */
 .subchat .stitle{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   flex:1 1 auto;min-width:0}
-.subchat .who{color:var(--dimmer);font-family:var(--mono);font-size:10.5px;
-  margin-left:auto;flex:0 1 auto;max-width:38%;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap}
+.subchat .sst{font-size:11px;flex:none;color:var(--bad)}
+.subchat .sst[data-st="ok"]{color:var(--ok)}
+.subchat .sst[data-st="run"]{color:var(--accent)}
 #subwrap{position:relative;display:inline-flex}
 #subwrap[hidden]{display:none}
 /* der Owner, 2026-08-27: ohne AKTIVE Subtasks zeigt der Chip 0 und traegt den
@@ -3615,6 +3777,7 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    NUR solange etwas laeuft. Der Zustand ist die Klasse `live`. */
 #subchip{cursor:pointer;display:inline-flex;gap:6px;align-items:center}
 #subchip.live{border-color:var(--sub);color:var(--sub)}
+#subchip.live svg{color:var(--sub)}
 #submenu{position:absolute;bottom:calc(100% + 8px);left:0;width:280px;
   background:var(--panel);border:1px solid var(--line);border-radius:9px;
   padding:5px;box-shadow:0 10px 26px var(--shadow);z-index:40}
@@ -3941,12 +4104,22 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 </template>
 <div id="body">
   <aside id="rail">
-    <div id="railhead"><h2>Chats</h2>
-      <button id="new" onclick="crow.reset()">new</button></div>
+    <!-- #385. THE RAIL AS IN THE MOCKUP (Main.dc.html, robin 2026-10-14): a
+         full-width "New chat" with its key, the chats grouped under their
+         folders, the archive and the settings at the foot. Ctrl+N anywhere
+         does what this button does. -->
+    <div id="railhead">
+      <button id="new" type="button" onclick="crow.reset()" title="new chat (Ctrl+N)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+             stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg><span
+        class="nl">New chat</span><span class="kbd">Ctrl N</span></button></div>
     <div id="sessions"></div>
-    <button id="archbar" onclick="crow.toggleArchive()">
-      <span class="caret">&#9654;</span>Archive<span class="count"></span></button>
     <div id="arch"></div>
+    <button id="archbar" class="foot" type="button" onclick="crow.toggleArchive()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4"
+           width="18" height="5" rx="1"></rect><path d="M5 9v10h14V9M10 13h4"></path></svg><span
+      class="al">Archive</span><span class="count mono"></span></button>
     <!-- #382. SETTINGS, where the mockup puts it: at the rail's foot, beside
          the archive. It was the Help menu's only entry in the title bar. -->
     <button id="settingsbtn" class="foot" type="button" onclick="crow.openSettings()">
@@ -3960,6 +4133,35 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
        kennt weder Minimum noch Gedaechtnis. -->
   <div id="railgrip" onmousedown="crow.railDrag(event)" title="drag to resize"></div>
   <div id="main">
+    <!-- #385. THE CHAT HEAD (mockup Main.dc.html): the chat's title, the
+         folder it works in (#92's chip and menu, moved here from the
+         composer's button row), the branch of that folder's repository (the
+         #156 git state; hidden without one), and the goal as a pill that opens
+         the inspector's Goal tab. Hidden on an empty chat, whose start screen
+         carries the folder chip in the composer instead (`crow.placeRoot`). -->
+    <div id="chathead">
+      <h1 id="chattitle"></h1>
+      <div id="rootwrap">
+        <button id="root" class="chip mono" type="button" data-bound="0"
+                onclick="crow.rootMenu()"><svg viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"
+                aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span
+                class="rt">no folder</span></button>
+        <div id="rootmenu" hidden></div>
+      </div>
+      <span id="branchchip" class="chip mono" hidden title="branch of the folder's repository"><svg
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5"
+            r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="7"
+            r="2"></circle><path d="M6 7v10"></path><path d="M18 9a6 6 0 0 1-6 6H8"></path></svg><span
+            class="bt"></span></span>
+      <span class="sp"></span>
+      <button id="goalpill" class="pill ok" type="button" hidden onclick="crow.goalPill()"
+              title="open the goal in the inspector"><svg viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.25" stroke-linecap="round"
+              stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg><span
+              class="gt"></span></button>
+    </div>
     <!-- TWO CHIPS, AND THE ADDRESS IS NOT ONE OF THEM. The bar carried five:
          state, model, level, n_ctx and the base URL. Three of them said things
          that belong where the typing happens -- the model and its level are a
@@ -4075,9 +4277,13 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
         <!-- #142. One chip per staged image, drawn from what stage_image
              returns. Hidden while empty so the composer keeps its height. -->
         <div id="stage" hidden></div>
-        <div id="line"><textarea id="in" rows="1"
+        <div id="line"><label class="sr" for="in">Message</label><textarea id="in" rows="1"
             placeholder="Message, or /tools for what the model can call"></textarea>
           <div id="voice" hidden></div></div>
+        <!-- #385. ONE ROW, IN THE MOCKUP'S ORDER: the context meter, the
+             model chip, the subtask chip (and, on the start screen, the folder
+             chip) on the left; the hint taking the rest; the release level,
+             the microphone and the round send on the right. -->
         <div id="foot">
           <span id="ctx"></span>
           <!-- BESIDE THE NUMBER IT DECIDES. The model sets the window the
@@ -4092,18 +4298,14 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
           <!-- #143. The subtask chip: beside the model chip, visible as soon
                as anything was delegated, pulsing while anything runs. Click
                opens the list; a finished row jumps into its child chat. -->
-          <span class="chipwrap" id="subwrap" hidden><span class="chip" id="subchip"
+          <span class="chipwrap" id="subwrap" hidden><span class="chip mono" id="subchip"
                 onclick="crow.subsMenu()" title="delegated subtasks"></span>
             <div id="submenu" hidden></div></span>
           <span id="turnstate"></span>
           <div id="acts"><span id="hint"></span>
-            <div id="rootwrap">
-              <button id="root" data-bound="0" onclick="crow.rootMenu()">no folder</button>
-              <div id="rootmenu" hidden></div>
-            </div>
             <div id="modewrap">
-              <button id="mode" data-mode="auto" onclick="crow.modeMenu()"
-                      title="release level for tool calls">
+              <button id="mode" data-mode="auto" class="chip" type="button"
+                      onclick="crow.modeMenu()" title="release level for tool calls">
                 <span class="dot"></span><span id="modename">auto</span></button>
               <div id="modemenu" hidden></div>
             </div>
@@ -4113,17 +4315,23 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
                     onclick="document.getElementById('remotefile').click()">+</button>
             <input id="remotefile" type="file" hidden
                    onchange="crow.remoteUpload(this)">
-            <button id="mic" onclick="crow.mic()" title="dictate">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
-                   stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                   stroke-linejoin="round" aria-hidden="true">
-                <rect x="9" y="2" width="6" height="11" rx="3"></rect>
-                <path d="M5 10a7 7 0 0 0 14 0"></path>
-                <line x1="12" y1="17" x2="12" y2="21"></line></svg></button>
-            <button id="go" onclick="crow.press()" title="send">&#8593;</button></div>
+            <button id="mic" onclick="crow.mic()" class="ib" type="button" title="dictate"
+                    aria-label="Dictate">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="9" y="3" width="6" height="11" rx="3"></rect>
+                <path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path></svg></button>
+            <!-- #385: the round send. Its text stays the state's word ("↑",
+                 "■ Stop", "↑ Queue") for the reader and the tests; the glyph
+                 is drawn by CSS from the same two shapes. -->
+            <button id="go" onclick="crow.press()" type="button" title="send">&#8593;</button></div>
         </div>
       </div>
     </div>
+    <!-- #385. THE START SCREEN'S "CONTINUE": the two newest other chats as
+         cards, under the centred composer of an empty chat (`#main.empty`).
+         Drawn from the rail payload by `crow.contDraw`; none, no section. -->
+    <div id="cont" hidden><span class="lbl">Continue</span><div class="cards"></div></div>
   </div>
   <!-- #138. Der Griff zwischen Chat und Code, gespiegelt zu #railgrip und aus
        demselben Grund ein eigenes Element. -->
@@ -4698,6 +4906,19 @@ function genShrink(url, edge){
 }
 // ---- end of the pure half
 
+// #385. THE MOCKUP'S STROKE ICONS that the rail and the composer draw from
+// script: 24-unit boxes at 1.75, `currentColor`, so a row's colour reaches its
+// icon. Constants, never data -- every name beside them goes in by textContent.
+const RICON = (d, cap) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+  + ' stroke-width="1.75"' + (cap ? ' stroke-linecap="round"' : '')
+  + ' stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+RICON.folder = RICON('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>');
+RICON.folderOff = RICON('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>'
+  + '<path d="M4 20 20 6"></path>', true);
+RICON.fork = RICON('<circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="5" r="2"></circle>'
+  + '<circle cx="12" cy="19" r="2"></circle><path d="M6 7v1a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4V7M12 12v5"></path>', true);
+RICON.chevron = RICON('<path d="m6 9 6 6 6-6"></path>', true);
+
 const crow = {
   running:false, col:null, say:null, think:null, fence:null, fenceLang:"",
   cursor:null, blocks:[],
@@ -4731,7 +4952,8 @@ const crow = {
     // #127. THE DRAWING FIRST, THE LINE UNDER IT, and the template is CLONED so
     // a second greeting in the same session still has one to clone.
     const t=$("#marktpl"); if(t) d.appendChild(t.content.cloneNode(true));
-    const p=document.createElement("div"); p.className="hellotext";
+    // #385: the start screen's heading (the mockup's h1, 26 px).
+    const p=document.createElement("h1"); p.className="hellotext";
     p.textContent=text; d.appendChild(p);
     flow.appendChild(d); },
 
@@ -7649,10 +7871,12 @@ const crow = {
   // "none" IS DRAWN, not left blank. An empty button reads as "no boundary
   // needed"; the state that has to be legible is exactly the one where writes
   // are unbounded.
-  rootIs(path, name, roots){
+  // #385: THE CHIP PRINTS THE PATH, `~` for the home folder (`short`, from
+  // Python), as the mockup's folder chip does; the name stays the menu's.
+  rootIs(path, name, roots, short){
     this.root = path || ""; this.roots = roots || [];
     const b = $("#root");
-    b.textContent = name || "no folder";
+    b.querySelector(".rt").textContent = short || path || "no folder";
     b.title = path || "writes are not restricted -- pick a folder to bound them";
     b.dataset.bound = path ? "1" : "0"; },
 
@@ -7803,9 +8027,11 @@ const crow = {
     this.showEngine();                     // #382: the title bar says it too
     if(!this.modelName){ c.hidden = true; return; }
     c.hidden = false;
-    c.innerHTML = '<b></b><span class="lvl"></span>';
+    // #385: the mockup's chip -- dot, name, the level as its own dim word (the
+    // chip's gap is the separator, as on the engine chip), chevron.
+    c.innerHTML = '<span class="dot"></span><b></b><span class="lvl"></span>' + RICON.chevron;
     c.querySelector("b").textContent = this.modelName;
-    c.querySelector(".lvl").textContent = this.levelLabel(); },
+    c.querySelector(".lvl").textContent = this.levelLabel().replace(/^ · /,""); },
 
   // KEPT AS A NAME the two `case` arms already call, so the merge did not have to touch the
   // seam between the Python side and the page. It sets the level and redraws the one chip.
@@ -8217,17 +8443,22 @@ const crow = {
   ctx(tokens,limit){
     // #382: kept for the engine chip, which says the same "used / n_ctx".
     this.ctxNow=[tokens||0, limit||0]; this.showEngine();
-    const el=$("#ctx"); if(tokens<=0){ el.innerHTML=""; return; }
-    const size = this.tokK(tokens);
-    if(limit<=0){ el.innerHTML='<span class="n">'+size+'</span>'; return; }
-    // THE NUMBER, NOT A BAR OF HASHES. Ten cells could only ever say the share
-    // to within 10%, and the figure that answers "how much room is left" was
-    // already being printed beside them. The colour is the only thing the bar
-    // carried that the number did not, so it moved onto the number.
-    const share=Math.min(1,tokens/limit);
-    const cls = share<0.5 ? "fill" : (share<0.85 ? "fill w" : "fill b");
-    el.innerHTML='<span class="'+cls+'">'+size+'</span>'+
-      '<span class="rest"> / '+(limit/1000).toFixed(0)+'k</span>';
+    const el=$("#ctx"), used=Math.max(0, tokens||0), n=limit||0;
+    // #385: AN EMPTY CHAT READS "0 / 200k" (the mockup's start screen); only
+    // with neither number is there nothing to say.
+    if(used<=0 && n<=0){ el.innerHTML=""; el.removeAttribute("aria-label"); return; }
+    const size = this.tokK(used);
+    if(n<=0){ el.innerHTML='<span class="mono"></span>';
+      el.firstChild.textContent=size; return; }
+    // #385: THE MOCKUP'S METER -- a 44 px bar filled used / n_ctx beside the
+    // figure. The colour the figure carried (#119: amber from half, red from
+    // 85 %) is the bar's now; below half it is the accent.
+    const share=Math.min(1,used/n), cap=(n/1000).toFixed(0)+"k";
+    const cls = share<0.5 ? "ctxbar" : (share<0.85 ? "ctxbar w" : "ctxbar b");
+    el.innerHTML='<span class="'+cls+'"><span></span></span><span class="mono"></span>';
+    el.firstChild.firstChild.style.width=(share*100).toFixed(1)+"%";
+    el.lastChild.textContent=size+" / "+cap;
+    el.setAttribute("aria-label","Context window "+size+" of "+cap+" tokens");
   },
 
   // A CHAT KEEPS ITS PLACE WHEN YOU OPEN IT. The open one was drawn in a slot of
@@ -8355,7 +8586,11 @@ const crow = {
     chip.innerHTML="";
     if(running){ const dot=document.createElement("span");
       dot.className="sdot run"; chip.appendChild(dot); }
-    chip.appendChild(document.createTextNode("⑂ "+running));
+    // #385: the mockup's fork icon, then the count.
+    chip.insertAdjacentHTML("beforeend", RICON.fork);
+    chip.appendChild(document.createTextNode(String(running)));
+    chip.setAttribute("aria-label", running ? "Subtasks: "+running+" running"
+                                            : "Subtasks: none running");
   },
 
   subsMenu(){ const m=$("#submenu"); if(m) m.hidden=!m.hidden; },
@@ -8398,24 +8633,27 @@ const crow = {
         : box.querySelector(".sess:not([data-path])");
       if(!row) return;
       groups[parent].slice().reverse().forEach(it=>{
+        // #385: THE MOCKUP'S CHILD ROW -- fork, id, task, the state as a word.
         const b=document.createElement("button"); b.className="subchat";
-        const g=document.createElement("span"); g.className="glyph";
-        g.textContent="⑂"; b.appendChild(g);
-        const dot=document.createElement("span");
-        dot.className="sdot "+(it.st==="running"?"run":it.st==="done"?"ok":"bad");
-        b.appendChild(dot);
-        const t=document.createElement("span"); t.className="stitle";
-        t.textContent=it.task||""; b.appendChild(t);
-        const w=document.createElement("span"); w.className="who";
-        w.textContent=it.model||""; b.appendChild(w);
+        b.type="button";
+        b.innerHTML=RICON.fork+'<span class="sid mono"></span>'
+          +'<span class="stitle"></span><span class="sst"></span>';
+        b.querySelector(".sid").textContent=it.i||"";
+        b.querySelector(".stitle").textContent=it.task||"";
+        const st=b.querySelector(".sst");
+        st.textContent=it.st==="running" ? "running" : it.st==="done" ? "done"
+                       : (it.st || "failed");
+        st.dataset.st=it.st==="running" ? "run" : it.st==="done" ? "ok" : "bad";
         // A SUBCHAT IS NEVER OPENED AS A CHAT. Opening one made it the live
         // conversation, put the real chat aside and re-hung every child --
         // the exact break the owner filmed. The click goes to the CARD, which
         // already holds the task, the clock and the folded result.
-        b.dataset.open="1"; b.title="jump to its card";
+        b.dataset.open="1";
+        b.title=(it.model ? it.model+" · " : "")+"jump to its card";
         b.onclick=()=>crow.subJump(it.i);
         row.after(b); });
     });
+    this.railSubs();
   },
 
   // #255. THE PANEL'S FRAME: drop the cards that are not this chat's
@@ -8500,7 +8738,7 @@ const crow = {
     b.innerHTML='<span class="edge"></span><span class="t"></span>'
                +'<span class="s"></span>';
     b.querySelector(".t").textContent=r.title || r;
-    b.querySelector(".s").textContent=r.meta || "";
+    b.querySelector(".s").textContent=this.rowSub(r);
     b.title="open · right-click for more";
     // EVERY ENTRY IS CLICKABLE, the open one included. Clicking it is a no-op in
     // Python -- and that is where the decision belongs, not in whether a handler
@@ -8512,8 +8750,9 @@ const crow = {
   projectRow(p,count){ const h=document.createElement("button");
     h.className="proj"+(p.open ? " open" : "");
     h.dataset.path=p.path;
-    h.innerHTML='<span class="caret">&#9654;</span><span class="t"></span>'
-               +'<span class="n"></span>';
+    // #385: the mockup's group head -- a folder, the name; the count shows
+    // while the head is folded (CSS).
+    h.innerHTML=RICON.folder+'<span class="t"></span><span class="n"></span>';
     h.querySelector(".t").textContent=p.name;
     // THE COUNT IS THE ONLY THING THAT SURVIVES FOLDING. A shut project with no
     // number is a heading that says nothing about what is inside it, which is
@@ -8531,6 +8770,22 @@ const crow = {
     // #143. The rail payload carries the subtasks, so a redraw cannot lose
     // their rows; the ticker's own event updates the same list between rails.
     if(e.subs!==undefined) this.subItems=e.subs||[];
+    // THE LIVE CHAT WITHOUT A FILE is drawn from the window's own copy: it has
+    // no entry in `rollovers` yet because the core writes nothing for a chat
+    // with no turn in it. It goes under its project like any other, because a
+    // new chat started inside one belongs there from its first line -- not from
+    // its first save.
+    // #162: `active` KOMMT JETZT AUS PYTHON. Fest verdrahtet war es richtig,
+    // solange der laufende Chat immer der sichtbare war.
+    // #385: built before the fast path, which redraws its second line too, and
+    // with its own goal numbers and clock (`live_goal`, `live_at`).
+    const live=unsaved ? {path:null,title:title,meta:meta,
+                          active:e.live_active!==false,
+                          running:!!e.live_running, done:!!e.live_done,
+                          root:this.liveRoot, goal:e.live_goal||null,
+                          at:e.live_at||""} : null;
+    this.railE=e; this.railLive=live;
+    this.headTitle(e); this.contDraw();
     const box=$("#sessions");
     // SAME CHATS, SAME ORDER -> MOVE THE MARK, DO NOT REBUILD. Every update used
     // to throw the list away and remake it, so a click exchanged every node under
@@ -8575,17 +8830,6 @@ const crow = {
     box.dataset.shape=shape;
     box.innerHTML="";
 
-    // THE LIVE CHAT WITHOUT A FILE is drawn from the window's own copy: it has
-    // no entry in `rollovers` yet because the core writes nothing for a chat
-    // with no turn in it. It goes under its project like any other, because a
-    // new chat started inside one belongs there from its first line -- not from
-    // its first save.
-    // #162: `active` KOMMT JETZT AUS PYTHON. Fest verdrahtet war es richtig,
-    // solange der laufende Chat immer der sichtbare war.
-    const live=unsaved ? {path:null,title:title,meta:meta,
-                          active:e.live_active!==false,
-                          running:!!e.live_running, done:!!e.live_done,
-                          root:this.liveRoot} : null;
     const all=(rollovers||[]).slice();
     const rowFor=r=>{
       if(r!==live) return this.chatRow(r,!!this.projectOf(r.root));
@@ -8610,8 +8854,10 @@ const crow = {
     if(loose.length){
       // THE HEADING ONLY MEANS SOMETHING WITH A PROJECT ABOVE IT. Without one
       // these are simply the chats, and a word over the whole list is furniture.
+      // #385: "No folder" under a struck-through folder (the mockup's group).
       if(this.projects.length){ const h=document.createElement("div");
-        h.id="railsep"; h.textContent="Chats"; box.appendChild(h); }
+        h.id="railsep"; h.innerHTML=RICON.folderOff+"<span>No folder</span>";
+        box.appendChild(h); }
       loose.forEach(r=>box.appendChild(rowFor(r)));
     }
     this.subRail();
@@ -8622,6 +8868,111 @@ const crow = {
   // chat, make a project -- are the two with no way in from here.
   railMenu(e){ if(e.target.closest(".sess,.proj")) return;
     this.menu(e,"rail",null,null); },
+
+  // ---- #385: the chat head, the rows' second line, the start screen --------
+  // THE HEAD'S TITLE IS THE MARKED ROW'S: the live chat while it is the one in
+  // view, else the saved chat the rail marks `active` (#162: the one in view).
+  headTitle(e){ const t=$("#chattitle"); if(!t) return;
+    const seen=(e.rollovers||[]).filter(r=>r.active)[0];
+    const live=e.unsaved && e.live_active!==false;
+    t.textContent=(live ? e.title : seen ? seen.title : e.title) || "new chat"; },
+
+  // A ROW'S SECOND LINE: `goal d/t · k subtask(s) · HH:MM` for a chat that ran a
+  // goal, else what it said before (#385). The chat in view with a turn in it
+  // takes the goal the page holds -- the numbers its pill shows, updated per
+  // step; every other row the numbers its own goal tools last answered
+  // (`chat_goal`, Python). Subtasks are counted from the snapshot the child
+  // rows are drawn from, by the parent they hang under.
+  rowSub(r){ if(!r || typeof r!=="object") return "";
+    const m=$("#main"), open=r.active && !(m && m.classList.contains("empty"));
+    const hg=this.headGoal;
+    const g=open && hg ? [hg.done||0, hg.total||0] : r.goal;
+    if(!g) return r.meta || "";
+    const n=(this.subItems||[]).filter(x=>(x.parent||"")===(r.path||"")).length;
+    const at=r.at || (r.active ? this.turnAt : "") || "";
+    return ["goal "+g[0]+"/"+g[1], n ? n+(n===1 ? " subtask" : " subtasks") : "", at]
+      .filter(Boolean).join(" · "); },
+
+  // The second lines again, without rebuilding the list: a goal step, a
+  // subtask, a turn's end or the start screen changes them, never the rows.
+  railSubs(){ const e=this.railE, box=$("#sessions"); if(!e || !box) return;
+    const lv=box.querySelector(".sess:not([data-path]) .s");
+    if(lv && this.railLive) lv.textContent=this.rowSub(this.railLive);
+    (e.rollovers||[]).forEach(r=>{ if(!r.path) return;
+      const s=box.querySelector('[data-path="'+CSS.escape(r.path)+'"] .s');
+      if(s) s.textContent=this.rowSub(r); }); },
+
+  // A CONTINUE CARD'S META: the folder, then the goal and its clock, or the
+  // row's own line (`crow · goal 3/3 · 16:41`, `no folder · 6 messages`).
+  contMeta(r){ const p=this.projectOf(r.root);
+    const dir=p ? p.name : (r.root ? r.root.split(/[\\/]/).filter(Boolean).pop() : "no folder");
+    return (r.goal ? [dir, "goal "+r.goal[0]+"/"+r.goal[1], r.at] : [dir, r.meta])
+      .filter(Boolean).join(" · "); },
+
+  // THE START SCREEN'S CARDS: the two newest chats that are not the one in
+  // view, in the rail's own order, each opening its chat. None, no section;
+  // only on the start screen.
+  contDraw(){ const box=$("#cont"), m=$("#main"); if(!box || !m) return;
+    const list=box.querySelector(".cards");
+    const others=((this.railE||{}).rollovers||[]).filter(r=>r.path && !r.active).slice(0,2);
+    list.textContent="";
+    others.forEach(r=>{ const b=document.createElement("button");
+      b.type="button"; b.className="cont";
+      b.innerHTML='<span class="cont-t"></span><span class="cont-s mono"></span>';
+      b.querySelector(".cont-t").textContent=r.title||"";
+      b.querySelector(".cont-s").textContent=this.contMeta(r);
+      b.onclick=()=>crow.open(r.path);
+      list.appendChild(b); });
+    box.hidden=!(m.classList.contains("empty") && others.length); },
+
+  // What the head and the rows learn from three messages the page already
+  // gets: the goal (pill, second lines), the git state (branch chip), a turn's
+  // end (the live chat's clock). Read beside the switch below, which stays
+  // with the builders that own each message.
+  headOn(e){
+    if(e.k==="goal"){ this.headGoal=e.goal||null; this.headDraw(); this.railSubs(); }
+    else if(e.k==="git"){ const st=e.state||{};
+      this.headBranch=st.ok ? (st.branch||"") : ""; this.headDraw(); }
+    else if(e.k==="idle"){ this.turnAt=this.clockNow(); this.railSubs(); } },
+
+  headDraw(){ const pill=$("#goalpill"), g=this.headGoal;
+    if(pill){ pill.hidden=!g;
+      if(g){ const d=g.done||0, t=g.total||0;
+        pill.querySelector(".gt").textContent="Goal "+d+"/"+t;
+        // THE TICK ONLY ON A FINISHED GOAL: "Goal 1/3" beside a check mark
+        // would read as done.
+        pill.classList.toggle("part", !(t>0 && d>=t)); } }
+    const br=$("#branchchip");
+    if(br){ br.hidden=!this.headBranch;
+      br.querySelector(".bt").textContent=this.headBranch||""; } },
+
+  // THE PILL OPENS THE GOAL in the inspector (#384's `inspectorShow`).
+  goalPill(){ this.inspectorShow && this.inspectorShow("goal"); },
+
+  clockNow(){ const d=new Date();
+    return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); },
+
+  // #MAIN.EMPTY WHILE #FLOW HOLDS THE GREETING (#385). `hello()` draws it into
+  // an empty chat, `turn()` takes it off with the first row -- a sent line, a
+  // replayed chat, an error alike -- and this only watches, so it agrees with
+  // both without either having to call it.
+  emptyCheck(){ const m=$("#main"); if(!m) return;
+    const now=!!flow.querySelector(":scope > #hello");
+    if(m.classList.contains("empty")===now) return;
+    m.classList.toggle("empty", now);
+    this.placeRoot(); this.railSubs(); this.contDraw(); fitFlow(); },
+
+  // THE FOLDER CHIP STANDS IN THE HEAD, and on the start screen -- where the
+  // head is hidden -- in the composer row after the subtask chip, as in the
+  // mockup. One element, moved, so its menu and its handlers are the same in
+  // both places -- and only between those two: once the phone layer has put
+  // it into its own sheet, it stays there.
+  placeRoot(){ const w=$("#rootwrap");
+    if(!w || !w.parentNode || !w.parentNode.matches("#chathead,#foot")) return;
+    if($("#main").classList.contains("empty")){ const s=$("#subwrap");
+      if(s && w.previousElementSibling!==s) s.after(w); }
+    else { const t=$("#chattitle");
+      if(t && w.previousElementSibling!==t) t.after(w); } },
 
   toggleRail(){ const el=document.body;
     const open=el.dataset.rail!=="shut";
@@ -9279,6 +9630,7 @@ const crow = {
     // #383: the delegate cards in the flow follow every subtask push, beside
     // the inspector's own cards (`subs`).
     if(e.k==="subs") this.refSubs(e.items);
+    this.headOn(e);                        // #385: chat head, rows, clock
     switch(e.k){
       case "up": $("#dot").className="up"; $("#state").textContent="connected";
         $("#engine").dataset.state="up";
@@ -9324,7 +9676,7 @@ const crow = {
         this.tools(e.execute); break;
       case "tools": this.tools(e.on); break;
       case "mode": this.modeIs(e.name, e.modes); break;
-      case "root": this.rootIs(e.path, e.name, e.roots); break;
+      case "root": this.rootIs(e.path, e.name, e.roots, e.short); break;
       case "ask": this.ask(e.name, e.args, e.scope); break;
       // #175. Ein Render des Modells oeffnet sein Tab im Browser-Panel.
       case "page": this.brRendered(e.url, e.shot); break;
@@ -9612,7 +9964,10 @@ const fitFlow = () => {
   // MEASURE FIRST, THEN GROW. Reading the scroll position after the padding
   // changed would ask whether we are at a bottom that has already moved.
   const atBottom = flow.scrollHeight - flow.scrollTop - flow.clientHeight < 4;
-  flow.style.paddingBottom = (composer.offsetHeight + 10) + "px";
+  // #385: ON THE START SCREEN the composer stands under the greeting, not
+  // over the flow, so there is nothing to keep clear of.
+  flow.style.paddingBottom = composer.parentNode.classList.contains("empty") ? ""
+    : (composer.offsetHeight + 10) + "px";
   // #233: DIESELBE ZAHL FUER DIE KARTEN. #panels endet dort, wo der
   // Composer anfaengt, statt bei festen 70 % -- siehe die Regel an #panels.
   composer.parentNode.style.setProperty("--comph", composer.offsetHeight + "px");
@@ -9805,6 +10160,18 @@ document.addEventListener("keydown",e=>{
   if(sel){ crow.clip(sel); return; }
   const mark=a && a.closest ? a.closest("a.lnk,.pth") : null;
   if(mark){ e.preventDefault(); crow.clip(mark.dataset.path || mark.dataset.href || ""); } });
+// #385. CTRL+N STARTS A NEW CHAT FROM ANYWHERE, the composer included -- what
+// the rail's "New chat" does. It is no WebView2 browser accelerator (Microsoft's
+// list for AreBrowserAcceleratorKeysEnabled: Ctrl+F, F3, Ctrl+P, Ctrl+R, F5,
+// zoom, Ctrl+Shift+C, F12), so the page sees it; preventDefault keeps an engine
+// that binds it to a new window from doing that as well. A held key is one.
+document.addEventListener("keydown",e=>{
+  if((e.key!=="n" && e.key!=="N") || !(e.ctrlKey || e.metaKey) || e.altKey
+     || e.shiftKey) return;
+  e.preventDefault();
+  if(!e.repeat) crow.reset(); });
+// #385. THE START SCREEN FOLLOWS THE GREETING, see `crow.emptyCheck`.
+new MutationObserver(() => crow.emptyCheck()).observe(flow, {childList:true});
 
 // #131. THE TILE IS THERE BEFORE THE FIRST CALL IS, because "always present"
 // is what makes it a place to look rather than something that appears once and
@@ -10118,6 +10485,12 @@ body{padding:var(--safe-t) var(--safe-r) 0 var(--safe-l);
    stay off -- until #387 redraws the phone. */
 #barl,#barm,#barr{display:contents}
 #searchbox,#search,#engine,#barr>.vsep{display:none!important}
+/* #385: the same for the chat head and the start screen's cards, and for the
+   parts the desktop chips gained (icons, the meter's bar): the phone keeps its
+   composer, its one-row field and its folder row until #387. */
+#chathead,#cont{display:none!important}
+#in{min-height:0}
+#model .dot,#model svg,#root svg,#ctx .ctxbar{display:none}
 #railtoggle,#codetoggle,#gittoggle,#browsertoggle{
   min-width:var(--tap);min-height:var(--tap);justify-content:center;
   margin:0;border-radius:10px}
@@ -13331,6 +13704,8 @@ class Api:
         return {"k": "root",
                 "path": root or "",
                 "name": os.path.basename(root) if root else "",
+                # #385: what the folder chip prints, `~` for the home folder.
+                "short": tilde_path(root or ""),
                 "roots": [{"path": p, "name": os.path.basename(p) or p}
                           for p in crow_core.known_roots()]}
 
@@ -13943,7 +14318,13 @@ class Api:
                 # would part company the first time either was written alone.
                 "root": data.get("crow_root") or "",
                 "meta": ("%d messages · %s" % (len(messages), kind)
-                         if messages else kind)}
+                         if messages else kind),
+                # #385. THE ROW'S SECOND LINE when the chat ran a goal
+                # ("goal 3/3 · 1 subtask · 16:41") and the continue cards'
+                # meta: the numbers its own goal tools last answered, and the
+                # clock of its last write. Same single read of the file.
+                "goal": chat_goal(messages),
+                "at": clock_of(path)}
 
     def _endpoint(self) -> dict:
         """Where a turn goes. ONE resolution, read by every path that sends.
@@ -16350,6 +16731,12 @@ class Api:
                    "live_active": self._view_path is None,
                    "live_running": bool(self._busy) and self._current_path is None,
                    "live_done": "" in self._done_paths,
+                   # #385. The live chat's own goal numbers and clock, read the
+                   # way `_entry_of` reads them off a file: its messages, and
+                   # the session file the core writes after each turn.
+                   "live_goal": chat_goal(self._conversation.payload())
+                   if turns > 0 else None,
+                   "live_at": clock_of(SESSION_FILE) if turns > 0 else "",
                    "rollovers": self._archives(),
                    "archived": self._archived(),
                    # #119. THE PROJECTS TRAVEL WITH THE RAIL, not on their own
