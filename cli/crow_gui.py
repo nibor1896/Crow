@@ -9213,12 +9213,20 @@ const finder = (() => {
       e.preventDefault(); const n=rows.length;
       mark(e.key==="ArrowDown" ? (at+1)%n : (at-1+n)%n); }
     else if(e.key==="Enter" && at>=0){ e.preventDefault(); act(at); } });
-  // A CLICK ON A RESULT MUST NOT TAKE THE FOCUS from the field: the blur would
-  // close the list before the click lands. It also stops here: the list stands
-  // inside #bar, and pywebview starts a window drag on any press in a drag
-  // region (Windows) -- the bar's own handler for Wayland asks
-  // `.pywebview-no-drag`, which the list carries, but this one does not.
-  pop.addEventListener("mousedown",e=>{ e.preventDefault(); e.stopPropagation(); });
+  // A PRESS IN THE FIELD OR IN ITS LIST IS NOT A WINDOW DRAG. Both stand inside
+  // #bar, and pywebview (webview/js/customize.js, `onBodyMouseDown`) starts a
+  // drag on any press under a drag region: it climbs from the target to
+  // `.pywebview-drag-region`, knows no `pywebview-no-drag`, and Crow sets neither
+  // DRAG_REGION_DIRECT_TARGET_ONLY nor easy_drag. So the window would move under
+  // a click, and under a text selection made with the mouse. The press stops
+  // here instead. The page's dismissal of open menus is a listener on the window,
+  // which a stopped press no longer reaches, so it is called from here. (The
+  // bar's own handler for Wayland asks `.pywebview-no-drag`; both carry it.)
+  const still=e=>{ e.stopPropagation(); dismissMenus(e); };
+  $("#search").addEventListener("mousedown",still);
+  // A CLICK ON A RESULT MUST NOT TAKE THE FOCUS from the field either: the blur
+  // would close the list before the click lands.
+  pop.addEventListener("mousedown",e=>{ e.preventDefault(); still(e); });
   return {seen:e=>{ rail=e; if(!pop.hidden) draw(true); }, reset:reset};
 })();
 
@@ -9428,10 +9436,13 @@ window.addEventListener("resize", () => sizing.pulse());
 const DISMISS = [["#modelwrap","#modelmenu"],
                  ["#modewrap","#modemenu"], ["#rootwrap","#rootmenu"],
                  ["#subwrap","#submenu"]];
-window.addEventListener("mousedown",e=>{
+// #386: NAMED, because a press in the search field must stop before it reaches
+// the window (it is not a window drag) and calls this itself.
+const dismissMenus = e => {
   if(!e.target.closest("#menu")) crow.closeMenu();
   DISMISS.forEach(pair => {
-    if(!e.target.closest(pair[0])) $(pair[1]).hidden=true; }); });
+    if(!e.target.closest(pair[0])) $(pair[1]).hidden=true; }); };
+window.addEventListener("mousedown",dismissMenus);
 // #119. THE LIST ITSELF ANSWERS NOW, not only the rows in it. A right-click
 // on the empty space below the chats used to be swallowed by this guard --
 // which was right when the rail had nothing to offer there, and is the

@@ -17575,7 +17575,7 @@ let focused = null;
 class El {
   constructor(tag) { this.tag = tag; this.children = []; this.attrs = {}; this.on = {};
     this.className = ""; this.classes = new Set(); this._text = ""; this.hidden = false;
-    this.value = ""; this.id = ""; this.title = ""; }
+    this.value = ""; this.id = ""; this.title = ""; this.parentNode = null; this.nodeType = 1; }
   get classList() { const c = this.classes;
     return {toggle(n, on) { if (on) c.add(n); else c.delete(n); }, contains: n => c.has(n)}; }
   set textContent(v) { this._text = v; this.children = []; }
@@ -17586,6 +17586,15 @@ class El {
   removeAttribute(k) { delete this.attrs[k]; }
   addEventListener(t, f) { (this.on[t] = this.on[t] || []).push(f); }
   dispatchEvent(ev) { (this.on[ev.type] || []).forEach(f => f(ev)); return true; }
+  // The event goes up the parents the way the DOM's does, and a listener may stop it.
+  bubble(ev) { ev.target = this; ev.cancelBubble = false;
+    ev.stopPropagation = () => { ev.cancelBubble = true; }; ev.preventDefault = () => {};
+    for (let n = this; n && !ev.cancelBubble; n = n.parentNode) n.dispatchEvent(ev);
+    return ev; }
+  closest(sel) { const name = sel.replace(/^[.#]/, "");
+    for (let n = this; n; n = n.parentNode)
+      if (sel[0] === "#" ? n.id === name : n.classes.has(name)) return n;
+    return null; }
   fire(t) { this.dispatchEvent({type: t}); }
   focus() { if (focused === this) return; const was = focused; focused = this;
     if (was) was.fire("blur"); this.fire("focus"); }
@@ -17598,16 +17607,34 @@ const pop = new El("div"), list = new El("div"), none = new El("div");
 pop.hidden = true;
 const field = new El("input"), composer = new El("textarea");
 field.setAttribute("aria-expanded", "false");
-const ids = {"#searchpop": pop, "#searchlist": list, "#searchnone": none, "#searchin": field};
+// #bar is a drag region; the field, its label and key cap sit in #search, the
+// list in #searchpop, both under it -- the markup's own tree, as far as it matters.
+const bar = new El("div"), barm = new El("div"), box = new El("div"), searchEl = new El("div");
+const kbd = new El("span"), label = new El("label"), row = new El("div");
+const bodyEl = new El("body"), window = new El("window");
+bar.id = "bar"; bar.classes.add("pywebview-drag-region");
+searchEl.classes.add("pywebview-no-drag"); pop.classes.add("pywebview-no-drag");
+[[field, searchEl], [kbd, searchEl], [label, searchEl], [searchEl, box], [pop, box],
+ [row, pop], [box, barm], [barm, bar], [bar, bodyEl], [bodyEl, window]]
+  .forEach(([child, parent]) => { child.parentNode = parent; });
+window.pywebview = {platform: "edgechromium",
+  _jsApiCallback(name) { log.push(["jsapi", name]); }};
+const ids = {"#searchpop": pop, "#searchlist": list, "#searchnone": none, "#searchin": field,
+  "#search": searchEl, "#bar": bar};
 const $ = sel => ids[sel] || null;
 const input = composer;
+const NATIVEDRAG = true;
+const dismissMenus = e => log.push(["dismiss"]);
 const document = new El("document");
 document.createElement = tag => new El(tag);
+document.body = bodyEl; document.documentElement = new El("html");
+document.querySelectorAll = sel => sel === ".pywebview-drag-region" ? [bar] : [];
 const requestAnimationFrame = f => f();
 const crow = {slash: __SLASH__, slashHelp: __HELP__,
   sameDir: (a, b) => !!a && a === b,
   open(p) { log.push(["open", p]); }, brCover() { log.push(["cover"]); }};
-const pywebview = {api: {view_live() { log.push(["view_live"]); }}};
+const pywebview = {api: {view_live() { log.push(["view_live"]); },
+  begin_move() { log.push(["begin_move"]); }}};
 composer.addEventListener("input", () => log.push(["composer-input"]));
 """
     NODE_TAIL = r"""
@@ -17653,14 +17680,37 @@ const view = () => ({
         self.bar = body[body.index('<div id="bar"'):body.index('<div id="remotedlg"')]
         self.css = self.source[self.source.index("<style>"):self.source.index("</style>")]
 
-    def _run(self, script: str) -> dict:
-        """The block over the fake DOM, then `script`; what it prints as JSON."""
+    @staticmethod
+    def _pywebview_dir():
+        import importlib.util
+        spec = importlib.util.find_spec("webview")
+        if not spec or not spec.submodule_search_locations:
+            return None
+        return Path(list(spec.submodule_search_locations)[0])
+
+    def _customize_js(self) -> str:
+        """pywebview's own page script, as util.py parameterises it for the
+        Windows engine and a frameless window with `easy_drag=False` (Crow's),
+        and the settings at their defaults (`__init__.py` DRAG_REGION_*)."""
+        folder = self._pywebview_dir()
+        if folder is None or not (folder / "js" / "customize.js").is_file():
+            self.skipTest("pywebview is not installed here")
+        text = (folder / "js" / "customize.js").read_text(encoding="utf-8")
+        return text % {"text_select": "True", "drag_selector": ".pywebview-drag-region",
+                       "drag_region_direct_target_only": "False", "zoomable": "True",
+                       "draggable": "True", "easy_drag": "False"}
+
+    def _run(self, script: str, pywebview: bool = False) -> dict:
+        """The block over the fake DOM, then `script`; what it prints as JSON.
+        `pywebview`: pywebview's customize.js is injected after the page's
+        script, as it is in the window."""
         if not self.node:
             self.skipTest("no node on this machine")
         head = (self.NODE_HEAD
                 .replace("__SLASH__", json.dumps(list(crow_core.SLASH_COMMANDS)))
                 .replace("__HELP__", json.dumps(crow_gui.Api.WHAT_THEY_DO)))
-        js = head + self._block() + self.NODE_TAIL + script
+        js = (head + self._block() + (self._customize_js() if pywebview else "")
+              + self.NODE_TAIL + script)
         done = subprocess.run([self.node, "-e", js], capture_output=True, text=True,
                               encoding="utf-8", timeout=30)
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -17891,6 +17941,60 @@ const view = () => ({
                         "stopPropagation() { seen.push('stop'); }});"
                         "console.log(JSON.stringify(seen));")
         self.assertEqual(sorted(out), ["prevent", "stop"])
+
+    def test_pywebview_drags_the_window_from_a_press_on_the_bare_bar(self):
+        """CONTROL for the two cases below: pywebview's own script, run over the
+        same tree, starts a drag from a press on the bar -- so a press that
+        starts none is the page's doing."""
+        out = self._run("const e = bar.bubble({type: 'mousedown', button: 0, clientX: 4, "
+                        "clientY: 4}); window.dispatchEvent({type: 'mousemove', screenX: 9, "
+                        "screenY: 9}); console.log(JSON.stringify(log.filter(c => "
+                        "c[0] === 'jsapi')));", pywebview=True)
+        self.assertEqual(out, [["jsapi", "pywebviewMoveWindow"]])
+
+    def test_a_press_in_the_field_or_its_list_does_not_move_the_window(self):
+        """#386. pywebview (webview/js/customize.js:69-89) starts a drag on any
+        press under `.pywebview-drag-region`: it climbs from the target to the
+        region and has no `pywebview-no-drag`. A click, or a text selection made
+        with the mouse, inside the search field moved the window. The press
+        stops at #search / #searchpop, and the menus' dismissal -- a listener on
+        the window the press no longer reaches -- is called from there."""
+        for target in ("field", "kbd", "label", "row"):
+            out = self._run("const e = %s.bubble({type: 'mousedown', button: 0, clientX: 4, "
+                            "clientY: 4}); window.dispatchEvent({type: 'mousemove', screenX: 9, "
+                            "screenY: 9}); window.dispatchEvent({type: 'mousemove', screenX: 14, "
+                            "screenY: 9}); console.log(JSON.stringify({moves: log.filter(c => "
+                            "c[0] === 'jsapi').length, stopped: e.cancelBubble, "
+                            "dismissed: log.filter(c => c[0] === 'dismiss').length}));" % target,
+                            pywebview=True)
+            self.assertEqual(out, {"moves": 0, "stopped": True, "dismissed": 1}, target)
+
+    def test_the_bars_own_handler_for_wayland_leaves_the_field_alone_too(self):
+        """Crow's `bardrag` (4 px threshold, `xdg_toplevel.move`) skips a press
+        whose target is inside `.pywebview-no-drag`; the field and its list are."""
+        page = crow_gui.PAGE
+        start = page.index("(function bardrag(){")
+        bardrag = page[start:page.index("\n})();", start) + len("\n})();")]
+        script = ("%s\nconst go = target => { log.length = 0; bar.dispatchEvent({type: 'mousedown', "
+                  "button: 0, target, screenX: 0, screenY: 0}); window.dispatchEvent({type: "
+                  "'mousemove', screenX: 20, screenY: 20}); return log.filter(c => c[0] === "
+                  "'begin_move').length; };\nconsole.log(JSON.stringify({field: go(field), "
+                  "kbd: go(kbd), row: go(row), bare: go(bar)}));" % bardrag)
+        out = self._run(script)
+        self.assertEqual(out, {"field": 0, "kbd": 0, "row": 0, "bare": 1})
+        self.assertIn('<div id="search" class="search pywebview-no-drag"', self.bar)
+
+    def test_what_the_drag_fix_rests_on_in_pywebview_and_in_crow(self):
+        folder = self._pywebview_dir()
+        if folder is None:
+            self.skipTest("pywebview is not installed here")
+        self.assertIn("'DRAG_REGION_DIRECT_TARGET_ONLY': False",
+                      (folder / "__init__.py").read_text(encoding="utf-8"))
+        self.assertNotIn("pywebview-no-drag",
+                         (folder / "js" / "customize.js").read_text(encoding="utf-8"))
+        self.assertNotIn("settings['DRAG_REGION", self.source)
+        self.assertNotIn('settings["DRAG_REGION', self.source)
+        self.assertIn("easy_drag=False, background_color=theme_bg(current_theme()))", self.source)
 
     def test_escape_closes_clears_and_lets_go(self):
         out = self._run("finder.seen(rail()); type('crow'); const e = key('Escape');"
