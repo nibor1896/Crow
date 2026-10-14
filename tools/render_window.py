@@ -297,7 +297,11 @@ def virtual_budget(clicks=(), focus: str = "") -> int:
 
 def browser_args(browser: str, profile: str, size: tuple, url: str, budget: int,
                  *extra: str) -> list:
+    # REDUCED MOTION, so a capture shows the end state: under virtual time a
+    # CSS transition stays at its start (measured 2026-10-14 on the #382 rail
+    # fold: the shut render reported the open widths).
     args = [browser, "--headless=new", "--hide-scrollbars", "--force-device-scale-factor=1",
+            "--force-prefers-reduced-motion",
             "--window-size=%d,%d" % size, "--user-data-dir=" + profile,
             "--no-first-run", "--no-default-browser-check", "--disable-extensions",
             "--disable-background-networking", "--disable-sync",
