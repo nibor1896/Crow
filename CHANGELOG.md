@@ -5,6 +5,12 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+### Changed
+
+- **Old `write_file`, `append_file` and `edit_file` bodies join the #263 clearing batch** (#359, `c30017c`, `e8bd524`). Behind the keep window (the last 5 rounds), a body of 600 chars or more becomes a one-line stub that keeps the argument names; the originals go to the same `session/cleared/` file (`"calls"`) before the stub is applied, and the batch's `crow.log` line names both counts. A file whose body was cleared must be read again before the next write; `/verify` reads a stubbed body back from the originals. Setting `context_clear_inputs`: unset is on with the local server and off on a remote provider, `0` off, `1` on. Replayed offline on the one long stored session (`session-0915.json`, 2026-09-15, 274 messages, n = 1): the bodies free 7,291 tokens (Flash-Next tokenizer) or 6,819 (GLM-5.3-Flash) on top of the 44,196 the results free, with the same one re-prefill event; the ticket's 8,000 is not reached on this session, and its own session is gone. Effect on a live goal run: unmeasured.
+- **`tools/context_breakdown.py`** (#359, `722d73d`, `bc26bab`): tokens per category of a stored session (head, user, reasoning, assistant text, call arguments and results by tool), in total and behind the keep window, from the rendered template when jinja2 and the template are present; `--replay` forces one batch, `--walk` replays the history under the live rule. A dev tool, not imported by `cli/`.
+- **A cut tool result keeps both ends and names its position** (#361, `c7a9f8e`, `c41fda8`). `run_command` keeps the head and the tail and gives stderr its own share, so a linker error or a test summary after a long stdout survives; `read_file` cuts at a whole line and names the lines shown, the file's length and the `start_line` to continue with; a long line after a short one keeps its head. Results under the cap are byte-identical (goldens at 15,999 and 16,000 chars); the cap stays 16,000. How often results are cut in real runs: unmeasured.
+
 ## 3.4.2 — 2026-10-13
 
 **A window started by hand against a GLM-5.3-Flash serve no longer starts the image server beside it.** Windows assets only, as for v3.4.1. The engine pin stays crow-nest v0.13.0.
