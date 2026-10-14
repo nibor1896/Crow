@@ -5829,18 +5829,26 @@ class ToolCallsLeaveTheReadingColumnTests(unittest.TestCase):
         call is one nobody has learned to look at."""
         self.assertIn('id="toolcalls"', self.source)
         self.assertIn("crow.toolsCount();", self.source)
+        # #384: the end of the method is the next one, now that the group fold
+        # (`toolsToggle`) is gone.
         js = self.source[self.source.index("  toolsCount(){"):
-                         self.source.index("  toolsToggle(){")]
+                         self.source.index("  toolArg(i,name,piece")]
         self.assertIn("Nothing called yet.", js)
 
     def test_it_opens_and_shuts_on_the_plus(self):
-        self.assertIn("display:none", self._rule("#toolcalls.shut .tcbody{"))
-        js = self.source[self.source.index("  toolsToggle(){"):
-                         self.source.index("  toolsClear(e){")]
+        """#384 CHANGES THE REQUIREMENT: the Tools tab IS the surface (the
+        approved mockup draws the list without a fold of its own), so the
+        group fold and its +/- are gone, and what opens and shuts is the row --
+        its chevron turns with the state, and `aria-expanded` says it."""
+        self.assertNotIn("toolsToggle", self.source)
+        self.assertNotIn("#toolcalls.shut", self.css)
+        self.assertIn("transform:rotate(90deg)", self._rule("#toolcalls .tool:not(.shut) .tx{"))
+        js = self.source[self.source.index('d.querySelector(".hd").addEventListener'):]
+        js = js[:js.index("this.openCall=d;")]
         self.assertIn('classList.toggle("shut")', js)
-        # THE SIGN FOLLOWS THE STATE. A plus on an open tile is a control that
-        # lies about what pressing it will do.
-        self.assertIn('shut ? "+"', js)
+        # THE SIGN FOLLOWS THE STATE. A control that lies about what pressing
+        # it will do is worse than none.
+        self.assertIn('setAttribute("aria-expanded", shut ? "false" : "true")', js)
 
     def test_the_panel_gives_the_width_and_the_row_uses_all_of_it(self):
         """A tool line is a path plus arguments, and the half that says which
@@ -5865,18 +5873,21 @@ class ToolCallsLeaveTheReadingColumnTests(unittest.TestCase):
 
     def test_it_wears_the_bubble_of_whichever_skin_is_on(self):
         """robin, 2026-08-22. NOT a literal that matches today's dark bubble --
-        the same TOKENS, so the tile follows the skin that is on rather than the
-        one it was picked in. Both are defined once per palette."""
-        tile, bubble = self._rule("#toolcalls{"), self._rule(".you .txt{")
+        the same TOKENS, so the list follows the skin that is on rather than the
+        one it was picked in. Both are defined once per palette.
+        #384 CHANGES WHERE: the tile is gone (the mockup's list has none), and
+        the bubble's ground is what an OPEN row is raised on."""
+        row, bubble = self._rule("#toolcalls .tool:not(.shut) .hd{"), self._rule(".you .txt{")
         import re as _re
-        for prop in ("background", "border"):
-            want = _re.search(prop + r"[^;]*var\((--[a-z-]+)\)", bubble)
-            self.assertIsNotNone(want, prop)
-            self.assertIn("var(%s)" % want.group(1), tile, prop)
-            self.assertEqual(self.css.count(want.group(1) + ":"), 3,
-                             "%s is not in all three palettes" % want.group(1))
-        self.assertFalse(_re.findall(r"#[0-9a-fA-F]{3,6}", tile),
-                         "the tile names a colour of its own")
+        want = _re.search(r"background[^;]*var\((--[a-z-]+)\)", bubble)
+        self.assertIsNotNone(want)
+        self.assertIn("var(%s)" % want.group(1), row)
+        self.assertEqual(self.css.count(want.group(1) + ":"), 3,
+                         "%s is not in all three palettes" % want.group(1))
+        rows = self.css[self.css.index("#toolcalls{"):self.css.index("#toolcalls .tsmore{")]
+        rows = _re.sub(r"/\*.*?\*/", "", rows, flags=_re.S)
+        self.assertFalse(_re.findall(r":[^;{}]*#[0-9a-fA-F]{3,6}", rows),
+                         "the list names a colour of its own")
 
     def test_the_list_lives_in_the_panel_and_not_over_the_chat(self):
         """It used to float: absolute, 28 px down and 36 px in from the corner,
@@ -5896,11 +5907,16 @@ class ToolCallsLeaveTheReadingColumnTests(unittest.TestCase):
                       "the call list did not move into the code panel")
 
     def test_clearing_does_not_also_fold_the_tile_away(self):
-        """NEGATIVE, and the trap the memory tile already hit: the button sits
-        inside the head, so without catching the click it would bubble up to the
-        fold and hide the list it had just emptied."""
-        js = self.source[self.source.index("  toolsClear(e){"):
-                         self.source.index("  toolsReset(){")]
+        """NEGATIVE, and the trap the memory tile already hit: a button inside
+        a head catches its click, or it bubbles to whatever folds there.
+        #384: one `clear` in the Tools tab's head (#codewipe, the calls and the
+        program code); the group's own `clear` went with the group fold."""
+        head = self.source[self.source.index('<div id="codehead">'):]
+        head = head[:head.index("</div>")]
+        self.assertIn('onclick="crow.codeWipe(event)"', head)
+        self.assertNotIn("toolsClear", self.source)
+        js = self.source[self.source.index("  codeWipe(e){"):]
+        js = js[:js.index("},")]
         self.assertIn("stopPropagation()", js)
         self.assertIn('$("#tclist").textContent=""', js)
 
@@ -6002,8 +6018,8 @@ class TheUserBubbleTests(unittest.TestCase):
 class TheBubblesStandOnTheComposersEdgesTests(unittest.TestCase):
     """#280, robin 2026-09-24: chat and composer read as ONE column -- the
     user's bubble with its right edge on #box's right border, Crow's text with
-    its left edge on #box's left border, with and without the #233/#255/#256
-    cards, at every width.
+    its left edge on #box's left border, at every width. (#384: the
+    #233/#255/#256 cards and their reserve moved into the inspector.)
 
     MEASURED in headless Chromium (real PAGE, rail open/shut x 1180/1440/1920/
     2560 x no card/git/goal/subtasks, 32 combinations): before, the short
@@ -6041,22 +6057,22 @@ class TheBubblesStandOnTheComposersEdgesTests(unittest.TestCase):
 
     def test_column_and_composer_come_from_the_same_variables(self):
         """ONE SOURCE. Every length that places the text column (#flow,
-        .turn) and the box (#composer, #box) is a var() of the four shared
+        .turn) and the box (#composer, #box) is a var() of the three shared
         ones -- a px literal in any of them is a second source that can drift.
-        Then both are computed for two widths, with and without a card, and
-        must share both edges."""
+        Then both are computed for three widths and must share both edges.
+        #384 CHANGES THE REQUIREMENT: no card reserve any more (the cards are
+        tabs of the inspector, beside #main), so there is no second case."""
         root = self._rule(":root{")
         env = {name: float(self._decl(root, "--" + name)[:-2])
-               for name in ("sbw", "colw", "colpad", "reserve")}
-        block = self.css[self.css.index("@container chat"):]
-        block = block[:block.index("}\n}") + 1]
-        card = float(re.search(r"\{--reserve:(\d+)px\}", block).group(1))
+               for name in ("sbw", "colw", "colpad")}
+        self.assertNotRegex(re.sub(r"/\*.*?\*/", "", self.css, flags=re.S),
+                            r"--reserve\s*:|var\(--reserve\)")
+        card = 0.0
 
         def ev(expr: str, reserve: float) -> float:
             self.assertNotRegex(expr, r"\d+px", "a literal in %r" % expr)
             code = re.sub(r"var\(--([a-z]+)\)",
-                          lambda m: repr(reserve if m.group(1) == "reserve"
-                                         else env[m.group(1)]), expr)
+                          lambda m: repr(env[m.group(1)]), expr)
             code = code.replace("calc", "")
             self.assertRegex(code, r"^[\d.\s+*()-]+$", expr)
             return float(eval(code))  # noqa: S307 -- digits and + * ( ) only
@@ -6070,7 +6086,7 @@ class TheBubblesStandOnTheComposersEdgesTests(unittest.TestCase):
         t_pad = split(self._decl(turn, "padding"))[1]
         c_pad = split(self._decl(comp, "padding"))[1]
         for width in (937.0, 1417.0, 1677.0):       # #main at 1180/1920 rail open, 1920 shut
-            for reserve in (env["reserve"], card):
+            for reserve in (card,):
                 # #flow: scrollbar-gutter:stable takes --sbw on the right.
                 lo = ev(f_left, reserve)
                 hi = width - ev(f_right, reserve) - env["sbw"]
@@ -6935,19 +6951,20 @@ class TheSubtaskCardBreathesAndKeepsItsResultShutTests(unittest.TestCase):
         return card[:card.index("\n  subChip")]
 
     def test_the_result_hides_behind_the_card(self):
-        """robins letzte Kartenform 2026-08-29: klassische Kopfzeile
-        (delegate · dN, Modell, Status rechts), Task darunter -- und der
-        volle Output bleibt ZU, die Karte selbst ist die Klickflaeche."""
+        """robins Kartenform 2026-08-29 hielt den vollen Output ZU, weil er
+        nicht offen in den Hauptchat gehoert. #384 CHANGES THE CARD: it lives
+        in the inspector's Subtasks tab, and the approved mockup draws it with
+        its head (fork, id, status pill, tokens and time), the task, the model
+        and RESULT under its label. The chat still gets no result block."""
         card = self._card()
-        self.assertIn("res.hidden=true", card)
+        head = card[card.index('<div class="sh">'):card.index('<div class="stk">')]
+        self.assertLess(head.index("svgFork"), head.index('class="sid"'))
+        self.assertLess(head.index('class="sid"'), head.index('class="pill"'))
+        self.assertLess(head.index('class="pill"'), head.index('class="sq"'))
+        self.assertIn('l.textContent="Result"', card)
+        self.assertNotIn("res.hidden=true", card)
         self.assertNotIn("<summary>", card, "der alte Fold ist zurueck")
-        self.assertNotIn("Click to Expand", card,
-                         "die Expand-Zeile der Zwischenfassung ist zurueck")
-        head = card[card.index('<div class="shead">'):
-                    card.index('<div class="stask">')]
-        self.assertLess(head.index("dlabel"), head.index("sname"))
-        self.assertLess(head.index("sname"), head.index("sstat"))
-        self.assertIn('d.classList.add("can")', card)
+        self.assertNotIn("flow.appendChild", card, "the result went into the chat")
 
     def test_a_running_card_breathes_amber_on_its_left_bar_only(self):
         """robins finale Fassung 2026-08-28 nachts: KEINE Flaechenanimation
@@ -7742,6 +7759,608 @@ class TheRailIsDraggableTests(ApiCase):
 
 
 
+# -- #384: the inspector -------------------------------------------------------------
+
+# A FAKE DOM, just enough for the inspector's methods to run in node against the
+# page's own `#side` markup: a small HTML parser, descendant selectors with tag,
+# #id, .class and [attr="value"], dataset over data-* attributes, and a bridge
+# that records what the page asks Python to do with the browser pane.
+INSPECTOR_DOM = r"""
+const VOID = new Set(["input", "br", "img", "meta", "link", "hr"]);
+class CL { constructor(el){ this.el = el; }
+  get s(){ return new Set((this.el.attrs["class"] || "").split(/\s+/).filter(Boolean)); }
+  put(s){ this.el.attrs["class"] = [...s].join(" "); }
+  add(...c){ const s = this.s; c.forEach(x => s.add(x)); this.put(s); }
+  remove(...c){ const s = this.s; c.forEach(x => s.delete(x)); this.put(s); }
+  contains(c){ return this.s.has(c); }
+  toggle(c, on){ if(on === undefined) on = !this.contains(c); on ? this.add(c) : this.remove(c); return on; } }
+class Text { constructor(t){ this.text = t; this.parentNode = null; }
+  get textContent(){ return this.text; } }
+class El {
+  constructor(tag){ this.tagName = String(tag).toUpperCase(); this.attrs = {}; this.children = [];
+    this.parentNode = null; this.style = {setProperty(){}}; this.ls = []; this.classList = new CL(this);
+    this.scrollTop = 0; this.offsetTop = 0; this.offsetHeight = 0; this.clientHeight = 0;
+    this.offsetWidth = 0; this.rect = null;
+    this.dataset = new Proxy({}, {get: (_, k) => this.attrs["data-" + String(k)],
+      set: (_, k, v) => { this.attrs["data-" + String(k)] = String(v); return true; }}); }
+  get id(){ return this.attrs.id || ""; }
+  get className(){ return this.attrs["class"] || ""; } set className(v){ this.attrs["class"] = String(v); }
+  get hidden(){ return "hidden" in this.attrs; }
+  set hidden(v){ if(v) this.attrs.hidden = ""; else delete this.attrs.hidden; }
+  get tabIndex(){ return Number(this.attrs.tabindex || 0); } set tabIndex(v){ this.attrs.tabindex = String(v); }
+  get textContent(){ return this.children.map(c => c.textContent).join(""); }
+  set textContent(v){ this.children = []; this.appendChild(new Text(String(v))); }
+  set innerHTML(v){ this.children = []; parseInto(this, String(v)); }
+  get firstChild(){ return this.children[0] || null; }
+  get lastChild(){ return this.children[this.children.length - 1] || null; }
+  appendChild(c){ if(c.parentNode) c.parentNode.children = c.parentNode.children.filter(x => x !== c);
+    c.parentNode = this; this.children.push(c); return c; }
+  append(...xs){ xs.forEach(x => this.appendChild(typeof x === "string" ? new Text(x) : x)); }
+  remove(){ if(this.parentNode) this.parentNode.children = this.parentNode.children.filter(x => x !== this);
+    this.parentNode = null; }
+  contains(x){ for(let n = x; n; n = n.parentNode) if(n === this) return true; return false; }
+  setAttribute(k, v){ this.attrs[k] = String(v); } getAttribute(k){ return k in this.attrs ? this.attrs[k] : null; }
+  removeAttribute(k){ delete this.attrs[k]; }
+  addEventListener(t, fn){ this.ls.push([t, fn]); }
+  click(){ const ev = {target: this, currentTarget: this, stopPropagation(){}, preventDefault(){}};
+    this.ls.filter(l => l[0] === "click").forEach(l => l[1](ev)); if(this.onclick) this.onclick(ev); }
+  focus(){ document.activeElement = this; }
+  getBoundingClientRect(){ return this.rect ? this.rect() : {left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0}; }
+  els(){ const out = []; const walk = n => n.children.forEach(c => { if(c instanceof El){ out.push(c); walk(c); } });
+    walk(this); return out; }
+  matches(sel){ return matches(this, sel); }
+  closest(sel){ for(let n = this; n instanceof El; n = n.parentNode) if(matches(n, sel)) return n; return null; }
+  querySelectorAll(sel){ return this.els().filter(e => matches(e, sel)); }
+  querySelector(sel){ return this.querySelectorAll(sel)[0] || null; } }
+function parseInto(root, html){
+  let cur = root;
+  const re = /<!--[\s\S]*?-->|<\/([a-zA-Z0-9-]+)\s*>|<([a-zA-Z][a-zA-Z0-9-]*)((?:\s+[^\s=>\/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)>|([^<]+)/g;
+  let m;
+  while((m = re.exec(html))){
+    if(m[0].startsWith("<!--")) continue;
+    if(m[1]){ let n = cur; while(n && n !== root && n.tagName !== m[1].toUpperCase()) n = n.parentNode;
+      if(n && n !== root) cur = n.parentNode; continue; }
+    if(m[2]){ const el = new El(m[2]);
+      const ar = /([^\s=>\/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g; let a;
+      while((a = ar.exec(m[3] || ""))) el.attrs[a[1]] = a[2] !== undefined ? a[2] : a[3] !== undefined ? a[3] : a[4] !== undefined ? a[4] : "";
+      cur.appendChild(el);
+      if(!m[4] && !VOID.has(m[2].toLowerCase())) cur = el; continue; }
+    if(m[5]) cur.appendChild(new Text(m[5])); } }
+function part(p){ const c = {tag: null, id: null, cls: [], attrs: []};
+  const re = /([a-zA-Z][a-zA-Z0-9-]*)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="([^"]*)")?\]/g; let m;
+  while((m = re.exec(p))){ if(m[1]) c.tag = m[1].toUpperCase(); else if(m[2]) c.id = m[2];
+    else if(m[3]) c.cls.push(m[3]); else c.attrs.push([m[4], m[5]]); }
+  return c; }
+function one(el, c){ if(!(el instanceof El)) return false;
+  if(c.tag && el.tagName !== c.tag) return false;
+  if(c.id && el.id !== c.id) return false;
+  if(c.cls.some(k => !el.classList.contains(k))) return false;
+  return c.attrs.every(([k, v]) => v === undefined ? k in el.attrs : el.attrs[k] === v); }
+function matches(el, sel){ const ps = sel.trim().split(/\s+/).map(part);
+  if(!one(el, ps[ps.length - 1])) return false;
+  let i = ps.length - 2, n = el.parentNode;
+  for(; i >= 0 && n; n = n.parentNode) if(one(n, ps[i])) i--;
+  return i < 0; }
+const html = new El("html"), body = html.appendChild(new El("body"));
+for (const [k, v] of Object.entries({rail: "open", code: "open", git: "shut", browser: "shut"}))
+  body.attrs["data-" + k] = v;
+globalThis.document = {documentElement: html, body, activeElement: null,
+  createElement: t => new El(t), getElementById: id => html.querySelector("#" + id),
+  querySelector: s => html.querySelector(s), querySelectorAll: s => html.querySelectorAll(s),
+  elementFromPoint: () => null};
+globalThis.window = globalThis;
+globalThis.CSS = {escape: s => String(s)};
+globalThis.setInterval = () => 0; globalThis.clearInterval = () => {};
+globalThis.setTimeout = () => 0;
+const calls = [];
+globalThis.pywebview = {api: new Proxy({}, {get: (_, n) => (...a) => {
+  calls.push(n + "(" + a.map(x => typeof x === "number" ? Math.round(x) : JSON.stringify(x)).join(",") + ")");
+  return Promise.resolve(null); }})};
+const $ = s => document.querySelector(s);
+const sizing = {pulse(){}, begin(){}, end(){}};
+const HL = {paint(){}};
+parseInto(body, SIDE);
+const side = $("#side");
+const brbody = $("#brbody");
+brbody.rect = () => (crow.brVisible() ? {left: 1180, top: 214, right: 1440, bottom: 914, width: 260, height: 700}
+  : {left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0});
+const sel = () => side.dataset.tab;
+const key = (k, on) => { let prevented = false;
+  crow.inspectorKey({key: k, target: on || document.activeElement, preventDefault(){ prevented = true; }});
+  return prevented; };
+const kids = el => el.children.filter(c => c instanceof El);
+"""
+
+# What of the page the fake DOM runs: the inspector and the toggles, the browser
+# pane, the tool rows, the goal and the subtasks -- the page's own source.
+INSPECTOR_RANGES = (
+    ("  toggleCode(){", "  // -- #175: die Reiter"),
+    ("  tabs: [], tabOn: 0, tabSeq: 0,", "  // #201. LIEGT ETWAS VON CROW"),
+    ("  brCovered(r){", "  brBack(){"),
+    ("  toggleGit(){", "  // Eine Klappgruppe im Git-Panel."),
+    ("  // #383/#384. THE KIND OF A TOOL CALL", "  // #172. EIN OFFENER AUFRUF UND SEINE"),
+    ("  toolArgBlock(row, name, raw){", "  // #138. WAS GERADE GESCHRIEBEN WIRD"),
+    ("  // A NEW CHAT IS A NEW LIST.", "  // #138b. Alles im Panel, in einem Griff."),
+    ("  goalPanel(g){", "  // 89K statt 89234"),
+    ("  tokShort(n){", "  // #162. WO MAN STEHT"),
+    ("  subs(items){", "  // #162. DREI MARKEN"),
+)
+
+
+class _InspectorPage:
+    """Runs a scenario against the page's own inspector code in node."""
+
+    def run_page(self, scenario: str) -> dict:
+        node = _node()
+        if not node:
+            self.skipTest("no node on this machine")
+        page = crow_gui.PAGE
+        side = page[page.index('  <div id="side"'):]
+        side = side[:side.index("  </aside>\n  </div>\n") + len("  </aside>\n  </div>\n")]
+        methods = "\n".join(_page_js_between(a, b) for a, b in INSPECTOR_RANGES)
+        js = ("const SIDE = " + json.dumps(side) + ";\n" + INSPECTOR_DOM
+              + "const crow = {execute: true, live: null, goal: null, openCall: null,\n"
+              + "  toolClock(){}, toolClockStop(){}, tail(){}, gitRefresh(){},\n"
+              + "  linkify(pre, text){ pre.textContent = text; }, open(){},\n"
+              + "  filesCount(){},\n"
+              + methods + "\n};\nglobalThis.crow = crow;\nconst out = {};\n"
+              + scenario + "\nconsole.log(JSON.stringify(out));\n")
+        # OVER STDIN: the page's markup and methods are longer than a Windows
+        # command line may be.
+        done = subprocess.run([node], input=js, capture_output=True, text=True,
+                              encoding="utf-8", timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr[-3000:])
+        return json.loads(done.stdout)
+
+
+# The goal of the 2026-09-16 run as the window pushes it at its end
+# (tools/fixtures/goal-run-2026-09-16.json, the mockup's numbers).
+GOAL_RUN = {
+    "title": "Count files, delegate 21*2, report results", "status": "done",
+    "done": 3, "total": 3, "skipped": [], "pause": None, "seconds": 39.0,
+    "begun": True, "tokens": 7300, "delegated": 65,
+    "steps": [
+        {"text": "Count all files in the current working directory and record the number.",
+         "status": "done", "seconds": 16.0, "tokens": 705, "delegated": 0, "at": None,
+         "note": "", "subs": [], "checks": None},
+        {"text": "Spawn a subagent to compute 21*2.", "status": "done", "seconds": 8.0,
+         "tokens": 5718, "delegated": 65, "at": None, "note": "", "subs": [], "checks": None},
+        {"text": "Collect the subagent result and report both outputs in chat.",
+         "status": "done", "seconds": 5.0, "tokens": 242, "delegated": 0, "at": None,
+         "note": "", "subs": [], "checks": None}]}
+
+
+class TheInspectorTests(_InspectorPage, unittest.TestCase):
+    """#384. The goal, subtasks and git cards that floated over the chat's top
+    right and the code panel beside it are ONE column now, the inspector of the
+    mockup robin approved on 2026-10-14 (vault Crow/02_docs/
+    mockup-crow-gui-redesign-2026-10-14/Main.dc.html): a tab strip -- Goal,
+    Tools n, Subtasks n, plus Git and Browser while their title-bar toggles are
+    on -- and one panel at a time. WAI-ARIA tabs:
+    https://www.w3.org/WAI/ARIA/apg/patterns/tabs/ ("Keyboard Interaction",
+    "WAI-ARIA Roles, States, and Properties")."""
+
+    def setUp(self) -> None:
+        self.source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        self.css = self.source[self.source.index("<style>"):self.source.index("</style>")]
+        side = self.source[self.source.index('<div id="side"'):]
+        self.side = side[:side.index("<script>")]
+
+    def _rule(self, selector: str) -> str:
+        found = self.css[self.css.index(selector):]
+        return found[:found.index(chr(125))]
+
+    def test_one_column_holds_the_tabs_and_their_panels(self):
+        strip = self.side[self.side.index('<div id="itabs"'):]
+        strip = strip[:strip.index("</div>")]
+        self.assertIn('role="tablist"', strip)
+        self.assertIn('aria-label="Inspector views"', strip)
+        tabs = re.findall(r'<button id="itab-(\w+)"([^>]*)>', strip)
+        self.assertEqual([t for t, _ in tabs], ["goal", "tools", "subs", "git", "browser"])
+        panels = {"goal": "igoal", "tools": "code", "subs": "isubs", "git": "git",
+                  "browser": "browser"}
+        for name, attrs in tabs:
+            self.assertIn('role="tab"', attrs, name)
+            self.assertIn('aria-controls="%s"' % panels[name], attrs, name)
+            panel = re.search(r'<(?:div|aside) id="%s"([^>]*)>' % panels[name], self.side)
+            self.assertIsNotNone(panel, panels[name])
+            self.assertIn('role="tabpanel"', panel.group(1))
+            self.assertIn('aria-labelledby="itab-%s"' % name, panel.group(1))
+            # ROVING TABINDEX: only the selected tab is in the tab sequence.
+            selected = name == "goal"
+            self.assertIn('aria-selected="%s"' % ("true" if selected else "false"), attrs)
+            self.assertIn('tabindex="%s"' % ("0" if selected else "-1"), attrs)
+        self.assertIn('class="cnt"', strip[strip.index('id="itab-tools"'):])
+        # The cards live in the column, and nothing of them in the chat.
+        for card in ('<div id="goalpanel" hidden>', '<div id="subpanel" hidden>',
+                     '<aside id="git"'):
+            self.assertIn(card, self.side)
+        self.assertNotIn('id="panels"', self.source)
+
+    def test_the_strip_and_the_column_are_the_mockups(self):
+        strip = self._rule("#itabs{")
+        for decl in ("gap:3px", "margin:12px 12px 6px", "padding:3px", "background:var(--bg)",
+                     "border:1px solid var(--line-soft)", "border-radius:10px"):
+            self.assertIn(decl, strip)
+        tab = self._rule("#itabs .tab{")
+        for decl in ("flex:1", "height:30px", "border-radius:7px", "font-size:12.5px",
+                     "font-weight:600", "color:var(--dim)"):
+            self.assertIn(decl, tab)
+        self.assertIn("background:var(--raised)", self._rule("#itabs .tab.on{"))
+        cnt = self._rule("#itabs .cnt{")
+        for decl in ("font-size:10.5px", "background:var(--line-soft)", "line-height:16px"):
+            self.assertIn(decl, cnt)
+        # ONE PANEL AT A TIME, the selected tab's.
+        self.assertIn('#side>[role="tabpanel"]{display:none', self.css)
+        for tab, panel in (("goal", "#igoal"), ("tools", "#code"), ("subs", "#isubs"),
+                           ("git", "#git"), ("browser", "#browser")):
+            self.assertIn('#side[data-tab="%s"]>%s' % (tab, panel), self.css)
+        # Git and Browser have a tab while their toggle is on, from the first paint.
+        self.assertIn('body[data-git="shut"] #itab-git,body[data-browser="shut"] #itab-browser'
+                      "{display:none}", self.css)
+        # The column's open state is #codetoggle alone; a browser no longer holds it open.
+        self.assertIn('body[data-code="shut"] #side{width:0', self.css)
+        self.assertNotIn('[data-browser="shut"] #side{', self.css)
+        toggle = self.source[self.source.index('<button id="codetoggle"'):]
+        self.assertIn('aria-label="Inspector"', toggle[:toggle.index("</button>")])
+
+    def test_arrow_keys_move_and_select_and_wrap(self):
+        out = self.run_page("""
+out.rest = sel();
+$("#itab-goal").focus();
+out.prevented = key("ArrowRight");
+out.right = [sel(), document.activeElement.id, $("#itab-tools").getAttribute("aria-selected"),
+  $("#itab-tools").getAttribute("tabindex"), $("#itab-goal").getAttribute("tabindex")];
+key("ArrowRight"); out.right2 = sel();
+key("ArrowRight"); out.wrapRight = sel();          // Git and Browser are off: no tab
+key("ArrowLeft"); out.wrapLeft = sel();
+key("Home"); out.home = sel(); key("End"); out.end = sel();
+out.other = key("a");
+body.attrs["data-git"] = "open";                    // Git on: its tab joins the ring
+key("End"); out.endWithGit = sel(); key("ArrowRight"); out.afterGit = sel();
+out.picked = crow.itabPicked;
+""")
+        self.assertEqual(out["rest"], "goal")
+        self.assertTrue(out["prevented"])
+        self.assertEqual(out["right"], ["tools", "itab-tools", "true", "0", "-1"])
+        self.assertEqual(out["right2"], "subs")
+        self.assertEqual(out["wrapRight"], "goal")
+        self.assertEqual(out["wrapLeft"], "subs")
+        self.assertEqual((out["home"], out["end"]), ("goal", "subs"))
+        self.assertFalse(out["other"], "a key that is not the strip's was taken")
+        self.assertEqual((out["endWithGit"], out["afterGit"]), ("git", "goal"))
+        self.assertTrue(out["picked"], "a key is the user's pick")
+
+    def test_inspector_show_opens_selects_and_reaches_the_item(self):
+        out = self.run_page("""
+body.attrs["data-code"] = "shut";
+crow.tool("goal_set", "", '{"title": "Count files"}', false);
+crow.tool("run_command", "", '{"command": "ls"}', false);
+crow.toolRes("run_command", "[exit 0]", 0);
+crow.inspectorShow("tools", 2);
+const row = $('#tclist .tool[data-n="2"]');
+out.tools = {code: body.attrs["data-code"], tab: sel(), open: !row.classList.contains("shut"),
+  expanded: row.querySelector(".hd").getAttribute("aria-expanded"),
+  first: $('#tclist .tool[data-n="1"]').classList.contains("shut"), calls: calls.slice()};
+crow.subs([{i: "d1", task: "Compute 21 multiplied by 2", model: "m", st: "done", s: 1.1,
+  tok: 65, res: "42", here: true, closed: false, parent: ""}]);
+crow.inspectorShow("goal");
+crow.inspectorShow("subs", "d1");
+const card = $('#subpanel .subcard[data-sub="d1"]');
+out.subs = {tab: sel(), seen: card.classList.contains("seen"), hidden: $("#subpanel").hidden};
+crow.inspectorShow("git");
+out.git = {tab: sel(), git: body.attrs["data-git"]};
+""")
+        tools = out["tools"]
+        self.assertEqual((tools["code"], tools["tab"], tools["open"], tools["expanded"]),
+                         ("open", "tools", True, "true"))
+        self.assertTrue(tools["first"], "another call opened")
+        self.assertIn("set_code_open(true)", tools["calls"])
+        self.assertEqual(out["subs"], {"tab": "subs", "seen": True, "hidden": False})
+        self.assertEqual(out["git"], {"tab": "git", "git": "open"})
+
+    def test_the_automatic_choices_never_take_a_pick_away(self):
+        """A new goal selects Goal; the first call of a chat without a goal
+        selects Tools; a tab the user picked in this chat stays."""
+        out = self.run_page("""
+crow.inspectorSelect("subs");
+crow.tool("run_command", "", '{"command": "ls"}', false); out.firstCall = sel();
+crow.inspectorSelect("subs");
+crow.tool("run_command", "", '{"command": "pwd"}', false); out.secondCall = sel();
+crow.goalPanel(GOAL); out.newGoal = sel();
+crow.inspectorSelect("tools"); crow.goalPanel(GOAL); out.sameGoal = sel();
+crow.toolsReset(); crow.goalPanel(null);
+crow.inspectorPick("subs");
+crow.goalPanel(GOAL); out.pickedGoal = sel();
+crow.toolsReset(); crow.goal = null; crow.inspectorSelect("goal");
+crow.goalPanel(GOAL);
+crow.tool("goal_step", "", "", false); out.callUnderGoal = sel();
+""".replace("GOAL", json.dumps(GOAL_RUN)))
+        self.assertEqual(out["firstCall"], "tools")
+        self.assertEqual(out["secondCall"], "subs", "a later call took the tab")
+        self.assertEqual(out["newGoal"], "goal")
+        self.assertEqual(out["sameGoal"], "tools", "a goal update took the tab")
+        self.assertEqual(out["pickedGoal"], "subs", "a new goal took the user's pick")
+        self.assertEqual(out["callUnderGoal"], "goal", "a call under a goal took the tab")
+
+    def test_git_and_browser_toggles_show_their_tab_and_give_it_back(self):
+        out = self.run_page("""
+crow.inspectorPick("tools");
+body.attrs["data-code"] = "shut";
+crow.toggleGit();
+out.gitOn = {tab: sel(), code: body.attrs["data-code"]};
+crow.toggleBrowser();
+out.browserOn = sel();
+crow.toggleBrowser(); out.browserOff = sel();
+crow.toggleGit(); out.gitOff = sel();
+body.attrs["data-git"] = "open"; crow.inspectorPick("git");
+body.attrs["data-git"] = "shut"; crow.inspectorSync(); out.flippedElsewhere = sel();
+""")
+        self.assertEqual(out["gitOn"], {"tab": "git", "code": "open"})
+        self.assertEqual(out["browserOn"], "browser")
+        self.assertEqual(out["browserOff"], "git")
+        self.assertEqual(out["gitOff"], "tools")
+        self.assertEqual(out["flippedElsewhere"], "tools")
+
+    def test_the_browser_page_shows_only_with_its_tab(self):
+        """The page is a native view over the window: on any other tab, or with
+        the inspector shut, it would lie over what that tab shows."""
+        out = self.run_page("""
+const step = (name, fn) => { calls.length = 0; fn(); out[name] = calls.filter(c => /^pane_/.test(c)); };
+step("on", () => crow.toggleBrowser());
+step("go", () => crow.brGo("https://example.com/"));
+step("goal", () => crow.inspectorPick("goal"));
+step("render", () => crow.brRendered("https://example.com/x", "C:/shot.png"));
+step("back", () => crow.inspectorPick("browser"));
+step("shut", () => { body.attrs["data-code"] = "shut"; crow.inspectorSync(); });
+step("open", () => { body.attrs["data-code"] = "open"; crow.inspectorSync(); });
+""")
+        self.assertEqual(out["on"], ["pane_hide()"], "a blank tab showed the pane")
+        self.assertEqual(out["go"], ["pane_place(1180,214,260,700)", 'pane_go("https://example.com/")'])
+        self.assertEqual(out["goal"], ["pane_hide()"])
+        self.assertEqual(out["render"], [], "a render loaded the page behind another tab")
+        self.assertEqual(out["back"], ['pane_go("file:///C:/shot.png")'])
+        self.assertEqual(out["shut"], ["pane_hide()"])
+        self.assertEqual(out["open"], ["pane_place(1180,214,260,700)", "pane_show()"])
+
+
+class TheGoalTabWearsTheMockupTests(_InspectorPage, unittest.TestCase):
+    """#384. The Goal tab as the mockup draws it: GOAL and a status pill
+    (Complete --ok, Paused --warn, Open --accent), the title at 16/650, a 5 px
+    progress bar, the numbers in one mono line, STEPS as a timeline of 20 px
+    marks -- and done steps no longer struck through."""
+
+    def setUp(self) -> None:
+        source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        self.css = source[source.index("<style>"):source.index("</style>")]
+
+    def _rule(self, selector: str) -> str:
+        found = self.css[self.css.index(selector):]
+        return found[:found.index(chr(125))]
+
+    def _draw(self, goal: dict) -> dict:
+        return self.run_page("""
+crow.goalPanel(GOAL);
+const p = $("#goalpanel"), k = kids(p);
+const head = k.find(e => e.classList.contains("gh"));
+const pill = head.querySelector(".st"), bar = p.querySelector(".gbar");
+out.order = k.map(e => e.className);
+out.label = head.querySelector(".lbl").textContent;
+out.pill = [pill.className, pill.textContent, /<svg/.test(pill.innerHTML || "") || kids(pill).some(e => e.tagName === "SVG")];
+out.title = p.querySelector(".gt .tx").textContent;
+out.bar = [bar.className, bar.getAttribute("role"), bar.getAttribute("aria-label"), kids(bar)[0].style.width];
+out.meta = kids(p.querySelector(".gm")).map(e => [e.className, e.textContent]);
+out.steps = kids(p.querySelector("ol.steps")).map(li => [li.className,
+  li.querySelector(".ck").className, li.querySelector(".t").textContent,
+  (li.querySelector(".sm") || {textContent: null}).textContent]);
+out.gz = p.querySelector(".gz").hidden;
+out.hidden = p.hidden;
+""".replace("GOAL", json.dumps(goal)))
+
+    def test_the_finished_run_reads_as_the_mockup(self):
+        out = self._draw(GOAL_RUN)
+        self.assertEqual(out["order"], ["gh", "gt", "gz", "gbar ok", "gm", "gp lbl", "steps"])
+        self.assertEqual(out["label"], "Goal")
+        self.assertEqual(out["pill"], ["st pill ok", "Complete", True])
+        self.assertEqual(out["title"], "Count files, delegate 21*2, report results")
+        self.assertEqual(out["bar"], ["gbar ok", "img", "3 of 3 steps done", "100%"])
+        self.assertEqual(out["meta"], [["", "3/3 steps"], ["", "0m 39s"], ["", "7.3K tok"],
+                                       ["dl", "65 delegated"]])
+        self.assertEqual(out["steps"], [
+            ["done", "ck", "Count all files in the current working directory and record the number.",
+             "0m 16s · 705 tok"],
+            ["done", "ck", "Spawn a subagent to compute 21*2.", "0m 08s · 5,718 tok · 65 delegated"],
+            ["done", "ck", "Collect the subagent result and report both outputs in chat.",
+             "0m 05s · 242 tok"]])
+        self.assertTrue(out["gz"])
+        self.assertFalse(out["hidden"])
+
+    def test_open_and_paused_wear_their_own_pill(self):
+        running = json.loads(json.dumps(GOAL_RUN))
+        running.update(status="open", done=1)
+        running["steps"][1]["status"] = "running"
+        running["steps"][2]["status"] = "open"
+        out = self._draw(running)
+        self.assertEqual(out["pill"], ["st pill acc", "Open", False])
+        self.assertEqual(out["bar"][0], "gbar")
+        self.assertEqual(out["bar"][3], "%s%%" % (100 / 3))
+        self.assertEqual([s[0] for s in out["steps"]], ["done", "running", "open"])
+        self.assertIsNone(out["steps"][2][3], "an open step carries a cost line")
+        paused = json.loads(json.dumps(running))
+        paused["pause"] = {"step": 2, "class": "capability", "why": "the check failed"}
+        out = self._draw(paused)
+        self.assertEqual(out["pill"][:2], ["st pill warn pz", "Paused · step 2"])
+        self.assertFalse(out["gz"], "the pause line under the title is gone")
+        self.assertEqual(out["steps"][1][0], "running held")
+
+    def test_the_look_is_the_mockups(self):
+        tx = self._rule("#goalpanel .gt .tx{")
+        self.assertIn("font-size:16px", tx)
+        self.assertIn("font-weight:650", tx)
+        self.assertIn("height:5px", self._rule("#goalpanel .gbar{"))
+        meta = self._rule("#goalpanel .gm{")
+        self.assertIn("font-family:var(--mono)", meta)
+        self.assertIn("font-size:11.5px", meta)
+        ck = self._rule("#goalpanel .ck{")
+        self.assertIn("width:20px", ck)
+        self.assertIn("border-radius:50%", ck)
+        self.assertIn("background:var(--ok-soft)", self._rule("#goalpanel li.done>.ck{"))
+        self.assertIn("color:var(--accent)", self._rule("#goalpanel li.running>.ck{"))
+        self.assertIn("font-size:13px", self._rule("#goalpanel .t{"))
+        sm = self._rule("#goalpanel .sm{")
+        self.assertIn("font-size:11px", sm)
+        self.assertIn("font-family:var(--mono)", sm)
+        self.assertIn("left:9.5px", self._rule("#goalpanel ol.steps>li::before{"))
+        # NEGATIVE: a done step is no longer struck through.
+        goal = self.css[self.css.index("/* -- #164: das Zielpanel"):]
+        goal = goal[:goal.index("/* -- #162:")]
+        self.assertNotIn("line-through", goal)
+
+
+class TheToolsTabWearsTheMockupTests(_InspectorPage, unittest.TestCase):
+    """#384. The Tools tab as the mockup draws it: 32 px rows with a two-digit
+    number, the dot of the call's kind (the kinds #383's trace strip draws),
+    the name in mono, the first argument as a summary, a chevron; an open row
+    shows ARGUMENTS and RESULT; a failed call has a --bad dot and says
+    "error"; the count rides the tab."""
+
+    def setUp(self) -> None:
+        source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        self.css = source[source.index("<style>"):source.index("</style>")]
+
+    def _rule(self, selector: str) -> str:
+        found = self.css[self.css.index(selector):]
+        return found[:found.index(chr(125))]
+
+    def test_the_rows_of_the_run(self):
+        fixture = json.loads((HERE.parent / "tools" / "fixtures"
+                              / "goal-run-2026-09-16.json").read_text(encoding="utf-8"))
+        calls = json.dumps([m for m in fixture["messages"]
+                            if m["k"] in ("tool", "toolend", "toolres")])
+        out = self.run_page("""
+for (const m of CALLS) {
+  if (m.k === "tool") crow.tool(m.name, m.args, m.raw, m.code);
+  else if (m.k === "toolend") crow.toolEnd(m.name, m.s, m.rep);
+  else crow.toolRes(m.name, m.t, m.cut); }
+out.rows = $("#tclist").querySelectorAll(".tool").map(r => [r.querySelector(".num").textContent,
+  r.querySelector(".ico").className, r.querySelector(".name").textContent,
+  r.querySelector(".su").textContent, r.classList.contains("flat")]);
+const four = $('#tclist .tool[data-n="4"]');
+four.querySelector(".hd").click();
+out.four = [four.classList.contains("shut"), four.querySelector(".hd").getAttribute("aria-expanded"),
+  four.querySelectorAll(".tsh").map(e => e.textContent), four.querySelector(".res .tsp").textContent];
+const two = $('#tclist .tool[data-n="2"]'); two.querySelector(".hd").click();
+out.flatStays = two.classList.contains("shut");
+out.count = [$("#itab-tools .cnt").textContent, $("#itab-tools .cnt").hidden];
+crow.tool("read_file", "", '{"path": "nope.txt"}', false);
+crow.toolEnd("read_file", 0.01, false);
+crow.toolRes("read_file", "error: no such file", 0);
+const bad = $('#tclist .tool[data-n="12"]');
+out.bad = [bad.classList.contains("bad"), bad.querySelector(".note").textContent];
+crow.toolRes("x", "", 0);
+crow.tool("write_file", "", '{"path": "a.py", "content": "' + "x".repeat(10) + '"}', true);
+crow.toolRes("write_file", "y".repeat(4000), 6000);
+out.more = $('#tclist .tool[data-n="13"] .tsmore').textContent;
+""".replace("CALLS", calls))
+        rows = out["rows"]
+        self.assertEqual(len(rows), 11)
+        self.assertEqual(rows[0], ["01", "ico k-goal", "goal_set",
+                                   "Count files, delegate 21*2, report results", False])
+        self.assertEqual(rows[1], ["02", "ico k-goal", "goal_step", "", True])
+        self.assertEqual(rows[3][:3], ["04", "ico k-cmd", "run_command"])
+        self.assertTrue(rows[3][3].startswith('echo "recursive excluding'), rows[3][3])
+        self.assertEqual(rows[6], ["07", "ico k-sub", "delegate",
+                                   "Compute 21 multiplied by 2 and state the numeric result.",
+                                   False])
+        self.assertEqual(rows[9][:3], ["10", "ico k-sub", "collect"])
+        self.assertEqual(rows[10][:4], ["11", "ico k-goal", "goal_step", "step 3"])
+        self.assertEqual(out["four"], [False, "true", ["arguments", "result"],
+                                       "[exit 0]\nrecursive excluding .git/.ruff_cache:\n282\n"
+                                       "directories recursive:\n61"])
+        self.assertTrue(out["flatStays"], "a call with nothing to show opened")
+        self.assertEqual(out["count"], ["11", False])
+        self.assertEqual(out["bad"], [True, "error"])
+        # The count in the reader's own digits (`toLocaleString()`, #138b).
+        self.assertRegex(out["more"], r"^6\D?000 more characters not shown$")
+
+    def test_the_row_is_the_mockups(self):
+        hd = self._rule("#toolcalls .tool .hd{")
+        for decl in ("height:32px", "gap:9px", "padding:0 8px", "border-radius:7px",
+                     "font-size:12.5px"):
+            self.assertIn(decl, hd)
+        self.assertIn("background:var(--raised)", self._rule("#toolcalls .tool:not(.shut) .hd{"))
+        num = self._rule("#toolcalls .tool .num{")
+        self.assertIn("width:16px", num)
+        self.assertIn("font-size:10.5px", num)
+        self.assertIn("text-overflow:ellipsis", self._rule("#toolcalls .tool .su{"))
+        self.assertIn("padding:6px 6px 12px 33px", self._rule("#toolcalls .tool .tbody{"))
+        # The dots' colours are this list's own, under #toolcalls (#383 owns .k-*).
+        self.assertIn("background:var(--dim)", self._rule("#toolcalls .tool .ico.k-goal{"))
+        self.assertIn("background:var(--accent)", self._rule("#toolcalls .tool .ico.k-cmd{"))
+        self.assertIn("background:var(--sub)", self._rule("#toolcalls .tool .ico.k-sub{"))
+        self.assertIn("background:var(--bad)", self._rule("#toolcalls .tool.bad .ico{"))
+        head = crow_gui.PAGE[crow_gui.PAGE.index('<div id="codehead">'):]
+        head = head[:head.index("</div>")]
+        self.assertIn('<span class="lbl">Tool calls</span>', head)
+        self.assertIn(">clear</button>", head)
+
+
+class TheSubtasksTabWearsTheMockupTests(_InspectorPage, unittest.TestCase):
+    """#384. The Subtasks tab as the mockup draws it: the head counts running
+    and finished, then one card per subtask -- fork, id, status pill, tokens
+    and time; the task; the model; RESULT -- and the `×` of #281 stays."""
+
+    def test_the_card_of_the_run(self):
+        out = self.run_page("""
+const d1 = {i: "d1", task: "Compute 21 multiplied by 2 and state the numeric result.",
+  model: "inclusionai/ling-3.0-flash-vl:free", st: "running", s: 0.3, tok: 0, res: "",
+  here: true, closed: false, parent: ""};
+crow.subs([d1]);
+const card = $('#subpanel .subcard[data-sub="d1"]');
+out.running = [card.parentNode.className, card.querySelector(".pill").className,
+  card.querySelector(".pill").textContent, $("#subpanel .sph .st").textContent,
+  $("#itab-subs .cnt").textContent];
+crow.subs([Object.assign({}, d1, {st: "done", s: 1.1, tok: 65, res: "42"})]);
+out.done = [card.parentNode.className, kids(card).map(e => e.className),
+  kids(kids(card)[0]).map(e => e.className || e.tagName), card.querySelector(".sid").textContent,
+  card.querySelector(".pill").className, card.querySelector(".pill").textContent,
+  card.querySelector(".sq").textContent, card.querySelector(".stk").textContent,
+  card.querySelector(".smod").textContent, card.querySelector(".lbl").textContent,
+  card.querySelector(".sres").textContent, $("#subpanel .sph .st").textContent,
+  $("#subpanel").hidden];
+crow.subPanelClose();
+out.closed = [$("#subpanel").hidden, $("#isubs .inone").textContent, calls.includes("close_subtasks()")];
+crow.subs([]);
+out.none = [$("#subpanel").hidden, $("#isubs .inone").textContent, $("#itab-subs .cnt").hidden];
+""")
+        self.assertEqual(out["running"], ["splive", "pill sub", "running",
+                                          "1 running · 0 finished", "1"])
+        self.assertEqual(out["done"], [
+            "spdone", ["sh", "stk", "smod", "lbl", "sres"], ["SVG", "sid", "pill ok", "sq"],
+            "d1", "pill ok", "done", "65 tok · 1.1 s",
+            "Compute 21 multiplied by 2 and state the numeric result.",
+            "inclusionai/ling-3.0-flash-vl:free", "Result", "42", "0 running · 1 finished",
+            False])
+        self.assertEqual(out["closed"][0], True)
+        self.assertIn("a new subtask or a jump", out["closed"][1])
+        self.assertTrue(out["closed"][2])
+        self.assertEqual(out["none"], [True, "Nothing delegated in this chat.", True])
+
+    def test_the_card_is_the_mockups(self):
+        source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        css = source[source.index("<style>"):source.index("</style>")]
+        card = css[css.index("#subpanel .subcard{"):]
+        card = card[:card.index(chr(125))]
+        for decl in ("gap:9px", "padding:12px 13px", "border:1px solid var(--line-soft)",
+                     "border-radius:12px", "background:var(--panel)"):
+            self.assertIn(decl, card)
+        # #383's in-flow card is `.subcard` too: nothing of it may reach this one.
+        for decl in ("flex-direction:column", "align-items:stretch", "max-width:none",
+                     "cursor:default"):
+            self.assertIn(decl, card)
+        self.assertIn("#subpanel .subcard.run::before{content:none}", css)
+
+
 class TheSideWidthSurvivesARestartTests(unittest.TestCase):
     """#388. A side-column width above 612 px, dragged while the browser is
     open, was saved (`Api.code_width` writes up to CODE_MAX_WIDE) and read back
@@ -7874,7 +8493,9 @@ class ThePanelSeparatesCodeFromCallsTests(unittest.TestCase):
         js = js[:js.index("this.openCall=null;")]
         self.assertIn('wrap.className="tsec res"', js)
         self.assertIn('head.textContent = bad ? "error" : "result"', js)
-        self.assertIn("#toolcalls .res .tsp{", self.css)
+        # #384: the mockup draws both blocks alike, each under its own label;
+        # the result's section is set apart by its own rule.
+        self.assertIn("#toolcalls .tsec.res{", self.css)
 
     def test_a_failed_call_is_marked_on_the_head_not_only_inside(self):
         """Sonst muesste man neunzig Zeilen aufklappen, um den einen zu finden,
@@ -8002,9 +8623,11 @@ class TheCodePanelTests(unittest.TestCase):
 
     def test_a_tool_row_still_folds(self):
         """robin: "Tools bleiben weiterhin auf und zu klappbar". Folding the PANEL
-        and folding a ROW are two controls, and the move may not eat one."""
-        self.assertIn("toolsToggle()", self.source)
-        self.assertIn("#toolcalls.shut .tcbody", self.css)
+        and folding a ROW are two controls, and the move may not eat one.
+        #384: the panel's fold is its tab now (Tools beside Goal and Subtasks);
+        the row still folds on its own."""
+        self.assertIn('id="itab-tools"', self.source)
+        self.assertIn("#toolcalls .tool.shut .tbody{display:none}", self.css)
 
     def test_the_code_can_be_copied(self):
         """robin: "Code soll ebenfalls kopierbar sein" -- the affordance answers
@@ -8754,45 +9377,26 @@ class NothingOverhangsOrClipsTests(unittest.TestCase):
         self.assertIn("overflow-wrap:anywhere", self._rule("\n.turn{"))
         self.assertIn("overflow-wrap:normal", self._rule(".md table{"))
 
-    def test_the_composers_menus_open_above_the_cards(self):
-        """#box ist ein Stapelkontext; die Menues darin koennen nur ueber die
-        Karten, wenn der ganze Composer ueber #panels liegt."""
+    def test_the_cards_no_longer_lie_over_the_chat(self):
+        """#384 REPLACES three #233 cases (the composer's z-index over
+        #panels, the cards ending at --comph, the #233/#256 reserve): the goal,
+        subtasks and git cards are tabs of the inspector BESIDE #main, so
+        nothing lies over the reading column or the composer, and the column
+        keeps its full width -- no reserve, no container query for one."""
+        body = self.source[self.source.index('<div id="main">'):
+                           self.source.index('<div id="codegrip"')]
+        for card in ('id="panels"', 'id="goalpanel"', 'id="subpanel"', 'id="git"'):
+            self.assertNotIn(card, body, "%s is inside #main again" % card)
+        side = self.source[self.source.index('<div id="side"'):]
+        for card in ('id="goalpanel"', 'id="subpanel"', '<aside id="git"'):
+            self.assertIn(card, side)
+        self.assertNotIn("#panels{", self.css)
+        rules = re.sub(r"/\*.*?\*/", "", self.css, flags=re.S)
+        self.assertNotRegex(rules, r"--reserve\s*:|var\(--reserve\)")
+        self.assertNotIn("@container chat", rules)
+        self.assertIn("padding-inline:var(--sbw) 0", self._rule("#flow{"))
         composer = self._rule("#composer{position:absolute")
-        panels = self._rule("#panels{")
-        z = lambda rule: int(re.search(r"z-index:(\d+)", rule).group(1))  # noqa: E731
-        self.assertGreater(z(composer), z(panels))
-
-    def test_the_cards_end_where_the_composer_begins(self):
-        """70 % galt nur, solange der Composer unter 30 % blieb. Die Hoehe, die
-        fitFlow ohnehin misst, ist dieselbe Zahl fuer die Karten."""
-        self.assertIn("var(--comph", self._rule("#panels{"))
-        fit = self.source[self.source.index("const fitFlow"):]
-        fit = fit[:fit.index("};")]
-        self.assertIn('"--comph"', fit)
-
-    def test_the_column_makes_room_for_the_cards_by_the_same_amount(self):
-        """Spalte und Maske bleiben buendig: #flow bekommt auf JEDER Seite genau
-        das dazu, was #composer an JEDER Kante einzieht -- und das ist die
-        Kartenbreite plus ihr Rand."""
-        self.assertIn("container:chat/inline-size", self._rule("#main{"))
-        block = self.css[self.css.index("@container chat"):]
-        block = block[:block.index("}\n}") + 1]
-        # #280: EINE Deklaration fuer beide -- #flow und #composer bekommen
-        # dieselbe --reserve aus derselben Regel, und beide lesen sie links
-        # und rechts.
-        rules = re.findall(r"([^{}]*)\{--reserve:(\d+)px\}", block)
-        self.assertEqual(len(rules), 1, block)
-        selectors, amount = rules[0]
-        self.assertEqual(selectors.count("#flow"), 3)
-        self.assertEqual(selectors.count("#composer"), 3)
-        panels = self._rule("#panels{")
-        reserve = self._px(panels, "width") + self._px(panels, "right")
-        self.assertEqual(int(amount), reserve)
-        self.assertIn("padding-inline:calc(var(--sbw) + var(--reserve)) var(--reserve)",
-                      self._rule("#flow{"))
-        composer = self._rule("#composer{position:absolute")
-        self.assertIn("left:calc(var(--sbw) + var(--reserve))", composer)
-        self.assertIn("right:calc(var(--sbw) + var(--reserve))", composer)
+        self.assertIn("left:var(--sbw);right:var(--sbw)", composer)
 
     def test_the_composer_is_centred_in_the_window_not_left_of_it(self):
         """#256, robin 2026-09-23: "die Eingabemaske ist nicht mittig,
@@ -8807,18 +9411,15 @@ class NothingOverhangsOrClipsTests(unittest.TestCase):
         scrollbar-gutter:stable rechts reserviert) mehr Polster traegt. Beides
         muss ohne und mit Karten gelten -- jede einseitige Zahl ist dieser Bug."""
         sbw = self._px(self._rule(":root{"), "--sbw")
+        # #384: ohne Kartenreserve -- die Karten stehen im Inspektor neben #main.
         composer = self._rule("#composer{position:absolute")
-        self.assertIn("left:calc(var(--sbw) + var(--reserve))", composer)
-        self.assertIn("right:calc(var(--sbw) + var(--reserve))", composer)
+        self.assertIn("left:var(--sbw)", composer)
+        self.assertIn("right:var(--sbw)", composer)
         flow = self._rule("#flow{")
         self.assertIn("scrollbar-gutter:stable", flow)
         # #280: links der Rinnstein mehr, rechts reserviert ihn der Browser.
-        self.assertIn("padding-inline:calc(var(--sbw) + var(--reserve)) var(--reserve)", flow)
+        self.assertIn("padding-inline:var(--sbw) 0", flow)
         self.assertEqual(sbw, 10)
-        block = self.css[self.css.index("@container chat"):]
-        block = block[:block.index("}\n}")]
-        self.assertNotIn("padding-right", block, "die Reserve steht wieder nur rechts")
-        self.assertNotRegex(block, r"#composer\{\s*right:", "die Maske zieht nur rechts ein")
 
     def test_a_squeezed_side_column_shows_nothing_rather_than_half(self):
         self.assertIn("container:side/inline-size", self.css)
@@ -8847,8 +9448,9 @@ class NothingOverhangsOrClipsTests(unittest.TestCase):
 
     def test_rows_line_up(self):
         """Die Kostenlinie eines Zielschritts ist so breit wie die Zeile, und
-        die Browserknoepfe sind so hoch wie das Adressfeld."""
-        self.assertIn("flex:1", self._rule("#goalpanel li>span:last-child{"))
+        die Browserknoepfe sind so hoch wie das Adressfeld. (#384: the step's
+        text column is `.sb`.)"""
+        self.assertIn("flex:1", self._rule("#goalpanel .sb{"))
         self.assertIn("align-items:stretch", self._rule("#brbar{"))
 
     def test_the_accent_bar_sits_on_the_tree_line(self):
@@ -8867,9 +9469,9 @@ class NothingOverhangsOrClipsTests(unittest.TestCase):
         track = self._rule("#flow::-webkit-scrollbar-track{")
         self.assertEqual(self._px(track, "margin-top"), main)
         self.assertEqual(self._px(track, "margin-bottom"), main)
-        goal = self._px(self._rule("#goalpanel{"), "border-radius")
-        self.assertIn("margin:%dpx 0" % goal,
-                      self._rule("#goalpanel::-webkit-scrollbar-track{"))
+        # #384: the goal panel is a tab of the inspector, flat, without the
+        # card's corners its track kept clear of.
+        self.assertNotIn("border-radius", self._rule("#goalpanel{"))
 
 
 class ScrollbarsShowOnlyWhileScrolledTests(unittest.TestCase):
@@ -9453,7 +10055,7 @@ class TheDelegationWearsTheMockupTests(unittest.TestCase):
         for piece in ('case "subs": this.subs(e.items); break;',
                       'id="subwrap"', 'id="subchip"', 'id="submenu"',
                       "subCard(it){", "subRail(){", "subMenuDraw(items){",
-                      "subJump(i){", '"delegate · "+it.i',
+                      "subJump(i){", 'd.querySelector(".sid").textContent=it.i',
                       'textContent="click a row to jump to its card"'):
             self.assertIn(piece, self.source)
 
@@ -9510,15 +10112,17 @@ class TheDelegationWearsTheMockupTests(unittest.TestCase):
     def test_the_cards_are_pinned_beside_goal_and_git_not_in_the_flow(self):
         """#255 (robin, 2026-09-23 on 9a59872): die Subtask-Kacheln scrollten
         mit dem Verlauf weg, weil `subCard` sie in `#flow` haengte. Sie wohnen
-        jetzt in `#subpanel`, der dritten Karte der `#panels`-Spalte: laufende
-        oben, fertige in einer zugeklappten Gruppe, und der Fluss bekommt nie
-        einen Block dafuer."""
-        panels = self.source[self.source.index('<div id="panels">'):
-                             self.source.index('<aside id="git">')]
-        self.assertIn('<div id="subpanel" hidden>', panels)
-        for part in ('class="splive"', 'class="spfold"',
-                     'class="spdone" hidden'):
-            self.assertIn(part, panels)
+        in `#subpanel`, und der Fluss bekommt nie einen Block dafuer.
+        #384 CHANGES WHERE AND HOW: the Subtasks tab of the inspector, not the
+        third card of `#panels`; finished cards stand under the running ones,
+        open, as the mockup draws them -- the fold of the floating card is gone,
+        and so is the #233 reserve."""
+        tab = self.source[self.source.index('<div id="isubs"'):
+                          self.source.index('<aside id="git"')]
+        self.assertIn('<div id="subpanel" hidden>', tab)
+        for part in ('class="splive"', 'class="spdone"'):
+            self.assertIn(part, tab)
+        self.assertNotIn("spfold", self.source)
         whole = self.source[self.source.index("  subs(items){"):
                             self.source.index("chatRow(r,inproj){")]
         # NEGATIV: kein Weg fuehrt eine Karte mehr in den Fluss, und kein
@@ -9533,7 +10137,7 @@ class TheDelegationWearsTheMockupTests(unittest.TestCase):
         self.assertIn("group.appendChild(d)", card)
         self.assertNotIn("this.bottom()", card)
         frame = self.source[self.source.index("  subPanel(items){"):
-                            self.source.index("  subPanelFold(){")]
+                            self.source.index("  subPanelClose(ev){")]
         self.assertIn("x.here", frame)
         self.assertIn("d.remove()", frame)
         self.assertIn("p.hidden=!(run+fin)", frame)
@@ -9545,17 +10149,15 @@ class TheDelegationWearsTheMockupTests(unittest.TestCase):
         self.assertIn("min-height:0", rule)
         self.assertIn("overflow:auto", rule)
         self.assertIn("position:relative", rule)
-        self.assertIn("#main:has(#subpanel:not([hidden])) #flow", self.css)
-        self.assertIn("#main:has(#subpanel:not([hidden])) #composer", self.css)
         self.assertIn("#subpanel .subcard.seen{animation:none", self.css)
 
     def test_the_subtasks_card_closes_like_the_goal_card(self):
         """#281 (robin, 2026-09-24): der Goal-Karte hat ein `×`, die
         Subtasks-Karte keins. Jetzt dasselbe `.gx` in ihrem Kopf, mit Tooltip,
-        der sagt, dass nichts abgebrochen wird; `hidden` ist der ganze Zustand,
-        also laesst die #233/#256-Reserve mit los; ein Sprung oeffnet wieder."""
-        panels = self.source[self.source.index('<div id="panels">'):
-                             self.source.index('<aside id="git">')]
+        der sagt, dass nichts abgebrochen wird; `hidden` ist der ganze Zustand;
+        ein Sprung oeffnet wieder. (#384: the card is the Subtasks tab.)"""
+        panels = self.source[self.source.index('<div id="isubs"'):
+                             self.source.index('<aside id="git"')]
         head = panels[panels.index('<div class="sph"'):
                       panels.index('<div class="splive">')]
         self.assertIn('class="gx"', head)
@@ -9567,13 +10169,13 @@ class TheDelegationWearsTheMockupTests(unittest.TestCase):
         self.assertIn("#goalpanel .gx,#subpanel .gx{", self.css)
         self.assertIn("#goalpanel .gx:hover,#subpanel .gx:hover{", self.css)
         close = self.source[self.source.index("  subPanelClose(ev){"):
-                            self.source.index("  subDoneFold(){")]
+                            self.source.index("  subReveal(d){")]
         self.assertIn("ev.stopPropagation()", close)
         self.assertIn('$("#subpanel").hidden=true', close)
         self.assertIn("pywebview.api.close_subtasks()", close)
         self.assertNotIn("cancel", close.replace("not cancelling", ""))
         frame = self.source[self.source.index("  subPanel(items){"):
-                            self.source.index("  subPanelFold(){")]
+                            self.source.index("  subPanelClose(ev){")]
         self.assertIn("items.some(x=>x.here && !x.closed)", frame)
         self.assertIn("p.hidden=!(run+fin) || !open", frame)
         reveal = self.source[self.source.index("  subReveal(d){"):
@@ -9645,7 +10247,8 @@ class TheDelegationWearsTheMockupTests(unittest.TestCase):
         self.assertIn('case "cost": this.cost(e.line,e.share,e.sub);',
                       self.source)
         self.assertIn('s.className="subshare"', self.source)
-        self.assertIn('name==="delegate"||name==="collect"||name==="subtasks"',
+        # #384: the delegation calls' channel is their kind, `toolKind`.
+        self.assertIn('n==="delegate"||n==="collect"||n==="subtasks"',
                       self.source)
 
 
@@ -10961,13 +11564,15 @@ class TheGoalEnginePausesAndAsksTests(ApiCase):
     def test_the_page_draws_skipped_apart_from_running_and_the_pause(self):
         """#296: robin read a skipped step as running -- both were --warn.
         NEGATIVPROBE AM QUELLTEXT: skipped has its own token in every theme,
-        the running rule keeps amber, and a pause has its own glyph."""
+        running has another, and a pause has its own glyph.
+        #384 CHANGES THE RUNNING COLOUR: the mockup's timeline draws the running
+        step as an accent ring (was amber); skipped stays --skip."""
         source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
         self.assertEqual(source.count("--skip:#"), 3, "a theme lacks --skip")
-        self.assertIn("#goalpanel li.skipped .m,#goalpanel .gh .st.sk"
+        self.assertIn("#goalpanel li.skipped>.ck,#goalpanel .gh .st.sk"
                       "{color:var(--skip)}", source)
-        self.assertIn("#goalpanel li.running .m{color:var(--warn)}", source)
-        self.assertNotIn("li.skipped .m,#goalpanel .gh .st.sk{color:var(--warn)}",
+        self.assertIn("#goalpanel li.running>.ck{color:var(--accent)}", source)
+        self.assertNotIn("li.skipped>.ck,#goalpanel .gh .st.sk{color:var(--accent)}",
                          source)
         self.assertIn('stroke-dasharray="3 2.6"', source)
         self.assertIn('l.textContent="skipped"', source)
@@ -17346,7 +17951,8 @@ class TheWindowShellTests(unittest.TestCase):
         self.assertIn('body[data-rail="shut"] #barl{width:var(--railshut)}', self.css)
         self.assertIn('body[data-rail="shut"] #main{margin-left:calc(var(--railshut) - 1px)}',
                       self.css)
-        self.assertIn('body[data-code="shut"][data-browser="shut"] #barr{width:auto', self.css)
+        # #384: the side column's open state is #codetoggle alone.
+        self.assertIn('body[data-code="shut"] #barr{width:auto', self.css)
 
     def test_every_width_write_reaches_both_readers(self):
         """#236 keeps a drag step off <html>; #382 adds the bar as the second
