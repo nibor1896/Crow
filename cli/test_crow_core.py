@@ -30082,6 +30082,7 @@ class TheEngineFollowsItsPinTests(unittest.TestCase):
         known = crow_core._engine_known()
         self.assertEqual(known["670a93f9101d3896b4f70df5e9bae88e90df68bb422fc429e37320d297196200"], "0.12.0")
         self.assertEqual(known["7d73f8de681bed915bfd02242a7e618428ca22136898d7e4ed6677038dfd8cd3"], "0.13.0")
+        self.assertEqual(known["af74502742857793a9cda5f758582b79b797a5eb63316d57851efcc3e34f3aee"], "0.13.1")
         self.assertEqual(known["ef439127375df747d8f3bae9f62d85ea5723b82a30d14f546c187bf0d58de0c9"], "0.13.2")
 
     def test_a_newer_release_is_out_and_offered_as_install(self):
