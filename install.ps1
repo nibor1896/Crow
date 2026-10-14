@@ -75,7 +75,7 @@ A local package is never deleted afterwards; a downloaded one is.
 #>
 [CmdletBinding()]
 param(
-    [string] $Version   = "3.4.2",
+    [string] $Version   = "3.5.0",
     [string] $InstallTo = "$env:LOCALAPPDATA\Crow",
     [string] $SourceUrl = "",
     [switch] $Force,
