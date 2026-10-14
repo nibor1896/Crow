@@ -6480,11 +6480,21 @@ class TheStartScreenTests(unittest.TestCase):
         self.assertIn("font-size:26px", hello)
         self.assertIn("font-weight:400", hello)
 
-    def test_the_phone_keeps_its_layout(self):
-        """NEGATIVE: the start screen is the desktop's; the phone (#387) hides
-        the head and the cards and never sees `#main.empty` rules."""
+    def test_the_phone_stacks_the_start_screen(self):
+        """#387 REPLACES "the phone keeps its layout": the desktop's block is
+        still the desktop's alone (no phone width in it), and the phone layer
+        has its own stacked group -- mark 120 px, greeting 20 px, the composer
+        under them and the cards one under the other -- instead of hiding the
+        head and the cards."""
         self.assertNotIn("max-width:700px", self.empty)
-        self.assertIn("#chathead,#cont{display:none!important}", crow_gui.REMOTE_CSS)
+        phone = crow_gui.REMOTE_CSS[crow_gui.REMOTE_CSS.index("@media (max-width:700px){"):]
+        self.assertNotIn("#chathead,#cont{display:none", phone)
+        for rule in (".mk{width:120px;", ".hellotext{font-size:20px}",
+                     "#main.empty #composer{position:relative;",
+                     "#main.empty #cont:not([hidden]){display:flex}",
+                     "#main.empty::before,#main.empty::after{content:\"\";flex:1 0 0}",
+                     ".cont{flex-basis:100%;"):
+            self.assertIn(rule, phone)
         fit = self.source[self.source.index("const fitFlow"):]
         fit = fit[:fit.index("};")]
         self.assertIn('composer.parentNode.classList.contains("empty") ? ""', fit)
@@ -16348,11 +16358,15 @@ class RemotePhoneLayerTests(unittest.TestCase):
 
     def test_a_hidden_goal_stays_hidden_on_the_phone(self):
         """Found against the real server: `{"k":"goal","goal":null}` hides the
-        panel with [hidden], and a bare `#goalpanel.shut{display:grid}` would
-        have drawn an empty bar over the chat."""
-        css = crow_gui.REMOTE_CSS
-        self.assertIn("#goalpanel.shut:not([hidden]){display:grid", css)
-        self.assertNotIn("#goalpanel.shut{display:grid", css)
+        panel with [hidden]. #387 REPLACES the goal bar this guarded: the goal
+        is the chat head's pill and the inspector drawer's Goal tab, so the
+        phone layer gives #goalpanel no display of its own (the [hidden] of
+        the page keeps hiding it) and no `shut` bar state any more."""
+        css = re.sub(r"/\*.*?\*/", "", crow_gui.REMOTE_CSS, flags=re.S)
+        self.assertNotRegex(css, r"#goalpanel[^{,]*\{[^}]*display:")
+        self.assertNotIn("#goalpanel.shut", css)
+        self.assertNotIn("#panels", css)
+        self.assertNotIn('classList.add("shut")', crow_gui.REMOTE_JS)
 
     # A FAKE DOM, just enough for REMOTE_JS: every element records its
     # classes, data-*, attributes and inline style, so a state can be
@@ -16551,11 +16565,10 @@ console.log(JSON.stringify(out));
         # the nudge pill (robin): a tap or a touch on it brings the header back
         self.assertEqual(out["nudged"], ["m-auto m-hid", "m-auto m-rev", "m-auto m-rev"])
         self.assertIn("body.m-auto.m-hid #mnudge{display:flex", crow_gui.REMOTE_CSS)
-        # ...and the goal bar moves below the pill while the header is out
-        self.assertIn("body.m-auto:is(.m-hid,.m-rev) #panels{padding-top:40px}",
+        # ...and the chat head (#387: its goal pill took the goal bar's place)
+        # moves below the pill while the header is out
+        self.assertIn("body.m-auto:is(.m-hid,.m-rev) #chathead{padding-top:40px}",
                       crow_gui.REMOTE_CSS)
-        # robin: the subtasks card's X sits under the goal's X (#subpanel pads 10 px)
-        self.assertIn("margin-right:-10px}", crow_gui.REMOTE_CSS)
         for kind, passive in out["touch"]:
             self.assertNotEqual(kind, "touchmove")
             self.assertTrue(passive, kind)
@@ -16571,6 +16584,180 @@ console.log(JSON.stringify(out));
         model chip and menu show none of it."""
         self.assertIn("#model .lvl{display:none!important}", crow_gui.REMOTE_CSS)
         self.assertIn('.filter(p => p.kind !== "level")', crow_gui.REMOTE_JS)
+
+
+class ThePhoneMirrorOfTheRedesignTests(unittest.TestCase):
+    """#387: the redesigned window (#382-#386) in phone form. The layout is
+    read from REMOTE_CSS's phone block; the hooks run in node over
+    RemotePhoneLayerTests' fake DOM, on stdin (`node -`: Windows refuses a
+    command line past 32,767 characters). The page itself, in a browser, is
+    `tools/render_window.py --remote --size 390x844`."""
+
+    def rules(self) -> str:
+        """The phone block (below 700 px) without its comments, which quote rules."""
+        css = crow_gui.REMOTE_CSS
+        block = css[css.index("@media (max-width:700px){"):css.index("/* the held line (#264)")]
+        return re.sub(r"/\*.*?\*/", "", block, flags=re.S)
+
+    def rule(self, head: str) -> str:
+        css = self.rules()
+        at = css.index(head)
+        return css[at:css.index("}", at)]
+
+    def run_hooks(self, prelude: str, probe: str) -> dict:
+        node = _node()
+        if not node:
+            self.skipTest("no node on this machine")
+        import subprocess
+        js = RemotePhoneLayerTests.FAKE_DOM + prelude + crow_gui.REMOTE_JS + probe
+        done = subprocess.run([node, "-"], input=js, capture_output=True, text=True,
+                              encoding="utf-8", timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout.strip().splitlines()[-1])
+
+    def test_the_header_is_rail_search_model_and_inspector(self):
+        """The desktop's zones stay zones, in the mockup's order: the rail
+        toggle and CROW, the magnifier and the model chip, the inspector
+        toggle. Git is a tab and a phone has no live browser pane, so those
+        two toggles stay off with the window buttons."""
+        css = self.rules()
+        self.assertNotIn("display:contents", css)
+        self.assertIn("#gittoggle,#browsertoggle,#barr>.vsep{display:none!important}", css)
+        for keep in ("railtoggle", "searchbox", "search", "engine", "codetoggle"):
+            self.assertNotRegex(css, r"(?m)(^|\})\s*#%s\{[^}]*display:none" % keep, keep)
+        bar = crow_gui.PAGE[crow_gui.PAGE.index('<div id="bar"'):
+                            crow_gui.PAGE.index('<div id="remotedlg"')]
+        order = [bar.index(m) for m in ('id="railtoggle"', 'id="mark"', 'id="searchbox"',
+                                        'id="engine"', 'id="codetoggle"')]
+        self.assertEqual(order, sorted(order))
+        self.assertIn("#bar #barm{flex:1 1 auto}", css)
+        self.assertIn("margin-left:auto", self.rule("#engine{"))
+
+    def test_every_header_target_is_44_px(self):
+        """WCAG 2.2 SC 2.5.5: 44 x 44 for the two toggles, the magnifier and
+        the model chip, whose 32 px pill is drawn inside its 44 px box."""
+        self.assertIn("--tap:44px;", self.rules())
+        self.assertIn("width:var(--tap);height:var(--tap)", self.rule("#railtoggle,#codetoggle{"))
+        self.assertIn("width:var(--tap);height:var(--tap)", self.rule("#search{"))
+        self.assertIn("width:var(--tap);height:var(--tap)", self.rule("#search .s-ico{"))
+        chip = self.rule("#engine{")
+        self.assertIn("height:var(--tap)", chip)
+        self.assertIn("border:6px solid transparent;background-clip:padding-box", chip)
+        self.assertIn("#engine .elvl{display:none!important}", self.rules())
+
+    def test_the_model_chip_wears_the_family_name(self):
+        """`shortModel`, as on the composer's chip; the full name in its title."""
+        out = self.run_hooks(
+            'crow.showEngine = function(){ el("ename").textContent = this.modelName; };\n',
+            'document.querySelector = s => s === "#engine .ename" ? el("ename") : null;\n'
+            'crow.modelName = "Qwen3.8-Flash-Next"; crow.showEngine();\n'
+            'console.log(JSON.stringify({name: el("ename").textContent, title: el("engine").title}));\n')
+        self.assertEqual(out, {"name": "Qwen", "title": "Qwen3.8-Flash-Next"})
+
+    GOAL = r"""
+body.dataset.git = "shut";                           // the desktop's git toggle is off
+let refreshed = 0;
+Object.assign(crow, {itab: "goal", inspectorSelect(tab){ this.itab = tab; },
+  inspectorPick(tab){ this.inspectorSelect(tab); }, gitRefresh(){ refreshed++; },
+  toolOpen(){}, subJump(){},
+__PAGE__});
+"""
+    DRAWER = r"""
+flush();
+const data = () => Object.assign({}, body.dataset), out = {};
+const gone = () => el("side").classList.contains("m-gone");
+out.load = [data(), gone()];
+crow.goalPill(); flush();
+out.pill = [data(), crow.itab, gone()];
+crow.inspectorSelect("git"); crow.inspectorSelect("git"); out.refreshed = [refreshed];
+crow.inspectorSelect("tools"); crow.inspectorSelect("git"); out.refreshed.push(refreshed);
+body.children.find(c => c.id === "mscrim").click(); flush();
+out.closed = [data(), gone()];
+console.log(JSON.stringify(out));
+"""
+
+    def test_the_inspector_is_the_right_drawer_with_a_git_tab(self):
+        """The goal pill opens the drawer on its Goal tab (the page's own
+        `goalPill` -> `inspectorShow`); Git is a tab in it whatever the
+        desktop's toggle says, and is read when it shows, as `toggleGit` does
+        on the desktop. Closing the drawer leaves the Git tab on."""
+        source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        page = _crow_methods(source, "goalPill", "inspectorShow")
+        out = self.run_hooks(self.GOAL.replace("__PAGE__", page), self.DRAWER)
+        shut = {"rail": "shut", "code": "shut", "git": "open", "browser": "shut"}
+        self.assertEqual(out["load"], [shut, True])
+        self.assertEqual(out["pill"], [dict(shut, code="open"), "goal", False])
+        self.assertEqual(out["refreshed"], [1, 2])
+        self.assertEqual(out["closed"], [shut, True])
+        css = self.rules()
+        self.assertIn("height:var(--tap)", self.rule("#itabs .tab{"))
+        self.assertNotIn("#git{position:fixed", css)
+        self.assertNotIn('body[data-git="shut"] #git', css)
+
+    def test_the_turn_fits_the_phone_column(self):
+        """The telemetry strip is a 3-column grid that cannot outgrow the
+        column; the delegate card leaves the model out; the head's model name
+        gives way; each trace segment has a 20 px band to tap."""
+        css = self.rules()
+        self.assertIn(".cost.tele{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}", css)
+        self.assertIn("min-width:0", self.rule(".tele .m{"))
+        self.assertIn("text-overflow:ellipsis", self.rule(".tele .mv{"))
+        self.assertIn(".subref .smd{display:none}", css)
+        self.assertIn("min-width:0;overflow:hidden;text-overflow:ellipsis", self.rule(".thd .thm{"))
+        self.assertIn('.segs>.seg::after{content:"";position:absolute;inset:-7px 0}', css)
+        # NEGATIVE: nothing in the turn scrolls sideways.
+        for sel in (".cost{", ".cost.tele{", ".tele .m{"):
+            self.assertNotIn("overflow-x", self.rule(sel), sel)
+
+    def test_the_folder_chip_lives_in_the_chat_head(self):
+        """As on the desktop; on the start screen, which has no head, in the
+        + sheet's middle row -- and back into the head with the first turn."""
+        out = self.run_hooks(
+            'const moved = []; el("chattitle").after = w => moved.push(w.id);\n'
+            'crow.placeRoot = () => moved.push("desktop");\n',
+            "flush();\n"
+            'const r3 = () => el("composer").children.find(c => c.id === "mtools").children[1];\n'
+            "const out = {chat: [moved.slice(), r3().children.map(c => c.id)]};\n"
+            'el("main").classList.add("empty"); crow.placeRoot();\n'
+            "out.start = r3().children.map(c => c.id);\n"
+            'el("main").classList.remove("empty"); crow.placeRoot();\n'
+            "out.back = moved.slice();\n"
+            "console.log(JSON.stringify(out));\n")
+        self.assertEqual(out["chat"], [["rootwrap"], []])
+        self.assertEqual(out["start"], ["rootwrap"])
+        self.assertEqual(out["back"], ["rootwrap", "rootwrap"])
+        css = self.rules()
+        self.assertIn("#chathead{flex-wrap:nowrap;", css)
+        self.assertIn("#chathead #rootmenu{position:absolute;", css)
+        self.assertIn('#goalpill::after{content:"";position:absolute;', css)
+
+    WIDTH = r"""
+let WIDE = true; const changes = [];
+globalThis.matchMedia = q => ({get matches(){ return /standalone/.test(q) ? false : !WIDE; },
+  addEventListener(type, f){ changes.push(f); }});
+"""
+    RESIZE = r"""
+flush();
+const count = (id, host) => el(host).children.filter(c => c.id === id).length;
+const state = () => [count("mplus", "line"), count("mtools", "composer"),
+  Object.assign({}, body.dataset)];
+const out = {wide: state()};
+WIDE = false; changes.forEach(f => f()); flush(); out.narrow = state();
+WIDE = true; changes.forEach(f => f()); WIDE = false; changes.forEach(f => f()); flush();
+out.again = state();
+console.log(JSON.stringify(out));
+"""
+
+    def test_the_composer_follows_the_width_across_700_px(self):
+        """A page loaded wider than 700 px and narrowed later (a turned
+        phone) gets the phone's composer -- once, however often it crosses --
+        and its drawers shut, Git on."""
+        out = self.run_hooks(self.WIDTH, self.RESIZE)
+        stamped = {"rail": "open", "code": "open", "git": "open", "browser": "open"}
+        phone = {"rail": "shut", "code": "shut", "git": "open", "browser": "shut"}
+        self.assertEqual(out["wide"], [0, 0, stamped])
+        self.assertEqual(out["narrow"], [1, 1, phone])
+        self.assertEqual(out["again"], [1, 1, phone])
 
 
 class RemoteMirrorTests(RemoteCase):
@@ -19451,9 +19638,17 @@ const view = () => ({
         for above in ("#settings", "#menu"):
             self.assertLess(mine, z(above), above)
 
-    def test_the_phone_header_keeps_its_field_off_until_387(self):
-        self.assertIn("#searchbox,#search,#engine,#barr>.vsep{display:none!important}",
-                      crow_gui.REMOTE_CSS)
+    def test_the_phone_header_opens_the_field_over_itself(self):
+        """#387 REPLACES "the phone header keeps its field off": the field is
+        the header's magnifier, lies over the whole header while it has the
+        focus, and folds on blur even with a query in it (no Escape on a
+        phone); the results drop under it, header-wide. 16 px, or iOS zooms."""
+        css = crow_gui.REMOTE_CSS
+        self.assertNotIn("#searchbox,#search,#engine", css)
+        self.assertIn("#search input{width:0;font-size:16px}", css)
+        self.assertIn("#searchbox:focus-within #search{position:absolute;", css)
+        self.assertIn("#searchbox:focus-within #search input{flex:1 1 auto;width:auto;", css)
+        self.assertIn("#searchpop{left:6px;right:6px;top:calc(var(--barh) + 2px);", css)
 
     def test_the_page_hands_the_search_the_rail_and_the_help_lines(self):
         page = crow_gui.PAGE

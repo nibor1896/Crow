@@ -10624,10 +10624,10 @@ REMOTE_HEAD = ('<meta name="viewport" content="width=device-width,'
                ' content="default">')
 # (the stamped colour is THEME_BG's, the ground the window itself paints)
 REMOTE_CSS = """
-/* #249: auf dem Telefon bleibt die Titelleiste als Kopf -- sie traegt Rail,
-   Code, Git und Browser (#382: die Einstellungen stehen seither am Fuss der
-   Rail, also in ihrer Schublade). Weg sind nur Fensterknoepfe, Zieh- und
-   Greifzonen und der Telefonknopf selbst. */
+/* #249: auf dem Telefon bleibt die Titelleiste als Kopf -- #387: sie traegt
+   Rail, Suche, Modell-Chip und Inspektor (#382: die Einstellungen stehen
+   seither am Fuss der Rail, also in ihrer Schublade). Weg sind
+   Fensterknoepfe, Zieh- und Greifzonen und der Telefonknopf selbst. */
 #wbtns,.grip,#remotetoggle{display:none !important}
 #bar{-webkit-app-region:no-drag}
 #remotepair{position:fixed;inset:0;z-index:50;display:grid;place-items:center;
@@ -10662,35 +10662,59 @@ body{padding:var(--safe-t) var(--safe-r) 0 var(--safe-l);
 /* ---- window chrome: gone ------------------------------------------------ */
 #railgrip,#codegrip{display:none!important}
 
-/* ---- the title bar becomes the app header ------------------------------
-   Same buttons, same onclick; only the window part (drag region, min/max/
-   close) is hidden. The rail button opens the rail drawer, the three on the
-   right open the code / git / browser drawers. */
-#bar{height:var(--barh);padding:0 4px;gap:0;background:var(--bg);
+/* ---- the title bar becomes the app header (#387) ------------------------
+   The desktop's three zones (#382) in phone form, one 48 px row: the rail
+   toggle and CROW; the search magnifier and the model chip; the inspector
+   toggle. Same buttons, same onclick, every target 44 x 44 (WCAG 2.2 SC
+   2.5.5). Git is a tab of the inspector here, and a phone gets no live
+   browser pane (`pane_*` are no-ops), so their toggles stay off with the
+   window part (drag region, min/max/close). `#bar #barl` and not `#barl`:
+   the desktop sizes the zones under body[data-rail]/[data-code]. */
+#bar{position:relative;height:var(--barh);padding:0 2px;gap:0;background:var(--bg);
   border-bottom:1px solid var(--line-soft)}
-/* #382: the desktop bar has three zones over its columns and a search and
-   an engine chip in the middle one. The phone keeps the header it had --
-   the zones dissolve into the bar's own row, the middle one's two controls
-   stay off -- until #387 redraws the phone. */
-#barl,#barm,#barr{display:contents}
-#searchbox,#search,#engine,#barr>.vsep{display:none!important}
-/* #385: the same for the chat head and the start screen's cards, and for the
-   parts the desktop chips gained (icons, the meter's bar): the phone keeps its
-   composer, its one-row field and its folder row until #387. */
-#chathead,#cont{display:none!important}
-#in{min-height:0}
-#model .dot,#model svg,#root svg,#ctx .ctxbar{display:none}
-#railtoggle,#codetoggle,#gittoggle,#browsertoggle{
-  min-width:var(--tap);min-height:var(--tap);justify-content:center;
-  margin:0;border-radius:10px}
-#railtoggle svg,#codetoggle svg,#gittoggle svg,#browsertoggle svg{
-  width:19px;height:19px}
-#mark{font-size:12.5px;margin:0 4px}
+#bar #barl,#bar #barm,#bar #barr{width:auto;min-width:0;padding:0;margin:0;gap:0}
+#bar #barl,#bar #barr{flex:none}
+#bar #barm{flex:1 1 auto}
+#gittoggle,#browsertoggle,#barr>.vsep{display:none!important}
+#railtoggle,#codetoggle{width:var(--tap);height:var(--tap);border-radius:10px}
+#railtoggle svg,#codetoggle svg{width:19px;height:19px}
+#mark{font-size:12.5px;padding:0 4px}
 /* #382: the desktop hides the wordmark while the rail is folded; here the
    rail is a drawer and "shut" is its resting state, so the name stays. */
 body[data-rail="shut"] #mark{display:inline}
-#bar #codetoggle{margin-left:auto}
 /* The toggles light when their drawer is open (page rule), not per setting. */
+/* THE SEARCH (#382/#386): a 44 px magnifier at rest. While the field has the
+   focus it lies over the whole header and the results drop under it,
+   header-wide (#searchbox is static, so both are placed against #bar). It
+   folds on blur even with a query in it -- a phone has no Escape, and the
+   header's buttons have to come back. 16 px: iOS zooms on focus below it. */
+#searchbox{position:static}
+#search{width:var(--tap);height:var(--tap);border:0;border-radius:10px;
+  background:transparent}
+#search .s-ico{width:var(--tap);height:var(--tap)}
+#search .s-ico svg{width:19px;height:19px}
+#search .s-kbd{display:none}
+#search input{width:0;font-size:16px}
+#searchbox:focus-within #search{position:absolute;z-index:61;top:2px;left:6px;
+  right:6px;width:auto;border:1px solid var(--accent);border-radius:12px;
+  background:var(--bg)}
+#searchbox:focus-within #search input{flex:1 1 auto;width:auto;padding-right:12px}
+#searchpop{left:6px;right:6px;top:calc(var(--barh) + 2px);
+  max-height:calc(100dvh - var(--barh) - var(--safe-t) - 16px)}
+.sopt{min-height:var(--tap);align-items:center;font-size:14px}
+.sopt .ss{font-size:12px}
+/* THE MODEL CHIP (#382's engine chip): the dot and the family name
+   (REMOTE_JS `shortModel`), at the header's right end. A tap slides out the
+   decode rate and the context; CROW and the magnifier make room for it, and
+   come back with the next tap. No level, as on the composer's chip. The 44 px
+   box is a pill of 32 drawn inside a transparent 6 px border. */
+#engine{height:var(--tap);margin-left:auto;padding:0 12px;
+  border:6px solid transparent;background-clip:padding-box;
+  box-shadow:inset 0 0 0 1px var(--line-soft)}
+#engine.open{box-shadow:inset 0 0 0 1px var(--line)}
+#engine .elvl{display:none!important}
+#bar:has(#engine.open) #mark{display:none}
+#bar:has(#engine.open) #searchbox{display:none}
 
 /* ---- the chat fills the screen ------------------------------------------ */
 #body{position:relative;background:var(--bg)}
@@ -10705,9 +10729,71 @@ body[data-rail="shut"] #mark{display:inline}
 .code pre,.cost{max-width:100%}
 .turn{min-width:0}
 
-/* ---- drawers: rail left, code / browser / git right ---------------------
+/* ---- the chat head (#385) in phone form: one 44 px row ------------------
+   The title, the folder chip (REMOTE_JS keeps it here, as on the desktop;
+   on the start screen, which has no head, it is in the + sheet), the branch,
+   and the goal pill -- the phone's goal strip, which the old `#panels` bar
+   was: a tap opens the inspector drawer on its Goal tab (`goalPill`). The
+   chips shrink with an ellipsis and the row never wraps. Each chip's hit
+   area is 44 px high (`::after`), without the row growing to it. */
+#chathead{flex-wrap:nowrap;gap:8px;min-height:var(--tap);padding:0 var(--colpad)}
+#chathead h1{flex:1 1 0;min-width:3em;margin:0;font-size:14px}
+#chathead .sp{display:none}
+#chathead #rootwrap{flex:0 1 auto;min-width:0;max-width:42%}
+#chathead #root{max-width:100%;overflow:visible}
+#chathead #root .rt{min-width:0}
+#branchchip{flex:0 1 auto;min-width:0;max-width:28%}
+#branchchip .bt{min-width:0;overflow:hidden;text-overflow:ellipsis}
+#goalpill{flex:none;height:26px;padding:0 10px;font-size:12px}
+#chathead #root,#goalpill{position:relative}
+#chathead #root::after,#goalpill::after{content:"";position:absolute;inset:-9px -4px}
+/* the folder menu drops from the head (#rootwrap static, so it is placed
+   against #chathead), the column's width, as the composer's menus are */
+#chathead #rootwrap{position:static}
+#chathead #rootmenu{position:absolute;top:calc(100% + 4px);bottom:auto;
+  left:var(--colpad);right:var(--colpad);width:auto;max-height:60dvh}
+
+/* ---- the turn (#383) in phone form --------------------------------------
+   The head's model name gives way first; the trace strip runs the column's
+   full width, each 6 px segment with a 20 px band to tap (`::after`); the
+   delegate card leaves the model out; the telemetry strip is a 3-column
+   grid, two rows of three, so it fits the column without a scrollbar. */
+.thd .thm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trace{padding:10px 12px}
+.trh{min-height:32px}
+.leg{gap:2px 12px}
+.segs>.seg{position:relative}
+.segs>.seg::after{content:"";position:absolute;inset:-7px 0}
+.subref .smd{display:none}
+.cost.tele{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.tele .m{min-width:0;padding:8px 10px;
+  box-shadow:1px 0 0 var(--line-soft),0 1px 0 var(--line-soft)}
+.tele .mv{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---- the start screen (#385) in phone form: one stacked group -----------
+   The mark 120 px, the greeting 20 px, the composer under it, then
+   "Continue" and its cards one under the other. The desktop's two equal
+   spacers centre it, and a short screen scrolls instead of cutting the
+   mark off. */
+#main.empty{overflow-y:auto;padding:24px 0 calc(16px + var(--safe-b))}
+#main.empty::before,#main.empty::after{content:"";flex:1 0 0}
+#main.empty #flow{flex:none;overflow:visible;padding:0!important;scrollbar-gutter:auto}
+#main.empty #hello{min-height:0;gap:20px}
+.mk{width:120px;margin-bottom:-11px}
+.hellotext{font-size:20px}
+#main.empty #composer{position:relative;left:auto;right:auto;bottom:auto;
+  padding:20px var(--colpad) 0;background:none}
+#main.empty #cont:not([hidden]){display:flex}
+#cont{margin-top:24px;padding:0 var(--colpad)}
+.cont{flex-basis:100%;min-height:var(--tap)}
+
+/* ---- drawers: rail left, the inspector right ----------------------------
    transform, never width: a panel parked at width 0 in a flex row, or pushed
-   off-canvas with `left`, still widens the layout box and iOS zooms out. */
+   off-canvas with `left`, still widens the layout box and iOS zooms out.
+   #387: the inspector (#384's #side) is the right drawer, with its tab
+   strip -- Goal, Tools, Subtasks and Git. Git is a tab, not a drawer of its
+   own (REMOTE_JS keeps data-git on); Browser stays off, a phone gets no live
+   pane. */
 #rail,#side{position:fixed;top:0;bottom:0;z-index:90;
   width:var(--drawer)!important;overflow:hidden;
   padding-top:var(--safe-t);padding-bottom:var(--safe-b);
@@ -10728,7 +10814,9 @@ body:not([data-browser="shut"]) #side{transform:none;visibility:visible}
 .sess .s{font-size:12px}
 .proj{min-height:var(--tap);padding:8px 10px}
 .proj .t{font-size:13px}
-#archbar{min-height:var(--tap);padding:0 12px}
+#archbar,#settingsbtn{min-height:var(--tap);padding:0 12px}
+#itabs{margin:10px 12px 6px}
+#itabs .tab{height:var(--tap);font-size:13px}
 #toolcalls .tchd,#codefiles .tchd,.gitgrp .tchd{min-height:var(--tap);font-size:13px}
 #toolcalls .tool .hd{min-height:40px;font-size:12.5px}
 .cwcopy{min-height:36px;padding:0 14px}
@@ -10775,69 +10863,34 @@ body.m-auto.m-hid #mnudge{display:flex;position:fixed;z-index:70;
 #mnudge::after{content:"";width:36px;height:5px;border-radius:3px;
   background:var(--dim);box-shadow:0 0 0 4px var(--bg)}
 @keyframes mnudge-in{from{opacity:0}to{opacity:1}}
-/* The goal/sub bars sit at the top of #main; while the header is out of
-   the layout they move down below the pill (the owner: the pill lay on the goal
-   bar), and #flow's padding follows. Also while revealed, so they don't jump. */
-body.m-auto:is(.m-hid,.m-rev) #panels{padding-top:40px}
-body.m-auto:is(.m-hid,.m-rev) #main:has(#goalpanel:not([hidden])) #flow,
-body.m-auto:is(.m-hid,.m-rev) #main:has(#subpanel:not([hidden])) #flow{padding-top:96px}
-body.m-auto:is(.m-hid,.m-rev) #main:has(#goalpanel:not([hidden])):has(#subpanel:not([hidden])) #flow{padding-top:148px}
+/* The chat head sits at the top of #main; while the header is out of the
+   layout it moves down below the pill (the owner: the pill lay on the goal
+   bar, #387: the head and its goal pill took that bar's place). Also while
+   revealed, so it does not jump. */
+body.m-auto:is(.m-hid,.m-rev) #chathead{padding-top:40px}
 @media (prefers-reduced-motion:reduce){body.m-auto #bar{transition:none}
   body.m-auto.m-hid #mnudge{animation:none}}
 
-/* git: the card from #panels becomes a right drawer of its own */
-body[data-git="shut"] #git{display:none}
-body:not([data-git="shut"]) #git{position:fixed;top:0;bottom:0;right:0;z-index:90;
-  width:min(94vw,440px);border-radius:0;border:0;
-  padding-top:var(--safe-t);padding-bottom:var(--safe-b)}
-body:not([data-git="shut"]) #panels{z-index:95}   /* out of #panels' stacking context */
+/* git: a tab of the inspector drawer (#384), its controls at touch size */
 #githead{min-height:var(--barh);padding:0 15px}
 #gituser{min-height:var(--tap);padding:0 6px;font-size:12px}
 .gline,.grow{min-height:36px;font-size:12.5px}
 .gcommit input{font-size:16px;min-height:var(--tap)}
 .gcommit button{min-height:var(--tap)}
 
-/* ---- goal: a thin bar under the header; tap expands it ------------------ */
-#panels{top:0;left:0;right:0;width:auto;height:auto;max-height:78%;
-  padding:8px var(--colpad) 0;gap:8px}
-#main:has(#goalpanel:not([hidden])) #panels{padding-bottom:10px;
-  background:linear-gradient(var(--bg) 70%,transparent)}
-#main:has(#goalpanel:not([hidden])) #flow,
-#main:has(#subpanel:not([hidden])) #flow{padding-top:64px}
-#main:has(#goalpanel:not([hidden])):has(#subpanel:not([hidden])) #flow{padding-top:116px}
-#goalpanel{border-radius:12px;font-size:12.5px;max-height:100%}
-#goalpanel .gh{min-height:var(--tap);padding:0 6px 0 14px}
+/* the goal and subtasks cards are inspector tabs (#384); their X at touch size */
 #goalpanel .gx,#subpanel .gx{min-width:var(--tap);min-height:var(--tap);
   font-size:20px;padding:0}
-#goalpanel .gt .tx{font-size:14px}
-#goalpanel li{padding:9px 0 11px}
-/* collapsed: one 44 px row -- icon, title, n/m, state (#289), close */
-#goalpanel.shut:not([hidden]){display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto;
-  align-items:center;cursor:pointer}
-#goalpanel.shut .gh{display:contents}
-#goalpanel.shut .gh b{display:none}
-#goalpanel.shut .gh .st{grid-column:4;grid-row:1;margin:0;padding-left:8px;
-  font-variant-numeric:tabular-nums;white-space:nowrap}   /* #289: beside n/m */
-#goalpanel.shut .gh .gx{grid-column:5;grid-row:1}
-#goalpanel.shut .gt{display:contents}
-#goalpanel.shut .gi{grid-column:1;grid-row:1;padding-left:14px;margin:0 9px 0 0}
-#goalpanel.shut .gt .tx{grid-column:2;grid-row:1;font-size:13px;font-weight:600;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#goalpanel.shut .gm{grid-column:3;grid-row:1;padding:0 0 0 8px;font-size:12px;
-  white-space:nowrap}
-#goalpanel.shut .gm{max-width:5.2em;overflow:hidden}     /* "2/5 · …" -> "2/5" */
-#goalpanel.shut .gh .st:empty{display:none}
-#subpanel{border-radius:12px}
-#subpanel .sph{min-height:var(--tap);padding:0 0 0 5px;
-  margin-right:-10px}     /* over #subpanel's 10 px: its X lines up with the goal's */
-#subpanel.shut{max-height:var(--tap)}
 
 /* ---- composer (the owner, 2026-09-24): ONE row, like iMessage ----------------
    One frame (#box), one 44 pt row:  [+ 44][input, grows up to 5 lines][send/Stop 44]
    The context is the frame's top 2 px (a background layer, clipped by the
-   radius). Everything else -- attach, dictate, mode, model, folder, the
-   stats and the hint -- is in #mtools, which the + opens ABOVE the composer.
-   A dot on the + shows the mode's colour. Staged images: a strip above the row. */
+   radius). Everything else -- attach, dictate, mode, model, the stats and
+   the hint, and on the start screen the folder -- is in #mtools, which the +
+   opens ABOVE the composer. A dot on the + shows the mode's colour. Staged
+   images: a strip above the row. #387: the desktop's tokens -- --panel on a
+   --line frame, the accent frame on focus, the round send in --accent with
+   its arrow in --on-accent, drawn from the desktop's own stroke. */
 #composer{left:0;right:0;padding:10px var(--colpad) calc(8px + var(--safe-b));
   background:linear-gradient(to bottom,transparent,var(--bg) 10px)}
 #viewbar,#pendbar{margin-bottom:-12px;font-size:12.5px}
@@ -10862,17 +10915,17 @@ body:not([data-git="shut"]) #panels{z-index:95}   /* out of #panels' stacking co
   font-size:14px;border:8px solid transparent;background-clip:padding-box;
   box-shadow:inset 0 0 0 1px var(--bevel)}
 #line{align-items:flex-end;gap:4px;margin:0}
-#in{font-size:16px;line-height:22px;max-height:calc(5 * 22px + 22px);
+#in{font-size:16px;line-height:22px;max-height:calc(5 * 22px + 22px);min-height:0;
   padding:11px 6px;align-self:center}  /* 16px: iOS zooms on focus below it */
 #in:placeholder-shown{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #mplus,#go{flex:none;width:var(--tap);height:var(--tap);padding:0!important;margin:0;
   border-radius:50%;box-sizing:border-box;border:1px solid;display:grid;
   place-items:center;cursor:pointer;position:relative}
-#go{font-size:0!important;color:var(--on-solid);background:var(--accent);
+#go{font-size:0!important;color:var(--on-accent);background:var(--accent);
   border-color:var(--accent)}
 #go::before{content:"";position:absolute;inset:0;margin:auto;width:20px;height:20px;background:currentColor;
-  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M10 16V4M4.5 9.5 10 4l5.5 5.5' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
-  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M10 16V4M4.5 9.5 10 4l5.5 5.5' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 19V5M6 11l6-6 6 6' fill='none' stroke='%23000' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 19V5M6 11l6-6 6 6' fill='none' stroke='%23000' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
 #go.stop{color:var(--bad-text);background:rgba(240,101,90,.16);
   border-color:rgba(240,101,90,.55)}
 #go.stop::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Crect x='5' y='5' width='10' height='10' rx='2'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Crect x='5' y='5' width='10' height='10' rx='2'/%3E%3C/svg%3E")}
@@ -10902,6 +10955,7 @@ body.m-tools #mplus::before{transform:rotate(45deg)}
 body.m-tools #mtools{transform:none;opacity:1;visibility:visible;transition-delay:0s}
 @media (prefers-reduced-motion:reduce){#mtools{transition:none}}
 .mr2,.mr3{display:flex;gap:8px;align-items:center;min-width:0}
+.mr3:empty{display:none}
 .mr4{display:flex;flex-wrap:wrap;column-gap:0;row-gap:2px;padding:2px 6px 0;
   font-size:11.5px;line-height:16px;color:var(--dimmer);font-variant-numeric:tabular-nums}
 .mr4>*:not(:empty)~*:not(:empty)::before{content:" · ";white-space:pre}
@@ -10932,16 +10986,18 @@ body.m-tools #mtools{transform:none;opacity:1;visibility:visible;transition-dela
 #in.partial{color:var(--dim)}
 #modewrap{flex:none}
 #modelwrap{flex:1 1 0;min-width:0;display:flex}
-#rootwrap{flex:1 1 0;min-width:0;display:flex}
+#mtools #rootwrap{flex:1 1 0;min-width:0;display:flex}
 #subwrap{display:none!important}
-#mode,#model,#root{height:var(--tap);box-sizing:border-box;margin:0;
+/* the sheet's chips: the word, not the desktop's dot, icon or meter bar */
+#model .dot,#model svg,#mtools #root svg,#ctx .ctxbar{display:none}
+#mode,#model,#mtools #root{height:var(--tap);box-sizing:border-box;margin:0;
   border:1px solid var(--line);border-radius:22px;padding:0 14px;
   display:flex;align-items:center;gap:6px;font-size:13px;line-height:1;
   white-space:nowrap;min-width:0}
 #model{width:100%}
-#root{width:100%;max-width:none;overflow:hidden;text-overflow:ellipsis;display:block;
+#mtools #root{width:100%;max-width:none;overflow:hidden;text-overflow:ellipsis;display:block;
   line-height:42px;text-align:left}
-#root::before{content:"folder  ";color:var(--dimmer);white-space:pre}
+#mtools #root::before{content:"folder  ";color:var(--dimmer);white-space:pre}
 #model::before{content:"model";color:var(--dimmer);margin-right:2px}
 #model b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   font-weight:500;line-height:1}
@@ -10954,8 +11010,8 @@ body.m-tools #mtools{transform:none;opacity:1;visibility:visible;transition-dela
   min-height:var(--tap);padding:9px 12px;font-size:13px}
 #menu button{min-height:var(--tap);font-size:13.5px}
 
-/* ---- trace, thinking, cards --------------------------------------------- */
-details.trace>summary,details.think>summary,details.rollcard summary{
+/* ---- thinking, cards (the trace strip: "the turn" above) ---------------- */
+details.think>summary,details.rollcard summary{
   min-height:36px;font-size:12.5px}
 .tbody{font-size:13px}
 .say{font-size:14.5px;line-height:1.6}
@@ -11054,8 +11110,9 @@ details.trace>summary,details.think>summary,details.rollcard summary{
 }
 """
 # #249. DIE TELEFONHAKEN, nur in der Telefonfassung (`stamped_page(remote=True)`):
-# Schubladen, Zielleiste, festgesteckte Freigaben, die einzeilige Eingabe mit
-# dem +-Blatt, die gehaltene Zeile. Die Desktopseite bekommt davon nichts.
+# Schubladen (#387: der Inspektor ist die rechte), der Modell-Chip im Kopf,
+# festgesteckte Freigaben, die einzeilige Eingabe mit dem +-Blatt, die
+# gehaltene Zeile. Die Desktopseite bekommt davon nichts.
 REMOTE_JS = r"""
 // #249 THE PHONE HOOKS. Runs after PAGE's own script, only in the phone variant of PAGE.
 // Nothing here draws content; it only decides which drawer is out, keeps the
@@ -11063,7 +11120,9 @@ REMOTE_JS = r"""
 (function(){
   const phone = window.matchMedia("(max-width:700px)");
   const body = document.body, main = document.getElementById("main");
-  const DRAWERS = ["rail","code","git","browser"];
+  // #387: the inspector (#384) is the right drawer; git is a tab in it, not a
+  // drawer of its own.
+  const DRAWERS = ["rail","code","browser"];
 
   // 1. LAYOUT IS PER DEVICE (decision 3). The shim answers set_*_open and
   //    set_theme on the phone itself; the theme is remembered here, per device.
@@ -11081,6 +11140,8 @@ REMOTE_JS = r"""
 
   // 2. DRAWERS. The page stamps data-rail/-code/-git/-browser from the desktop's
   //    settings; on the phone every drawer starts closed and one is out at most.
+  //    data-git stays on (#387): the Git tab is always in the inspector drawer,
+  //    whatever the desktop's git toggle says.
   //
   //    CLOSED MEANS GONE (the owner's iPhone, iOS 26, 2026-09-24): after a drawer
   //    had been open, Safari's bars kept a different tint and a vertical swipe
@@ -11115,7 +11176,11 @@ REMOTE_JS = r"""
       x.classList.remove("m-gone"); void x.offsetWidth; } });
   }
   function shutAll(){ DRAWERS.forEach(d => { body.dataset[d] = "shut"; }); settle(false); }
-  if(phone.matches){ DRAWERS.forEach(d => { body.dataset[d] = "shut"; }); settle(true); }
+  // A Browser tab picked before the page narrowed gives way (`inspectorSync`).
+  function phoneLayout(){ DRAWERS.forEach(d => { body.dataset[d] = "shut"; });
+    body.dataset.git = "open"; settle(true);
+    if(crow.inspectorSync) crow.inspectorSync(); }
+  if(phone.matches) phoneLayout();
   const wrap = (fn, name) => function(){
     if(!phone.matches) return fn.apply(this, arguments);
     DRAWERS.forEach(d => { if(d!==name) body.dataset[d] = "shut"; });
@@ -11126,8 +11191,14 @@ REMOTE_JS = r"""
   };
   crow.toggleRail = wrap(crow.toggleRail, "rail");
   crow.toggleCode = wrap(crow.toggleCode, "code");
-  crow.toggleGit = wrap(crow.toggleGit, "git");
   crow.toggleBrowser = wrap(crow.toggleBrowser, "browser");
+  // GIT IS READ WHEN ITS TAB SHOWS: on the desktop that is the moment its
+  // toggle goes on (`toggleGit`); here the tab is always there.
+  const select = crow.inspectorSelect;
+  if(select) crow.inspectorSelect = function(){ const was = this.itab;
+    const r = select.apply(this, arguments);
+    if(phone.matches && this.itab === "git" && was !== "git") this.gitRefresh();
+    return r; };
   scrim.addEventListener("click", () => shutAll());
   // Picking a chat or "new" closes the rail: the chat is what you came for.
   ["open","reset"].forEach(k => { const f = crow[k];
@@ -11140,8 +11211,8 @@ REMOTE_JS = r"""
     if(phone.matches && on) on.scrollIntoView({inline:"center", block:"nearest"});
     return r; };
 
-  // Swipe: from the left edge opens the rail, from the right edge the code
-  // drawer; a swipe the other way on an open drawer closes it.
+  // Swipe: from the left edge opens the rail, from the right edge the
+  // inspector; a swipe the other way on an open drawer closes it.
   let t0 = null;
   window.addEventListener("touchstart", e => {
     if(!phone.matches || e.touches.length!==1) return;
@@ -11170,6 +11241,7 @@ REMOTE_JS = r"""
     body.classList.add("m-auto");
     const shown = id => { const e = document.getElementById(id); return !!e && !e.hidden; };
     const busy = () => DRAWERS.some(isOpen) || body.classList.contains("m-tools")
+      || (document.activeElement || {}).id === "searchin"
       || ["modemenu","modelmenu","rootmenu","submenu","settings"].some(shown)
       || (document.getElementById("menu") || {classList:{contains:()=>false}}).classList.contains("on");
     const arm = ms => { clearTimeout(timer);
@@ -11209,23 +11281,7 @@ REMOTE_JS = r"""
     window.crowHeader = {reveal, busy};
   })();
 
-  // 3. THE GOAL STARTS AS A THIN BAR. goalPanel keeps `shut` across redraws,
-  //    so the first draw on this device sets it once. In the bar the head is
-  //    `display:contents`, so a tap on the title has to open it here.
-  const gp = document.getElementById("goalpanel");
-  const goalPanel = crow.goalPanel;
-  crow.goalPanel = function(g){
-    if(phone.matches && !gp.dataset.m){ gp.dataset.m = "1"; gp.classList.add("shut"); }
-    return goalPanel.apply(this, arguments);
-  };
-  gp.addEventListener("click", e => {
-    if(!phone.matches || e.target.closest(".gh")) return;   // the page's own
-    if(gp.classList.contains("shut")) gp.classList.remove("shut");
-  });
-  document.getElementById("flow").addEventListener("click", () => {
-    if(phone.matches && !gp.hidden) gp.classList.add("shut"); });
-
-  // 4. THE PINNED CARD'S HEIGHT goes into #flow's bottom padding (mobile.css),
+  // 3. THE PINNED CARD'S HEIGHT goes into #flow's bottom padding (mobile.css),
   //    so the last line of the transcript is never under it.
   const ro = new ResizeObserver(measure);
   let watched = null;
@@ -11239,8 +11295,19 @@ REMOTE_JS = r"""
   }
   new MutationObserver(measure).observe(document.getElementById("flow"),
     {childList:true, subtree:true});
-  // 5. THE COMPOSER (the owner: remove nothing, shorten). Only on a phone.
-  if(phone.matches) composer();
+  // THE MODEL CHIP IN THE HEADER (#382's engine chip, #387): the family name,
+  // as on the composer's chip (`shortModel`); the full one in its title.
+  const showEngine = crow.showEngine;
+  if(showEngine) crow.showEngine = function(){ const r = showEngine.apply(this, arguments);
+    const n = document.querySelector("#engine .ename");
+    if(phone.matches && n && this.modelName){ n.textContent = shortModel(this.modelName);
+      document.getElementById("engine").title = this.modelName; }
+    return r; };
+  // 4. THE COMPOSER (the owner: remove nothing, shorten). Only on a phone --
+  //    at load, or (#387) the first time the page narrows to one.
+  let composed = false;
+  const composeOnce = () => { if(!composed){ composed = true; composer(); } };
+  if(phone.matches) composeOnce();
   function composer(){
     const box = document.getElementById("box"), line = document.getElementById("line"),
           go = document.getElementById("go"), foot = document.getElementById("foot"),
@@ -11283,8 +11350,16 @@ REMOTE_JS = r"""
       + 'l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg>';
     $id("remotefile").multiple = false;
     r2.append(att, $id("mic"), $id("modewrap"), $id("modelwrap"));
-    r3.append($id("rootwrap"));
     r4.append($id("turnstate"), ctx, $id("hint"));
+    // THE FOLDER CHIP (#387) stays in the chat head, as on the desktop; on the
+    // start screen, which has no head, it is in the sheet's middle row.
+    const placeRoot = crow.placeRoot;
+    crow.placeRoot = function(){
+      if(!phone.matches) return placeRoot && placeRoot.apply(this, arguments);
+      const w = $id("rootwrap"), t = $id("chattitle");
+      if(main.classList.contains("empty")){ if(w.parentNode !== r3) r3.append(w); }
+      else if(t && w.previousElementSibling !== t) t.after(w); };
+    crow.placeRoot();
     // THE HELD LINE (#264 + #249): the queued bubble above the input, drawn
     // from crow.held, which queuedLine fills from the pushed text.
     const composerEl = $id("composer");
@@ -11338,7 +11413,7 @@ REMOTE_JS = r"""
     return cap.length > 8 ? cap.slice(0, 7) + "…" : cap;
   }
 
-  // 6. THE MICROPHONE (#290), on every phone width. The desktop's microphone
+  // 5. THE MICROPHONE (#290), on every phone width. The desktop's microphone
   //    is not the phone's, and the desktop's dictation (its "mic" pushes) is
   //    not this phone's either: its state and its text stay on the desktop.
   //    HTTPS (Tailscale): the phone records itself -- MediaRecorder, first tap
@@ -11499,7 +11574,7 @@ REMOTE_JS = r"""
   micIdle();
 
   phone.addEventListener("change", () => { measure();
-    if(phone.matches){ DRAWERS.forEach(d => { body.dataset[d] = "shut"; }); settle(true); }
+    if(phone.matches){ composeOnce(); phoneLayout(); }
     else [railEl, sideEl, scrim].forEach(x => x && x.classList.remove("m-gone")); });
 })();
 """
