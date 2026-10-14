@@ -10572,6 +10572,11 @@ def format_tool_args(arguments: str | None, width: int = 78) -> str:
     return line[:width] + ("..." if len(line) > width else "")
 
 
+# The ceiling notice, written once (manifests/shared-core.json "every result
+# goes through _clip"): _clip and read_file's _read_cut both end on it.
+CLIP_ASK_AGAIN = "narrow the query and ask again"
+
+
 def _clip(text: str, limit: int = MAX_TOOL_BYTES, *, ends: bool = False,
           more: Callable[[str, int], str] | None = None) -> str:
     """EVERY tool result goes through here. No exceptions, and that is the point.
@@ -10596,7 +10601,7 @@ def _clip(text: str, limit: int = MAX_TOOL_BYTES, *, ends: bool = False,
         return _elided(text, limit, limit)
     if more is not None:
         return more(text, limit)
-    return text[:limit] + f"\n\n[cut at {limit} bytes -- narrow the query and ask again]"
+    return text[:limit] + f"\n\n[cut at {limit} bytes -- {CLIP_ASK_AGAIN}]"
 
 
 # #361. THE START AND THE END, THE COUNT BETWEEN THEM. Codex CLI
@@ -14869,7 +14874,7 @@ def _read_cut(text: str, limit: int, first: int, path: str) -> str:
     if not exact or after <= lines:
         say += f"; continue with start_line={after}"
     elif not shown:
-        say += "; narrow the query and ask again"
+        say += "; " + CLIP_ASK_AGAIN
     return kept + f"\n\n[cut at {limit} bytes -- {say}]"
 
 
