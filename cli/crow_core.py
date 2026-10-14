@@ -10304,7 +10304,8 @@ def format_tool_args(arguments: str | None, width: int = 78) -> str:
     return line[:width] + ("..." if len(line) > width else "")
 
 
-def _clip(text: str, limit: int = MAX_TOOL_BYTES) -> str:
+def _clip(text: str, limit: int = MAX_TOOL_BYTES, *, ends: bool = False,
+          more: Callable[[str, int], str] | None = None) -> str:
     """EVERY tool result goes through here. No exceptions, and that is the point.
 
     Each one was capped separately at first -- read_file by bytes, the searches
@@ -10313,10 +10314,70 @@ def _clip(text: str, limit: int = MAX_TOOL_BYTES) -> str:
     prefill at 38 tok/s. Same defect as the 100 KB read cap, different tool.
 
     One ceiling, measured in what it actually costs: bytes that become prefill.
+
+    #361. WHICH 16 KB ARE KEPT, AND WHERE THE CUT IS. The price stays; a
+    blind head cut lost a build's linker error and a test run's summary line
+    (they come last), and a read named neither the line it stopped at nor the
+    file's length. `ends` keeps the start and the end (`_elided`, for
+    run_command); `more(text, limit)` writes the cut result itself (read_file's
+    `_read_cut`). Below the limit every result is what it was.
     """
     if len(text) <= limit:
         return text
+    if ends:
+        return _elided(text, limit, limit)
+    if more is not None:
+        return more(text, limit)
     return text[:limit] + f"\n\n[cut at {limit} bytes -- narrow the query and ask again]"
+
+
+# #361. THE START AND THE END, THE COUNT BETWEEN THEM. Codex CLI
+# (`truncate_middle_with_marker`), mini-swe-agent (`<output_head>` /
+# `<output_tail>`) and the OpenHands SDK (`maybe_truncate`) all keep both ends
+# of a long output; none of them publishes an A/B against a head cut, so the
+# share here is a choice, not a measurement: 30 % start (which target, which
+# command), 70 % end (the error, the summary, the exit).
+ELIDE_HEAD_SHARE = 0.3
+
+
+def _cut_note(cap: int, gone: int) -> str:
+    """#361: the one line `_elided` puts between the start and the end."""
+    return (f"\n\n[cut at {cap} bytes -- {gone:,} chars elided here; "
+            "the start and the end are kept]\n\n")
+
+
+def _elided(text: str, keep: int, cap: int) -> str:
+    """#361: `text` in `keep` characters plus one line: its start, its end, and
+    how much is not shown between them. `cap` is the ceiling the line names."""
+    if len(text) <= keep:
+        return text
+    head = int(keep * ELIDE_HEAD_SHARE)
+    return (text[:head] + _cut_note(cap, len(text) - keep)
+            + text[len(text) - (keep - head):])
+
+
+def _clip_output(head: str, err: str, limit: int = MAX_TOOL_BYTES) -> str:
+    """#361: run_command's result in `limit`: `head` (its first line, then
+    stdout) and `err` (stderr, behind `[stderr]`), as it always was below it.
+
+    STDERR HAS A SHARE OF ITS OWN. Clipped as one string, a long stdout pushed
+    every byte of stderr out (#361's probe 1: 3,000 lines of build, then
+    `error: linker failed`, and the error was the first thing lost). stderr
+    keeps up to a quarter of the limit against a long stdout, and all of what
+    a short stdout leaves; stdout gets the rest. Each side that is still over
+    its share is `_elided`, and stderr's cut line is paid out of stderr's share,
+    so the whole stays within the limit plus one cut line.
+    """
+    tail = f"\n[stderr]\n{err}" if err.strip() else ""
+    if len(head) + len(tail) <= limit:
+        return head + tail
+    if not tail:
+        return _clip(head, limit, ends=True)
+    share = max(limit // 4, limit - len(head))
+    if len(tail) > share:
+        room = share - len("\n[stderr]\n") - len(_cut_note(limit, len(err)))
+        tail = "\n[stderr]\n" + _elided(err, max(0, room), limit)
+    return _elided(head, limit - len(tail), limit) + tail
 
 
 # #170. DAS BILD REIST IM ERGEBNIS, und dafuer braucht es einen Platz zwischen
@@ -14483,6 +14544,67 @@ def _binary_refusal(path: str, head: bytes, size: int) -> "str | None":
     return said + "inspect it with run_command (file <file>; xxd <file> | head)"
 
 
+def _line_count(path: str) -> "tuple[int, bool] | None":
+    """#361: (lines, exact) of a file whose read was cut, or None.
+
+    Counted the way the reads number them -- text mode, universal newlines, so
+    `\\r\\n` and a lone `\\r` are one line end each -- over at most
+    SEARCH_MAX_FILE_BYTES characters: past that, `exact` is False and the file
+    has more than `lines` lines."""
+    lines, last, seen = 0, "\n", 0
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            while True:
+                chunk = fh.read(min(1 << 16, SEARCH_MAX_FILE_BYTES - seen))
+                if not chunk:
+                    return lines + (last != "\n"), True
+                lines += chunk.count("\n")
+                last, seen = chunk[-1], seen + len(chunk)
+                if seen >= SEARCH_MAX_FILE_BYTES:
+                    if fh.read(1):
+                        return lines, False
+                    return lines + (last != "\n"), True
+    except OSError:
+        return None
+
+
+def _read_cut(text: str, limit: int, first: int, path: str) -> str:
+    """#361: a read past the cap, cut after the last whole line inside it.
+
+    `text` is the read's lines from line `first` on, one per `\\n` (the whole
+    file, or a range's `N: line` rows). The note names the lines shown, the
+    file's length and the start_line that comes next -- a whole line, so
+    `read_file(start_line=<that>)` neither repeats nor skips one. A first line
+    longer than the cap has no edge to cut at: its head is shown and the note
+    says so. Whole-file reads stay unnumbered: `N: ` on every line would cost
+    prefill against the same 16 KB."""
+    edge = text.rfind("\n", 0, limit + 1)
+    # A short line before one longer than the cap (a minified bundle under its
+    # licence line) would leave the cap nearly empty: show that long line's
+    # head instead, as the blind cut did, and name it as a head.
+    whole_lines = edge >= limit // 2
+    kept = text[:edge] if whole_lines else text[:limit]
+    shown = kept.count("\n") + (1 if whole_lines else 0)
+    lines, exact = _line_count(path) or (None, False)
+    if lines is not None and not exact:
+        lines = max(lines, first + shown)     # never "more than" fewer than shown
+    total = "" if lines is None else " of %s%s" % ("" if exact else "more than ",
+                                                    f"{lines:,}")
+    after = first + shown if shown else first + 1
+    if whole_lines:
+        say = f"showing lines {first}-{first + shown - 1}{total}"
+    elif shown:
+        say = (f"showing lines {first}-{first + shown - 1} and the head of line "
+               f"{first + shown}{total}")
+    else:
+        say = f"line {first}{total} alone is longer than that"
+    if not exact or after <= lines:
+        say += f"; continue with start_line={after}"
+    elif not shown:
+        say += "; narrow the query and ask again"
+    return kept + f"\n\n[cut at {limit} bytes -- {say}]"
+
+
 def tool_read_file(path: str, start_line: int | None = None, end_line: int | None = None,
                    **_) -> str:
     """Read a file, or a range of its lines.
@@ -14532,7 +14654,8 @@ def tool_read_file(path: str, start_line: int | None = None, end_line: int | Non
             return f"error: {path} has no lines in {lo}-{hi}" + (
                 f" (the file has {total})" if total else "")
         _mark_read(path, stamp)
-        return _clip("\n".join(out))
+        return _clip("\n".join(out),                # #361: where it stopped
+                     more=lambda text, limit: _read_cut(text, limit, lo, path))
 
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
@@ -14567,7 +14690,7 @@ def tool_read_file(path: str, start_line: int | None = None, end_line: int | Non
     except OSError as exc:
         return f"error: could not read {path}: {exc}"
     _mark_read(path, stamp)
-    return _clip(data)
+    return _clip(data, more=lambda text, limit: _read_cut(text, limit, 1, path))   # #361
 
 
 # #244. A WRITE DOES NOT INVENT A PLACE IN SILENCE. Both writers ran
@@ -15714,11 +15837,10 @@ def tool_run_command(command: str = "", cwd: str | None = None, **_) -> str:
     note = _headless_browser_note(command, bool(prefix))
     if stopped == "user":
         # #310: the model hears WHY -- not an unexplained `[exit -15]`.
-        return _clip(
+        return _clip_output(
             "%s after %.0fs -- the command and everything it started in this "
             "call were ended: %s" % (STOPPED, time.monotonic() - began, command)
-            + (f"\n{out}".rstrip())
-            + (f"\n[stderr]\n{err}" if err.strip() else "")) + note
+            + (f"\n{out}".rstrip()), err) + note
     if stopped == "clock":
         return f"error: command exceeded {COMMAND_TIMEOUT}s and was killed: {command}" + note
     if stopped == "cap":
@@ -15743,12 +15865,11 @@ def tool_run_command(command: str = "", cwd: str | None = None, **_) -> str:
                 "killed, with everything it started: %s"
                 % ("MemoryMax=%s, " % cap if cap else "", command))
         _rebase_background_jobs()   # #309: this kill is this call's, not theirs
-        return _clip(head + (f"\n{out}".rstrip())
-                     + (f"\n[stderr]\n{err}" if err.strip() else "")) + note
+        return _clip_output(head + (f"\n{out}".rstrip()), err) + note
     if prefix and code is not None:
         _record_background_job(unit, command)   # #309: what outlived the call
-    return _clip(f"[exit {code}]\n{out}".rstrip()
-                 + (f"\n[stderr]\n{err}" if err.strip() else "")) + note
+    # #361: stdout and stderr each keep their start and their end (_clip_output).
+    return _clip_output(f"[exit {code}]\n{out}".rstrip(), err) + note
 
 
 # #309. A JOB THAT OUTLIVES ITS run_command CALL IS LOOKED AT AGAIN. It stays in

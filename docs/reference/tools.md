@@ -86,7 +86,7 @@ In goal mode, a run of `render_page` captures of one page that come back blank o
 is counted: after 3 the next nudge says to bisect, and after 6 the context rolls over with a list
 of what was tried (#268, see [goals and subagents](../user-guide/goals-and-subagents.md)).
 
-### `run_command` (#207, #218, #309, #310)
+### `run_command` (#207, #218, #309, #310, #361)
 
 `run_command(command, cwd=<working area>)` — one shell line, bash on Linux, cmd.exe on
 Windows, stdin closed.
@@ -97,6 +97,9 @@ Windows, stdin closed.
 | clock | `COMMAND_TIMEOUT` = 120 s |
 | `cwd` (#221) | resolved against the working area, `~` expanded. A `cwd` that is not an existing directory runs nothing and asks nobody -- it is refused before the approval card: `error: no such directory: … -- the command did not run.` (or `cwd is a file, not a directory`), with the working area and a near miss found on disk (per path component, edit distance 1-2 against the existing siblings, the unique best match, case-insensitive on Windows only): `'nibor11896' is 'nibor1896' here`. `read_file` (missing parent), `list_dir` and the outside-root write refusal carry the same hint. Measured over every stored session (2026-09-22): 5 of 18 distinct `cwd` calls named a home that does not exist, and each cost a `pwd` round after a bare Errno 2 |
 | capture | 32 MiB per stream in the reader threads (#207); 16 KB of it reach the model |
+| cut (#361) | a result over `MAX_TOOL_BYTES` (16,000 characters) keeps its start (30 %) and its end (70 %), one line between them: `[cut at 16000 bytes -- 6,559 chars elided here; the start and the end are kept]`. The first line (`[exit N]`, the Stop or the memory-ceiling line) stays first |
+| cut, stderr (#361) | stderr keeps a share of its own: up to a quarter of the cap against a long stdout, all of what a short stdout leaves; stdout gets the rest. A side still over its share is cut the same way, stderr's cut line inside stderr's share. The whole stays at most the cap plus one cut line; a result at or under the cap is byte-identical to before |
+| cut, measured (#361) | before, d2a7d0b, Windows, one run each: 3,000 lines of stdout then `error: linker failed` on stderr came back as 16,056 chars without `[stderr]` and without the error; 1,500 `PASS` lines then `1 failed, 1500 passed` lost the summary. After: both kept, pinned by `CutResultPositionTests`. Benefit on real runs: unmeasured |
 | memory (Linux) | its own user scope per call, `crow-cmd-<pid>-<hex>.scope` in `session.slice`: `MemoryMax=8G`, `MemorySwapMax=0`, `OOMPolicy=kill` (#218), no `MemoryHigh`: memory.high throttles and never kills, so a command over budget sat at 7G instead of dying at 8G (#309). `CROW_COMMAND_MEMORY_MAX` moves the kill bound (any systemd size), `none` keeps only the swap cap; `CROW_COMMAND_SCOPE=0` runs the shell bare |
 | why 8G | measured 2026-09-22 as each scope's `memory.peak`: diorama three.js esbuild bundle 106 MiB, `npm ls --all` 46 MiB, node importing three 21 MiB, gcc 9 MiB, `test_crow` 60 MiB, `test_crow_core` 109 MiB. 8G stops the 54 GiB software-WebGL runaway a seventh of the way and leaves a node build room up to V8's own ~4 GiB heap |
 | at the ceiling | the kernel kills every process in the scope at once (`OOMPolicy=kill` = `memory.oom.group`); the result reads `error: command exceeded its memory ceiling (MemoryMax=8G, no swap) and was killed, with everything it started: <command>` followed by the output up to the kill. The reason comes from the unit's `Result=oom-kill`, not from the exit code — `kill -9 $$` stays `[exit -9]`. The failed unit is reset |
@@ -145,7 +148,7 @@ as the entry and an `.html` out built just as clean and rendered one colour: the
 `boot(canvas, opts)` and needs `<canvas id="c">`, and that page has neither — the trap the
 warning above names (0.13 s with the exports probe, `exports: boot`).
 
-### `read_file` (#301)
+### `read_file` (#301, #361)
 
 `read_file(path, start_line?, end_line?)` — UTF-8 text, whole or a line range, capped at 16,000 characters.
 
@@ -156,6 +159,10 @@ warning above names (0.13 s with the exports probe, `exports: boot`).
 | PDF | `… is a PDF document (N bytes) -- …; get its text with run_command (pdftotext <file> - \| head -200)` |
 | other binary | `… is a binary file (N bytes, NUL bytes in its first 8,000) -- …; inspect it with run_command (file <file>; xxd <file> \| head)` |
 | not marked read | a refused file is not recorded for the read-before-write rule (#215) |
+| cut (#361) | a read over 16,000 characters ends after the last whole line inside the cap, then `[cut at 16000 bytes -- showing lines 1-470 of 2,000; continue with start_line=471]`. A range counts from its `start_line`. `read_file(start_line=<that>)` neither repeats nor skips a line |
+| cut, length | counted the way the ranges number lines (text mode: `\r\n` and a lone `\r` end one line each), over at most `SEARCH_MAX_FILE_BYTES` (2 Mi) decoded characters of the file; past that `of more than N`, never less than the last line shown |
+| cut, one long line | a first line longer than the cap shows its head: `line 1 of 3 alone is longer than that; continue with start_line=2`, or `narrow the query and ask again` when no line follows |
+| cut, unchanged | whole-file reads stay unnumbered (`N: ` on every line would cost prefill against the same cap). A result at or under the cap is byte-identical to before, so a short range still names no total |
 
 Measured before the fix (2026-09-25 lighthouse run, session msg 8): `read_file reference/island.png` returned
 16,056 characters (~5,946 tokens) of the PNG decoded as UTF-8; the model then saved "read_image returns raw bytes"
