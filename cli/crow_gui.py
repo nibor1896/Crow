@@ -745,11 +745,17 @@ def code_width_setting() -> int:
 
     Dieselbe Regel wie bei der Rail: ein Wert ausserhalb der Grenzen wird zur
     Vorgabe und nicht zur Grenze, weil er dann nicht aus dieser Geste stammt.
+
+    #388. READ BACK UP TO THE CEILING `Api.code_width` WRITES. #175 let the
+    grip go past 612 with the browser open and widened the write clamp to
+    CODE_MAX_WIDE; this read clamp stayed at CODE_MAX, so a dragged 700 came
+    back as 260 on the next start. The layout still limits the live width
+    (#main keeps its 560 px, #side gives way).
     """
     value = read_settings().get("code_width")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return CODE_DEFAULT
-    return int(value) if CODE_MIN <= value <= CODE_MAX else CODE_DEFAULT
+    return int(value) if CODE_MIN <= value <= CODE_MAX_WIDE else CODE_DEFAULT
 
 
 def client_version() -> str:
@@ -1198,14 +1204,12 @@ PAGE = r"""<!doctype html>
      nowhere else:
        --colw     the text width, #box's width and .turn's content width;
        --colpad   the inset from #flow's/#composer's inner edge to that text
-                  (was 30 + 10 on one side, 40 on the other -- equal by luck);
-       --reserve  the room the #233/#256 cards take on EACH side of #main,
-                  0 until the container query below sets it on both at once.
-     Both come out as min(--colw, #main - 2*--sbw - 2*--reserve - 2*--colpad),
-     centred. */
+                  (was 30 + 10 on one side, 40 on the other -- equal by luck).
+     Both come out as min(--colw, #main - 2*--sbw - 2*--colpad), centred.
+     #384: --reserve, the room the #233/#256 cards took on each side of #main,
+     went with the cards: they are tabs of the inspector beside the chat. */
   --colw:900px;
   --colpad:40px;
-  --reserve:0px;
 }
 
 /* -- light ------------------------------------------------------------- */
@@ -1319,7 +1323,6 @@ body{background:var(--bg);color:var(--dim);font:13px/1.55 var(--ui);
    #382: #main ist seither an allen vier Ecken 14 px rund, also oben UND unten.
    (Headless-Chromium blendet Leisten aus -- dort war davon nichts zu sehen.) */
 #flow::-webkit-scrollbar-track{margin-top:14px;margin-bottom:14px}
-#goalpanel::-webkit-scrollbar-track{margin:10px 0}
 #gitbody::-webkit-scrollbar-track{margin-bottom:10px}
 #spane::-webkit-scrollbar-track{margin-bottom:12px}
 .code pre::-webkit-scrollbar-track{margin:0 8px}
@@ -1360,7 +1363,9 @@ body[data-rail="shut"] #mark{display:none}
 #barr{flex:none;width:calc(var(--codew) + 1px);min-width:max-content;
   padding:6px 8px 6px 0;justify-content:flex-end;
   gap:clamp(2px,calc((var(--codew) - 232px) / 7),6px)}
-body[data-code="shut"][data-browser="shut"] #barr{width:auto;gap:6px}
+/* #384: the column is open while #codetoggle is on; Git and Browser are tabs
+   in it now, not panels that hold it open. */
+body[data-code="shut"] #barr{width:auto;gap:6px}
 #bar.dragging #barl{transition:none}
 /* #119. THE WORDMARK IS A PALETTE ENTRY NOW. It was the accent in all three
    themes, which is Crow's own blue -- right on the dark blue ground it was
@@ -1617,18 +1622,16 @@ body.closing::after{content:"saving the chat and the cache...";position:fixed;
    daran nichts -- die Spalte traegt dieselbe Regel eine Ebene hoeher. */
 #code{width:auto;flex:0 1 auto;min-width:0;min-height:0;background:var(--rail);
   display:flex;flex-direction:column;overflow:hidden}
-/* DAS GIT-PANEL IST AUS DIESER SPALTE AUSGEZOGEN und liegt jetzt im
-   Chatfenster unter dem Zielpanel -- seine Regeln stehen dort, bei `#panels`.
-   An seiner Stelle steht seit #175 der Browser: die Spalte traegt weiter
-   Breite, Griff und Falte, und die Panels darin teilen sich die Hoehe zu
-   gleichen Teilen. Nicht nach Inhalt -- eine wachsende Aufrufliste schoebe den
-   Browser sonst aus dem Bild, waehrend jemand hineinsieht. */
 #browser{width:auto;flex:0 1 auto;min-width:0;min-height:0;background:var(--rail);
   display:flex;flex-direction:column;overflow:hidden}
-#side > aside{flex:1 1 0}
-/* Die Fuge zwischen beiden, und NUR wenn beide da sind: eine Linie ueber einem
-   Panel, das allein steht, waere ein Rand zum Fensterhintergrund. */
-body:not([data-code="shut"]) #browser{border-top:1px solid var(--line)}
+/* #384. ONE PANEL AT A TIME, the selected tab's; `#side[data-tab]` is the
+   state (`inspectorSelect`). They no longer share the column's height (#156,
+   #175): the others leave the layout, and with it the accessibility tree, as
+   the APG tabs pattern wants. */
+#side>[role="tabpanel"]{display:none;flex:1 1 0;min-height:0;flex-direction:column}
+#side[data-tab="goal"]>#igoal,#side[data-tab="tools"]>#code,
+#side[data-tab="subs"]>#isubs,#side[data-tab="git"]>#git,
+#side[data-tab="browser"]>#browser{display:flex}
 #codegrip{flex:none;width:5px;margin:0 -2px;z-index:3;cursor:col-resize;
   background:transparent;transition:background .12s ease}
 #codegrip:hover,#codegrip.on{background:var(--bevel)}
@@ -1639,28 +1642,67 @@ body:not([data-code="shut"]) #browser{border-top:1px solid var(--line)}
    verloren. Also beides. */
 body[data-code="shut"] #code{width:0;overflow:hidden;display:none}
 body[data-browser="shut"] #browser{width:0;overflow:hidden;display:none}
-/* Erst wenn BEIDE zu sind, faellt die Spalte selbst zusammen. */
-body[data-code="shut"][data-browser="shut"] #side{width:0;overflow:hidden}
+/* #384: #codetoggle alone opens and shuts the column; Git and Browser are
+   tabs in it. */
+body[data-code="shut"] #side{width:0;overflow:hidden}
 /* DER GRIFF GEHT MIT. Ein Anfasser an einer Flaeche von null Pixeln ist ein
    Streifen, der nichts bewegt -- und er saesse genau auf der Kante, die das
    geschlossene Panel gerade sauber macht. */
-body[data-code="shut"][data-browser="shut"] #codegrip{display:none}
-#codehead{display:flex;align-items:center;gap:8px;padding:0 12px;
-  min-height:var(--barh);flex:none}
-#codehead h2{margin:0;font-size:10.5px;font-weight:600;letter-spacing:.13em;
-  text-transform:uppercase;color:var(--dimmer)}
-#codehead .n{color:var(--dimmer);font-size:11px;font-variant-numeric:tabular-nums}
+body[data-code="shut"] #codegrip{display:none}
+/* #384. THE TOOLS TAB'S HEAD, the mockup's: the label, what is being
+   written right now (`.n`), and `clear`. */
+#codehead{display:flex;align-items:center;gap:8px;padding:10px 18px 8px;flex:none}
+#codehead .n{color:var(--dim);font-family:var(--mono);font-size:11px}
 /* #156. `copy` IM KOPF IST WEG, ersatzlos -- des Owners Ansage vom 2026-08-29:
    "die copy funktion aus dem Header zaehlt global fuer alles (das ist doof)".
-   Sie kopierte den sichtbaren Text des ganzen Panels, also Aufrufliste und
-   Quelltext in einem Block, und wer einen Codeblock wollte, bekam alles. Der
-   Knopf sitzt jetzt an jedem Block (`.cwcopy`), wo er weiss, was er meint.
-   `clear all` bleibt allein im Kopf: es MEINT alles, das ist sein Zweck. */
-#codewipe{margin-left:auto;font:inherit;font-size:11px;color:var(--dimmer);
-  background:transparent;border:1px solid var(--line);border-radius:6px;
-  padding:2px 9px;cursor:pointer}
-#codewipe:hover{border-color:var(--bevel);color:var(--text-hover)}
-#codebody{overflow-y:auto;padding:0 8px 10px;flex:1;min-height:0}
+   Der Knopf sitzt jetzt an jedem Block (`.cwcopy`), wo er weiss, was er
+   meint. `clear` bleibt allein im Kopf: es MEINT alles, das ist sein Zweck. */
+#codewipe{margin-left:auto;display:inline-flex;align-items:center;height:24px;
+  padding:0 10px;font:inherit;font-size:11.5px;color:var(--text-soft);
+  background:transparent;border:1px solid var(--line);border-radius:999px;
+  cursor:pointer;white-space:nowrap}
+#codewipe:hover{background:var(--hover)}
+#codebody{overflow-y:auto;padding:0 10px 20px;flex:1;min-height:0}
+/* -- #384: the inspector's tab strip -------------------------------------- */
+/* THE MOCKUP'S SEGMENTED STRIP: a --bg track, 3 px of padding, a 10 px
+   radius, the selected tab raised. The tabs share the width and never shrink
+   below their label; with Git and Browser in a narrow column the strip
+   scrolls rather than cutting a label short. */
+#itabs{display:flex;gap:3px;margin:12px 12px 6px;padding:3px;flex:none;
+  background:var(--bg);border:1px solid var(--line-soft);border-radius:10px;
+  overflow-x:auto;scrollbar-width:none}
+#itabs::-webkit-scrollbar{display:none}
+#itabs .tab{flex:1;display:inline-flex;align-items:center;justify-content:center;
+  gap:6px;height:30px;padding:0 6px;border:0;border-radius:7px;
+  background:transparent;color:var(--dim);font:inherit;font-size:12.5px;
+  font-weight:600;cursor:pointer;white-space:nowrap}
+#itabs .tab:hover{color:var(--text)}
+#itabs .tab.on{background:var(--raised);color:var(--text);
+  box-shadow:0 1px 2px var(--shadow)}
+#itabs .tab:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
+#itabs .cnt{font-family:var(--mono);font-size:10.5px;font-weight:500;color:var(--dim);
+  background:var(--line-soft);border-radius:999px;padding:0 6px;line-height:16px}
+/* GIT AND BROWSER HAVE A TAB WHILE THEIR TOGGLE IS ON, from the first paint:
+   Python stamps the attributes before the page is handed over. */
+body[data-git="shut"] #itab-git,body[data-browser="shut"] #itab-browser{display:none}
+/* The mockup's section label and status pill -- inside the inspector only;
+   the chat's own pills are #383's and #385's. */
+#side .lbl{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--dim);font-weight:600}
+#side .pill{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;
+  border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
+#side .pill svg{width:12px;height:12px}
+#side .pill.ok{background:var(--ok-soft);color:var(--ok)}
+#side .pill.warn{background:var(--warn-soft);color:var(--warn)}
+#side .pill.acc{background:var(--accent-soft);color:var(--accent)}
+#side .pill.sub{background:var(--sub-soft);color:var(--sub)}
+#side .pill.sk{background:color-mix(in srgb,var(--skip) 13%,transparent);color:var(--skip)}
+#side .pill.bad{background:color-mix(in srgb,var(--bad) 13%,transparent);color:var(--bad)}
+/* A TAB WITH NOTHING IN IT SAYS SO in one quiet line, not an empty frame. */
+#side .inone{margin:0;padding:10px 20px;font-size:12px;color:var(--dim)}
+#goalpanel:not([hidden])+.inone,#subpanel:not([hidden])+.inone{display:none}
+#igoal:focus-visible,#isubs:focus-visible{outline:1px solid var(--accent);
+  outline-offset:-1px}
 /* #138b. DER QUELLTEXT UNTER EIGENEM NAMEN, damit der Abschnitt beantwortet,
    wofuer er da ist. Versteckt, solange nichts geschrieben wurde -- eine
    Ueberschrift ueber einer leeren Flaeche behauptet einen Inhalt. */
@@ -1761,16 +1803,12 @@ body[data-code="shut"][data-browser="shut"] #codegrip{display:none}
   color:var(--dimmer);background:var(--rail)}
 
 /* -- #156: das Git-Panel ------------------------------------------------- */
-/* ES BORGT SICH NICHTS, ES IST DASSELBE -- nur ist das "Dasselbe" jetzt das
-   ZIELPANEL und nicht mehr das Code-Panel. Das Git-Panel steht im Chatfenster,
-   also traegt es dort dessen Form: Karte, Rundung, Schatten, Kopf in
-   Normalschrift. Was nur IHM gehoert, steht weiter hier -- Dateizeilen, +/-,
-   die Historie -- und die Klappgruppen bleiben `.tchd`, dieselben wie drueben.
-   ORT UND BREITE KOMMEN VON `#panels`: das Panel sagt, wie es aussieht, die
-   Spalte sagt, wo es steht. */
+/* #384: A TAB OF THE INSPECTOR, flat on the column like every other tab --
+   the card's frame, radius and shadow belonged to a card over the chat
+   (#panels), which is gone. Was nur IHM gehoert, steht weiter hier --
+   Dateizeilen, +/-, die Historie -- und die Klappgruppen bleiben `.tchd`. */
 #git{flex:0 1 auto;min-height:0;overflow:hidden;display:flex;
-  flex-direction:column;background:var(--panel);border:1px solid var(--line);
-  border-radius:10px;box-shadow:0 6px 24px var(--shadow);font-size:11.5px}
+  flex-direction:column;font-size:11.5px}
 /* Wegklicken geht weiter NUR ueber den Knopf in der Titelleiste (#156). */
 body[data-git="shut"] #git{display:none}
 #githead{display:flex;align-items:center;gap:8px;padding:13px 15px 9px;
@@ -1880,127 +1918,83 @@ body[data-git="shut"] #git{display:none}
   color:var(--text-soft);padding:7px 10px;border-radius:8px;cursor:pointer}
 .sess:hover{background:var(--hover)}
 .sess.on{background:var(--raised);color:var(--text)}
-/* -- die Panelspalte im Chatfenster -------------------------------------- */
-/* ZWEI KARTEN, EINE SPALTE, UND KEINE ZEILE JAVASCRIPT DAFUER. Das Git-Panel
-   steht unter dem Zielpanel, und ein Ziel faengt an und hoert auf -- es muss
-   also wandern. Als Rechnung hiesse das, die Hoehe des Zielpanels bei jedem
-   Zeichnen und bei jeder Fenstergroesse nachzumessen; eine Flexspalte tut es
-   von selbst, weil ein verstecktes Zielpanel keinen Platz belegt. Ohne Ziel
-   sitzt das Git-Panel oben, mit Ziel darunter, und niemand rechnet.
-   DIE SPALTE FAENGT KEINE KLICKS. Sie ist hoeher als ihr Inhalt, damit ein
-   langes Ziel und eine lange Dateiliste sich die Hoehe teilen koennen statt
-   sich gegenseitig abzuschneiden -- ohne `pointer-events` waere der leere Rest
-   ein unsichtbarer Deckel ueber dem Gespraech. Die Karten nehmen ihre Klicks
-   selbst wieder an.
-   DIE HOEHE IST DIE ALTE, EINMAL: 60 % gehoerten dem Ziel allein, jetzt teilen
-   sich zwei Karten 70 % minus dem Rand -- der Abstand zur Eingabemaske bleibt
-   damit derselbe, den das Zielpanel seit #164 haelt. */
-/* #233. UND NIE UEBER DIE EINGABEMASKE. 70 % setzte voraus, dass der
-   Composer nie mehr als 30 % von #main belegt; mit Speicherleiste und zwei
-   Bildchips waren es bei 1130x520 190 von 486 px, und die Git-Karte lag ueber
-   Textfeld, Ordner-, Stufen- und Mikrofonknopf. `--comph` ist die Hoehe, die
-   `fitFlow` ohnehin misst (inklusive der 26-px-Blende, die so den Abstand
-   stellt); ohne sie gilt die alte Rechnung. */
-#panels{position:absolute;top:14px;right:16px;z-index:5;width:290px;
-  height:min(calc(70% - 14px),calc(100% - var(--comph,0px) - 14px));
-  display:flex;flex-direction:column;gap:10px;
-  pointer-events:none}
-#panels>*{pointer-events:auto}
 
 
 /* -- #164: das Zielpanel ------------------------------------------------- */
-/* ORT UND BREITE GEHOEREN `#panels`. Was hier steht, ist die Karte selbst --
-   und `min-height:0` neben `overflow:auto` ist das, was aus dem Deckel der
-   Spalte eine eigene Scrollflaeche macht statt eines abgeschnittenen Endes. */
-#goalpanel{flex:0 1 auto;min-height:0;
-  overflow:auto;background:var(--panel);border:1px solid var(--line);
-  border-radius:10px;box-shadow:0 6px 24px var(--shadow);font-size:11.5px}
+/* #384. AS THE MOCKUP DRAWS IT, in the inspector's Goal tab: GOAL and the
+   status pill, the title at 16/650, a 5 px progress bar, the numbers in one
+   mono line, then STEPS as a timeline -- a 20 px mark per step on a line that
+   joins them, the text at 13 px, its time and tokens at 11 px under it.
+   `min-height:0` beside `overflow:auto` makes the panel its own scroller. */
+#goalpanel{flex:1 1 auto;min-height:0;overflow:auto;display:flex;
+  flex-direction:column;gap:12px;padding:10px 20px 22px;font-size:13px}
 #goalpanel[hidden]{display:none}
-/* DREI ZONEN MIT LUFT DAZWISCHEN, nach der Vorlage des Owners: Kopfzeile mit Status,
-   dann das Ziel selbst mit Zeichen und Kennzahlen, dann die Liste. Die alte
-   Fassung presste alles in eine Zeile -- Zeichen, Wort, Uhr, Zaehler -- und war
-   damit eine Statusleiste, keine Anzeige. */
-#goalpanel .gh{display:flex;align-items:center;gap:8px;padding:13px 15px 11px;
-  cursor:pointer}
-#goalpanel .gh b{color:var(--text-faint);font-weight:600;letter-spacing:.2px}
-#goalpanel .gh .st{margin-left:auto;color:var(--dimmer)}
-#goalpanel .gh .st.ok{color:var(--ok)}
+#goalpanel .gh{display:flex;align-items:center;gap:8px}
+#goalpanel .gh .st{margin-left:auto}
 /* #281: dasselbe `×` schliesst die Subtasks-Karte -- eine Regel, zwei Karten. */
 #goalpanel .gx,#subpanel .gx{background:none;border:0;color:var(--dimmer);font:inherit;
   font-size:16px;line-height:1;padding:0 0 0 4px;cursor:pointer}
 #goalpanel .gx:hover,#subpanel .gx:hover{color:var(--bad)}
-/* DAS ZIEL IST DIE UEBERSCHRIFT, nicht eine Zeile unter dem Wort "Goal": es
-   bricht um, statt abgeschnitten zu werden, und traegt das Zeichen neben sich. */
-#goalpanel .gt{display:flex;gap:9px;align-items:flex-start;padding:0 15px 7px}
-#goalpanel .gi{color:var(--accent);flex:none;margin-top:1px;display:flex}
-#goalpanel .gt .tx{color:var(--text);font-weight:600;font-size:13px;
-  line-height:1.35;min-width:0;overflow-wrap:anywhere}
-/* EINE ZEILE FUER ALLE DREI ZAHLEN, mittig getrennt: Fortschritt, Uhr, Token.
-   Getrennt verteilt waren sie drei Zahlen an drei Orten, und keine davon las
-   sich als Aussage ueber dasselbe Ziel. */
-#goalpanel .gm{padding:0 15px 13px;color:var(--dimmer);
-  font-variant-numeric:tabular-nums}
-#goalpanel .gp{padding:11px 15px 6px;color:var(--dim);font-weight:600;
-  border-top:1px solid var(--line-soft)}
-#goalpanel ol{list-style:none;margin:0;padding:0 15px 13px}
-/* #174: LUFT ZWISCHEN DEN ZEILEN, WEIL SIE UMBRECHEN. Bei 6px und einer
-   einzeiligen Vorlage sah das Raster richtig aus; ein Schritt, der vier Zeilen
-   braucht (M6.2 im Lauf vom 2026-08-30), klebte an seinem Nachbarn, und die
-   Kostenzeile darunter gehoerte optisch schon zum naechsten. Der Abstand nach
-   unten ist groesser als der nach oben: so bleibt die Kostenzeile bei IHREM
-   Schritt. `min-width:0` und `overflow-wrap` sind das, was einen langen Pfad
-   ohne Leerzeichen umbrechen laesst, statt das Panel zu sprengen. */
-#goalpanel li{display:flex;gap:9px;padding:7px 0 9px;align-items:flex-start;
-  color:var(--text-faint);line-height:1.45}
-#goalpanel li>span:last-child{min-width:0;overflow-wrap:anywhere;
-  /* #235: DIE SPALTE FUELLT DIE ZEILE, sonst ist sie so breit wie
-     ihr Text -- und mit ihr die gestrichelte Linie ueber der Kostenzeile:
-     unter "Audit rendern" ein Stummel, unter einem langen Schritt volle Breite. */
-  flex:1}
-#goalpanel li .m{flex:none;margin-top:2px;display:flex;color:var(--dimmer)}
-/* ERLEDIGT WIRD DURCHGESTRICHEN UND GRUEN, LAUFEND AMBER -- dieselben zwei
-   Farben, die die Rail fuer laufend und fertig benutzt, damit ein Blick von
-   dort hierher nichts umlernen muss. */
-#goalpanel li.done{color:var(--dimmer)}
-/* #174: DER STRICH IST EIN HINWEIS, KEIN BALKEN. In der Standarddicke lag er
-   bei 11,5px mitten auf den Buchstaben und machte einen erledigten Schritt
-   unlesbar -- man sah, DASS etwas fertig ist, aber nicht mehr, was. Duenn und in
-   der Linienfarbe bleibt beides. */
-#goalpanel li.done .t{text-decoration:line-through;
-  text-decoration-thickness:1px;text-decoration-color:var(--dimmer);
-  text-underline-offset:0}
-#goalpanel li.done .m{color:var(--ok)}
-#goalpanel li.running .m{color:var(--warn)}
-#goalpanel li.running .t{color:var(--text)}
-#goalpanel li.failed .m{color:var(--bad)}
-/* #289: UEBERSPRUNGEN IST NICHT ERLEDIGT -- kein Strich, kein Gruen, sondern
-   gedimmt mit dem Pfeil in Amber, derselben Farbe wie der Hinweis im Kopf. */
-#goalpanel li.skipped{color:var(--dimmer)}
-/* #296: its own hue (--skip), a dashed ring with a skip glyph, and the word
-   "skipped" -- never the amber of the running step. */
-#goalpanel li.skipped .m,#goalpanel .gh .st.sk{color:var(--skip)}
-#goalpanel li.skipped .t{color:var(--dim)}
-#goalpanel li .lbl{margin-left:6px;font-size:10.5px;letter-spacing:.3px;
+/* DAS ZIEL IST DIE UEBERSCHRIFT: es bricht um, statt abgeschnitten zu werden. */
+#goalpanel .gt .tx{font-size:16px;font-weight:650;line-height:1.35;color:var(--text);
+  overflow-wrap:anywhere}
+#goalpanel .gbar{height:5px;border-radius:3px;background:var(--line);overflow:hidden;
+  display:flex;flex:none}
+#goalpanel .gbar span{background:var(--accent)}
+#goalpanel .gbar.ok span{background:var(--ok)}
+#goalpanel .gbar.warn span{background:var(--warn)}
+#goalpanel .gbar.sk span{background:var(--skip)}
+/* EINE ZEILE FUER ALLE ZAHLEN -- Fortschritt, Uhr, Token, Delegiertes --, und
+   die delegierten im --sub-Kanal (#143, #169: daneben, nicht drin). */
+#goalpanel .gm{display:flex;flex-wrap:wrap;gap:4px 14px;font-family:var(--mono);
+  font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums}
+#goalpanel .dl{color:var(--sub)}
+#goalpanel .gp{margin-top:10px}
+/* #294: the goal waits for the user -- the paused step and the line under the
+   title in --bad; the pill in the head says "Paused". */
+#goalpanel li.held>.ck,#goalpanel .gz{color:var(--bad)}
+#goalpanel .gz{font-size:12px;overflow-wrap:anywhere}
+#goalpanel ol.steps{list-style:none;margin:0;padding:0;display:flex;
+  flex-direction:column}
+#goalpanel ol.steps>li{position:relative;display:flex;gap:11px;padding-bottom:16px}
+#goalpanel ol.steps>li:last-child{padding-bottom:0}
+/* THE LINE THAT MAKES IT A TIMELINE, from under one mark to the next. */
+#goalpanel ol.steps>li::before{content:"";position:absolute;left:9.5px;top:24px;
+  bottom:4px;width:1px;background:var(--line)}
+#goalpanel ol.steps>li:last-child::before{display:none}
+/* ONE MARK PER STATE: done a filled soft circle with a check, running an
+   accent ring, open a hollow one, failed a cross, skipped (#296) a dashed ring
+   in its own hue with a skip glyph, paused (#294) two bars. Done is no longer
+   struck through -- the check says it, and the text stays readable. */
+#goalpanel .ck{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;flex:none;margin-top:1px;color:var(--line)}
+#goalpanel .ck svg{width:20px;height:20px}
+#goalpanel li.done>.ck{background:var(--ok-soft);color:var(--ok)}
+#goalpanel li.done>.ck svg{width:12px;height:12px}
+#goalpanel li.running>.ck{color:var(--accent)}
+#goalpanel li.failed>.ck{color:var(--bad)}
+#goalpanel li.skipped>.ck,#goalpanel .gh .st.sk{color:var(--skip)}
+#goalpanel .sb{flex:1;min-width:0}
+#goalpanel .t{font-size:13px;color:var(--text-soft);line-height:1.45;
+  overflow-wrap:anywhere}
+#goalpanel li.running>.sb>.t{color:var(--text)}
+#goalpanel li.skipped>.sb>.t{color:var(--dim)}
+/* #296: THE WORD, NOT ONLY THE COLOUR (WCAG 1.4.1) -- "skipped", "paused". */
+#goalpanel .word{margin-left:6px;font-size:10.5px;letter-spacing:.3px;
   text-transform:uppercase;color:var(--skip)}
-/* #294: the goal waits for the user -- the paused step and the head in --bad,
-   with a pause glyph, and one line under the title saying why. */
-#goalpanel li.held .m,#goalpanel .gh .st.pz,#goalpanel .gz{color:var(--bad)}
-#goalpanel .gz{padding:0 15px 11px;font-size:12px;overflow-wrap:anywhere}
-#goalpanel ol.subs{padding:6px 0 0 0}
-#goalpanel ol.subs li{padding:3px 0 4px}
-#goalpanel li.open .t{color:var(--text-faint)}
-#goalpanel li.done,#goalpanel li.failed,#goalpanel li.skipped{cursor:pointer}
-/* #174: DIE KOSTENZEILE HAENGT AN IHREM SCHRITT. Sie sass mit 3px so dicht
-   unter dem Text, dass sie bei einem umgebrochenen Schritt wie dessen fuenfte
-   Zeile aussah; mit Luft darueber und einem eigenen Ton ist sie eine Fussnote. */
-#goalpanel .cost{display:block;color:var(--dimmer);font-size:10.5px;
-  margin-top:5px;opacity:.85;font-variant-numeric:tabular-nums;
-  letter-spacing:.2px}
-/* ZUGEKLAPPT BLEIBT, WORUM ES GEHT: Titel, Zaehler, Uhr, Token. Weg ist nur die
-   Liste. Ein Kasten, der zugeklappt nur noch das Wort "Goal" zeigt, ist kein
-   eingeklapptes Ziel -- er ist gar keine Anzeige mehr. */
-#goalpanel.shut .gp,#goalpanel.shut ol,#goalpanel.shut .gz{display:none}
-#goalpanel.shut .gm{padding-bottom:13px}
+#goalpanel li.held .word{color:var(--bad)}
+#goalpanel .sm{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:3px;
+  font-variant-numeric:tabular-nums}
+/* #294: THE SUB-STEPS OF A SPLIT STEP, small, under its text. */
+#goalpanel ol.subs{list-style:none;margin:6px 0 0;padding:0;display:flex;
+  flex-direction:column;gap:4px}
+#goalpanel ol.subs li{display:flex;gap:7px;align-items:flex-start;font-size:12px;
+  color:var(--text-soft)}
+#goalpanel ol.subs .ck,#goalpanel ol.subs .ck svg{width:14px;height:14px}
+#goalpanel ol.subs .ck{margin-top:2px}
+#goalpanel ol.subs li.done>.ck svg{width:9px;height:9px}
+/* The phone's thin goal bar (REMOTE_CSS, #249) folds the panel to its head. */
+#goalpanel.shut .gp,#goalpanel.shut ol,#goalpanel.shut .gz,#goalpanel.shut .gbar{display:none}
 
 /* -- #162: ein Zug, der laeuft, waehrend man woanders steht ---------------- */
 /* AM RAND UND NICHT AUF DER FLAECHE, und dafuer ein eigenes Element: `::before`
@@ -2286,7 +2280,8 @@ body:not([data-git="shut"]) #gittoggle{color:var(--accent);background:var(--acce
   border-radius:14px;border:1px solid var(--line-soft);margin:0 8px 8px 0;
   overflow:hidden;
   position:relative;
-  /* #233: der Abfragecontainer fuer #panels (siehe dort). Nur
+  /* #233: der Abfragecontainer, gebaut fuer #panels -- #384 hat die Karten
+     und ihre Reserve in den Inspektor genommen; der Container bleibt. Nur
      inline-size, also Stil- und Breiten-Containment, KEIN Layout-Containment:
      kein neuer Bezugsblock fuer `fixed`, kein neuer Stapelkontext. Die Breite
      kommt ohnehin aus `flex:1` und min-width 560, nie aus dem Inhalt. */
@@ -2395,10 +2390,10 @@ details.rollcard pre.rtp{max-height:220px;overflow:auto;white-space:pre-wrap;
    die sich an diese Mitte haelt, mit ihr. Links `10px + --sbw` macht die
    Box symmetrisch in #main: Spalte und Maske stehen auf der Mitte von #main. */
 /* #280: die zehn Pixel Luft sind seitdem Teil von --colpad (10 + 30 = 40,
-   dieselbe Zahl, die #composer traegt), und die Kartenreserve ist --reserve --
-   eine Variable, die #composer mit derselben Regel bekommt. */
+   dieselbe Zahl, die #composer traegt). #384: keine Kartenreserve mehr -- die
+   Karten stehen im Inspektor, also bleibt die Spalte mittig in #main. */
 #flow{overflow-y:auto;padding:22px 0 26px;
-  padding-inline:calc(var(--sbw) + var(--reserve)) var(--reserve);flex:1;
+  padding-inline:var(--sbw) 0;flex:1;
   min-height:0;scroll-behavior:smooth;user-select:text;
   scrollbar-gutter:stable}
 /* CENTRED, NOT LEFT-HUGGING. max-width alone pins the column to the left edge
@@ -2583,39 +2578,15 @@ a.lnk:focus-visible,.pth:focus-visible
 .md th,.md td{border:1px solid var(--line);padding:5px 9px;text-align:left;
   vertical-align:top}
 .md th{background:var(--raised);color:var(--text-hi);font-weight:600}
-/* #131. THE TOOL-CALL TILE. Collapsed it is a title, a count and a plus; open
-   it is every call this chat has made. It sizes to the WIDEST row it holds --
-   `width:max-content` -- because a tool line is a path plus arguments and a
-   fixed width would ellipsis away the half that says which file.
-   ABSOLUTE AND NOT STICKY: sticky inside `#flow` scrolls with the first turn
-   until it hits the top, which is a tile that moves for no reason. */
-/* THE SAME GROUND AS THE USER'S BUBBLE, and by the same tokens rather than by
-   a matching literal: `--raised` and `--line` are defined once per palette, so
-   the tile follows the skin that is on instead of following one that was. */
-/* #138. IM PANEL, NICHT MEHR UEBER DEM CHAT. Als Kachel schwebte sie absolut
-   ueber der Leseflaeche und musste sich auf 44vw begrenzen, um sie nicht zu
-   verdecken. In einer eigenen Spalte verdeckt sie nichts, also nimmt sie die
-   volle Breite und traegt weder Schatten noch eigene Ecke -- beides war die
-   Sprache eines Elements, das ueber etwas anderem liegt. */
-#toolcalls{width:100%;border:1px solid var(--line);border-radius:8px;
-  background:var(--raised);font-size:11.5px;overflow:hidden}
-#toolcalls .tchd{display:flex;align-items:center;gap:9px;padding:7px 12px;
-  cursor:pointer;user-select:none}
-#toolcalls .tct{font-weight:600;color:var(--text-soft)}
-#toolcalls .tcn{color:var(--dimmer);font-variant-numeric:tabular-nums}
-#toolcalls .tcx{margin-left:auto;color:var(--dimmer);font-size:15px;
-  line-height:1;width:11px;text-align:center}
-#toolcalls.shut .tcbody{display:none}
-#toolcalls .tcbody{border-top:1px solid var(--line);padding:8px}
-#toolcalls .tool{margin:0 0 6px}
-/* INSIDE THE TILE THE ARGUMENTS ARE THE POINT, so they are not clipped -- the
-   tile grew to fit them. In the flow they were one line of a column that had
-   other things to show. */
-#toolcalls .tcclear{font:inherit;font-size:10.5px;cursor:pointer;
-  border-radius:5px;padding:2px 9px;background:transparent;
-  border:1px solid var(--line);color:var(--dimmer)}
-#toolcalls .tcclear:hover{border-color:var(--bevel);color:var(--text-hover)}
-#toolcalls .empty{margin:0;padding:2px 4px}
+/* #131. TOOL CALLS DO NOT BELONG IN THE READING COLUMN. A turn of 24 rounds
+   put 24 rows between the question and the answer; they are collected in the
+   side column instead (#138), one list per chat, there before the first call.
+   #384. A LIST IN THE INSPECTOR'S TOOLS TAB, as the mockup draws it: no tile
+   and no fold of its own -- the tab is the surface, and every row folds by
+   itself. */
+#toolcalls{width:100%;display:flex;flex-direction:column;font-size:12.5px}
+#tclist{display:flex;flex-direction:column;gap:1px}
+#toolcalls .empty{margin:0;padding:6px 8px;color:var(--dim);font-size:12px}
 
 /* #156. DIESELBE KACHEL FUER JEDE KLAPPE, und das ist des Owners Ansage vom
    2026-08-29: "sollen so ein panel haben wie Tool-Calls mit diesem Grau
@@ -2663,29 +2634,61 @@ a.lnk:focus-visible,.pth:focus-visible
 
 /* #138b. JEDE ZEILE IST IHRE EIGENE KLAPPE. Der Kopf bleibt eine Zeile -- er
    ist der Index -- und alles, was Platz braucht, liegt darunter und nur dann,
-   wenn jemand danach gefragt hat. */
-#toolcalls .tool{border:1px solid transparent;border-radius:6px}
-#toolcalls .tool .hd{cursor:pointer;user-select:none}
-#toolcalls .tool:not(.shut){border-color:var(--line);background:var(--panel)}
-#toolcalls .tool.shut .tbody{display:none}
-#toolcalls .tool .tx{margin-left:6px;color:var(--dimmer);width:9px;
-  text-align:center;flex:none}
+   wenn jemand danach gefragt hat.
+   #384. THE MOCKUP'S ROW: 32 px, a two-digit number, the dot of the call's
+   kind (`toolKind`, the kinds #383's trace strip draws), the name in mono,
+   the first argument as a summary cut by an ellipsis, a chevron. Open, the
+   row is raised and ARGUMENTS and RESULT stand under it; a call with neither
+   has nothing to open (`.flat`). The note is the call's clock (#172). The
+   dot colours are this list's own, under `#toolcalls`. */
+#toolcalls .tool{margin:0;border:0;border-radius:0;background:none;overflow:visible}
+#toolcalls .tool .hd{display:flex;align-items:center;gap:9px;width:100%;height:32px;
+  padding:0 8px;border:0;border-radius:7px;background:transparent;
+  color:var(--text-soft);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+#toolcalls .tool .hd:hover{background:var(--hover)}
+#toolcalls .tool:not(.shut) .hd{background:var(--raised)}
+#toolcalls .tool.flat .hd{cursor:default}
+#toolcalls .tool .hd:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
+#toolcalls .tool .num{font-family:var(--mono);font-size:10.5px;color:var(--dim);
+  width:16px;flex:none}
+#toolcalls .tool .ico{width:7px;height:7px;border-radius:50%;flex:none;
+  display:inline-block;background:var(--dim)}
+#toolcalls .tool .ico.k-goal{background:var(--dim)}
+#toolcalls .tool .ico.k-cmd{background:var(--accent)}
+#toolcalls .tool .ico.k-sub{background:var(--sub)}
+#toolcalls .tool .name{color:var(--text);font-family:var(--mono);font-size:12px;flex:none}
+#toolcalls .tool .su{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;color:var(--dim)}
+#toolcalls .tool .note{flex:none;margin:0;padding:0;font-family:var(--mono);
+  font-size:10.5px;color:var(--dim);white-space:nowrap}
+#toolcalls .tool .note:empty{display:none}
+#toolcalls .tool.run .note{color:var(--warn);font-variant-numeric:tabular-nums}
+#toolcalls .tool .tx{width:14px;height:14px;color:var(--dim);flex:none;
+  transition:transform .15s}
+#toolcalls .tool:not(.shut) .tx{transform:rotate(90deg)}
+#toolcalls .tool.flat .tx{visibility:hidden}
 /* EIN FEHLGESCHLAGENER AUFRUF TRAEGT ES AM KOPF, nicht erst im Rumpf: sonst
    muesste man neunzig Zeilen aufklappen, um den einen zu finden, der der
-   Grund war. */
-#toolcalls .tool.bad .ico{color:var(--bad,#e06c75)}
-#toolcalls .tbody{padding:2px 8px 8px}
-#toolcalls .tsec{margin-top:6px}
-#toolcalls .tsh{font-size:10px;letter-spacing:.04em;text-transform:uppercase;
-  color:var(--dimmer);margin-bottom:3px}
-/* DIE ANTWORT IN EINEM EIGENEN BLOCK, abgesetzt gegen die Argumente. Beides
-   in einem Kasten war die Form, die aus dem Panel eine JSON-Wand gemacht hat:
-   was hineinging und was herauskam sahen gleich aus. */
-#toolcalls .tsp{margin:0;padding:6px 8px;border-radius:5px;background:var(--rail);
-  border:1px solid var(--line);white-space:pre-wrap;word-break:break-word;
-  max-height:260px;overflow:auto;font-size:11px;line-height:1.45}
-#toolcalls .res .tsp{background:var(--raised)}
-#toolcalls .tsmore{font-size:10px;color:var(--dimmer);margin-top:3px}
+   Grund war. #384: the dot in --bad and the word "error" in the row. */
+#toolcalls .tool.bad .ico{background:var(--bad)}
+#toolcalls .tool.bad .note{color:var(--bad)}
+#toolcalls .tool.shut .tbody{display:none}
+/* ALL OF IT HERE: `.tbody` alone is a reasoning block in the chat. */
+#toolcalls .tool .tbody{display:flex;flex-direction:column;gap:6px;margin:0;
+  padding:6px 6px 12px 33px;border:0;border-radius:0;background:none;color:inherit;
+  font-size:inherit;line-height:inherit;white-space:normal;max-height:none;overflow:visible}
+#toolcalls .tsec{display:flex;flex-direction:column;gap:6px}
+/* DIE ANTWORT IN EINEM EIGENEN BLOCK unter ihrem eigenen Namen, abgesetzt gegen
+   die Argumente: was hineinging und was herauskam, nie in einem Kasten. */
+#toolcalls .tsec.res{margin-top:4px}
+#toolcalls .tsh{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--dim);font-weight:600}
+/* UMBRECHEND UND NICHT SCROLLEND: eine Zeile JSON ist tausend Zeichen lang. */
+#toolcalls .tsp{margin:0;padding:9px 11px;border-radius:8px;background:var(--code-bg);
+  color:var(--code);border:1px solid var(--line-soft);white-space:pre-wrap;
+  word-break:break-word;font-family:var(--mono);font-size:11.5px;line-height:1.55}
+#toolcalls .tsmore{font-size:10.5px;color:var(--dim)}
+@media (prefers-reduced-motion:reduce){#toolcalls .tool .tx{transition:none}}
 
 .tool{margin:11px 0;border:1px solid var(--line);border-radius:8px;
   background:var(--panel);overflow:hidden}
@@ -3112,7 +3115,8 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
    in Chromium, so it fades to nothing rather than through grey -- and 26px of it
    is why the gap #flow keeps below is measured from offsetHeight, which
    INCLUDES the fade: the last line comes to rest above it, never inside it. */
-/* #233: z-index 6, EINE STUFE UEBER #panels (5). #box ist mit
+/* #233: z-index 6, EINE STUFE UEBER den Karten (#panels, 5; seit #384 im
+   Inspektor). #box ist mit
    `z-index:1` ein eigener Stapelkontext, also galt das `z-index:40` der Menues
    nur darin -- Modell-, Stufen- und Ordnermenue oeffneten UNTER der Git-Karte
    (elementFromPoint: #gitbranchname ueber der Modellzeile, 1180x800). Hebt man
@@ -3120,37 +3124,12 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
    `--comph` oberhalb, also teilen sich beide sonst kein Pixel. */
 /* #256: BEIDE SEITEN --sbw, aus demselben Grund wie links an #flow --
    die Maske steht auf der Mitte von #main, nicht 5 px links davon. */
-/* #280: dieselben --sbw, --reserve und --colpad wie #flow und .turn. */
+/* #280: dieselben --sbw und --colpad wie #flow und .turn (#384: ohne die
+   #233/#256-Kartenreserve). */
 #composer{position:absolute;bottom:0;z-index:6;
-  left:calc(var(--sbw) + var(--reserve));right:calc(var(--sbw) + var(--reserve));
+  left:var(--sbw);right:var(--sbw);
   padding:26px var(--colpad) 20px;
   background:linear-gradient(to bottom,transparent,var(--bg) 26px)}
-/* #233. WO PLATZ IST, WEICHT DIE SPALTE DEN KARTEN AUS. Die Karten
-   bleiben absolut (#164), aber ueber der Leseflaeche lagen sie bei jeder
-   Breite: 1920x1080 (#main 1418 px) endet die 960er-Spalte bei 1189, die
-   Karten beginnen bei 1112 -- 77 px jedes Zuges und der Kopierknopf jedes
-   Code-Blocks darunter. Ab 1100 px #main bekommt #flow rechts die Breite der
-   Karten (290 + 16 Rand) dazu, und #composer zieht seine rechte Kante um
-   dieselben 306 px ein: Spalte und Maske bleiben buendig und mittig im freien
-   Raum (Mitte beider: (#main - --sbw - 306)/2). Darunter bleibt das Schweben,
-   wie es war -- eine reservierte Spalte waere dort schmaler als die Karte.
-   Nur solange eine Karte STEHT: das Git-Panel offen oder ein Ziel gesetzt.
-   #256 (der Owner, 2026-09-23): "die Eingabemaske ist nicht mittig". Die
-   Reserve nur RECHTS schob Spalte und Maske um 306/2 = 153 px (+ 5 px Rinnstein)
-   links der Fenstermitte -- gemessen 158 px, Chromium, 1920x900, Git offen.
-   Jetzt reserviert #flow die Kartenbreite auf BEIDEN Seiten und die Maske
-   zieht beide Kanten um dieselben 306 px ein: die Mitte bleibt die von #main,
-   und die Karten liegen trotzdem nie ueber dem Text. Die Spalte wird dabei nur
-   schmaler, wo 960 + 2 x 316 + 2 x --sbw nicht passen (#main < 1612 px);
-   darueber ist die Reserve wirkungslos, weil .turn ohnehin 960 breit ist. */
-@container chat (min-width:1100px){
-  body:not([data-git="shut"]) #flow,
-  #main:has(#goalpanel:not([hidden])) #flow,
-  #main:has(#subpanel:not([hidden])) #flow,
-  body:not([data-git="shut"]) #composer,
-  #main:has(#goalpanel:not([hidden])) #composer,
-  #main:has(#subpanel:not([hidden])) #composer{--reserve:306px}
-}
 /* -- #385: the start screen ---------------------------------------------- */
 /* AN EMPTY CHAT IS ONE CENTRED GROUP (mockup Start.dc.html): the mark and the
    greeting (#hello in #flow), the composer 26 px under them, then "Continue"
@@ -3666,39 +3645,44 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    the running state is the one that must be seen, not the finished one. */
 .subcard{border:1px solid var(--line);border-left:3px solid var(--sub);border-radius:10px;
   background:var(--panel);padding:10px 14px;margin:0 0 10px;max-width:760px}
-/* #255. DIE KARTEN WOHNEN IN #subpanel, der dritten Karte der
-   `#panels`-Spalte (#164/#233) -- nicht mehr im Fluss, wo sie mit dem
-   Transkript wegscrollten. Das Panel ist gebaut wie das Zielpanel: eigene
-   Scrollflaeche (`min-height:0` + `overflow:auto`), Kopf klappt. Laufende
-   stehen oben in `.splive`, fertige in `.spdone`, ZU per Default: die aktive
-   Flaeche zeigt nur, was gerade arbeitet. `position:relative` macht das Panel
-   zum offsetParent, damit ein Sprung die Karte IM PANEL einrollt und nie
-   #main verschiebt. */
-#subpanel{flex:0 1 auto;min-height:0;position:relative;
-  overflow:auto;background:var(--panel);border:1px solid var(--line);
-  border-radius:10px;box-shadow:0 6px 24px var(--shadow);font-size:11.5px;
-  padding:0 10px 4px}
+/* #255. DIE KARTEN WOHNEN IN #subpanel, nicht im Fluss, wo sie mit dem
+   Transkript wegscrollten. #384: in the inspector's Subtasks tab, as the
+   mockup draws them -- a head with the counts, then one card per subtask:
+   the fork, the id, the status pill, tokens and time; the task; the model;
+   RESULT. Running above, finished below. `position:relative` makes the panel
+   the offsetParent, so a jump rolls the card into view INSIDE the panel and
+   never moves anything else. */
+#subpanel{flex:1 1 auto;min-height:0;position:relative;overflow:auto;display:flex;
+  flex-direction:column;gap:12px;padding:10px 20px 22px;font-size:13px}
 #subpanel[hidden]{display:none}
-#subpanel .sph{display:flex;align-items:center;gap:8px;padding:13px 5px 11px;
-  cursor:pointer}
-#subpanel .sph b{color:var(--text-faint);font-weight:600;letter-spacing:.2px}
-#subpanel .sph .st{margin-left:auto;color:var(--dimmer);font-family:var(--mono);
-  font-size:10.5px}
-#subpanel .subcard{max-width:none;margin:0 0 8px;padding:8px 11px;
-  background:var(--bg)}
-#subpanel .subcard .shead{font-size:11.5px;gap:7px}
-#subpanel .subcard .stask{font-size:12px;display:-webkit-box;
-  -webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-#subpanel .subcard .sstat{margin-left:0;flex-basis:100%}
-#subpanel .spfold{display:block;width:100%;background:none;border:0;
-  border-top:1px solid var(--line);padding:8px 5px;margin:0 0 4px;font:inherit;
-  font-size:11px;color:var(--dim);text-align:left;cursor:pointer}
-#subpanel .spfold[hidden]{display:none}
-#subpanel .spfold:hover{color:var(--text-soft)}
-#subpanel .spfold .caret{display:inline-block;font-size:8px;margin-right:6px;
-  color:var(--dimmer);transition:transform .12s}
-#subpanel .spfold.open .caret{transform:rotate(90deg)}
-#subpanel.shut .splive,#subpanel.shut .spfold,#subpanel.shut .spdone{display:none}
+#subpanel .sph{display:flex;align-items:center;gap:8px}
+#subpanel .sph .lbl{flex:none}
+#subpanel .sph .st{margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;color:var(--dim);font-family:var(--mono);font-size:11.5px}
+#subpanel .splive,#subpanel .spdone{display:flex;flex-direction:column;gap:12px}
+#subpanel .splive:empty,#subpanel .spdone:empty{display:none}
+/* THE CARD IN FULL HERE: `.subcard` alone is the delegate card in the chat
+   (#383), and nothing of it may reach this one. */
+#subpanel .subcard{position:relative;display:flex;flex-direction:column;
+  align-items:stretch;flex-wrap:nowrap;gap:9px;width:auto;max-width:none;margin:0;
+  padding:12px 13px;border:1px solid var(--line-soft);border-radius:12px;
+  background:var(--panel);color:var(--text-soft);font:inherit;font-size:13px;
+  text-align:left;cursor:default;animation:none}
+#subpanel .subcard .sh{display:flex;align-items:center;gap:8px}
+#subpanel .subcard .sh svg{width:15px;height:15px;color:var(--sub);flex:none}
+#subpanel .subcard .sid{font-family:var(--mono);font-size:12.5px;color:var(--text);
+  font-weight:600}
+#subpanel .subcard .sq{margin-left:auto;font-family:var(--mono);font-size:11px;
+  color:var(--dim);white-space:nowrap}
+#subpanel .subcard .stk{font-size:13px;color:var(--text-soft);white-space:pre-wrap;
+  overflow-wrap:anywhere}
+#subpanel .subcard .smod{font-family:var(--mono);font-size:11px;color:var(--dim);
+  overflow-wrap:anywhere}
+#subpanel .subcard .lbl{margin-top:2px}
+#subpanel .subcard .sres{margin:0;padding:9px 11px;border-radius:8px;
+  background:var(--code-bg);color:var(--code);border:1px solid var(--line-soft);
+  font-family:var(--mono);font-size:11.5px;line-height:1.55;white-space:pre-wrap;
+  word-break:break-word}
 @keyframes subseen{0%{box-shadow:0 0 0 2px var(--sub)}100%{box-shadow:0 0 0 2px transparent}}
 #subpanel .subcard.seen{animation:subseen 1.4s ease-out}
 @media (prefers-reduced-motion: reduce){#subpanel .subcard.seen{animation:none;
@@ -3743,6 +3727,9 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 @media (prefers-reduced-motion: reduce){
   .subcard.run::before{animation:none;
     background:color-mix(in srgb,var(--warn) 60%,transparent)}}
+/* #384: the inspector's card shows running in its pill, not on a left bar. */
+#subpanel .subcard.run{border-left-color:var(--line-soft)}
+#subpanel .subcard.run::before{content:none}
 .subcard .sresult{font-size:12.5px;color:var(--text-soft);margin-top:8px;white-space:pre-wrap;
   border-left:2px solid var(--line);padding-left:12px;overflow-wrap:anywhere}
 /* Its own dot class: `.dot` already belongs to the mode chip, and a shared
@@ -3862,8 +3849,8 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
          mockup's order -- side panel, git, browser, phone -- and its icons:
          a frame with its right column drawn, a branch, a globe. -->
     <button id="codetoggle" class="ib pywebview-no-drag" type="button"
-            onclick="crow.toggleCode()" title="Show or hide the code panel"
-            aria-label="Code panel">
+            onclick="crow.toggleCode()" title="Show or hide the inspector"
+            aria-label="Inspector">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg></button>
@@ -4169,101 +4156,6 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
          readout in the composer. The URL is not a choice at all: it is the one
          fact you look up when something is wrong, so it is the connected
          chip's title and costs no width until asked for. -->
-    <!-- #131. TOOL CALLS DO NOT BELONG IN THE READING COLUMN. A turn of 24
-         rounds put 24 rows between the question and the answer, and what a
-         person came back for was the answer. They are collected here instead:
-         one tile, per chat, always present so there is somewhere to look even
-         before the first call. ABSOLUTE, so it does not scroll away from the
-         reader who wants it. -->
-    <!-- #164. DAS ZIEL, oben rechts IM Chatfenster und nicht als dritte Spalte
-         daneben: es gehoert zu dem Gespraech, in dem es gesetzt wurde, und eine
-         eigene Spalte haette es zu einem Moebel gemacht, das immer da ist.
-         ABSOLUT wie die Tool-Kachel, damit es dem Leser nicht wegscrollt.
-         VERSTECKT OHNE ZIEL (der Owner, 2026-08-30): kein leerer Rahmen. -->
-    <div id="panels">
-      <div id="goalpanel" hidden></div>
-      <!-- #255. DIE SUBTASKS, gepinnt wie Ziel und Git: eine Karte
-           im Chatfenster, nicht im Verlauf. Im Fluss scrollten sie mit dem
-           Transkript weg (the owner, 2026-09-23). Laufende oben, fertige in einer
-           zugeklappten Gruppe darunter. Versteckt, solange der offene Chat
-           nichts delegiert hat. -->
-      <div id="subpanel" hidden>
-        <div class="sph" onclick="crow.subPanelFold()"><b>Subtasks</b>
-          <span class="st"></span><button class="gx" type="button"
-            title="hide this card -- running subtasks keep running"
-            aria-label="Close subtasks card"
-            onclick="crow.subPanelClose(event)">×</button></div>
-        <div class="splive"></div>
-        <button class="spfold" onclick="crow.subDoneFold()" hidden></button>
-        <div class="spdone" hidden></div>
-      </div>
-      <!-- #156. DAS GIT-PANEL. Was der Chat als Karten zeigt -- Aenderungen, ein
-           Commit, ein Push -- steht hier als Zustand: was ist offen, auf welchem
-           Zweig, und was ist passiert. Der Chat erzaehlt den Verlauf, das Panel
-           beantwortet die Lage.
-           UND ES STEHT IM CHATFENSTER, unter dem Ziel: die Lage des Ordners
-           gehoert neben das, woran gerade gearbeitet wird, und nicht neben den
-           Quelltext eines einzelnen Werkzeugaufrufs. -->
-      <aside id="git">
-        <div id="githead">
-          <h2>Git tools</h2>
-          <button id="gituser" class="off" onclick="crow.gitAccount()"
-                  title="GitHub account">not connected</button>
-        </div>
-        <div id="gitbody">
-          <div class="gnone" id="gitnone">no repository in the working folder</div>
-          <section id="gitchanges" class="gitgrp" hidden>
-            <div class="tchd" onclick="crow.gitToggle('gitchanges')">
-              <span class="tct">Changes</span>
-              <span class="gcount"><span class="gplus"></span>
-                <span class="gminus"></span></span>
-              <span class="tcx">−</span>
-            </div>
-            <div class="gbody"><div id="gitfiles"></div></div>
-          </section>
-          <section id="gitbranch" class="gitgrp shut" hidden>
-            <div class="tchd" onclick="crow.gitToggle('gitbranch')">
-              <span class="tct" id="gitbranchname">—</span>
-              <span class="gcount" id="gitab"></span>
-              <span class="tcx">+</span>
-            </div>
-            <div class="gbody"><div id="gitbranches"></div></div>
-          </section>
-          <!-- #156. COMMIT ALS EIGENE GRUPPE, wie im abgenommenen Mockup. Sie
-               nimmt eine Nachricht und legt GENAU die verfolgten, geaenderten
-               Dateien ab, die darueber stehen -- kein `-a`, kein Punkt, und nichts
-               Unverfolgtes: was neu ist, will jemand bewusst hinzunehmen. -->
-          <section id="gitcommit" class="gitgrp shut" hidden>
-            <div class="tchd" onclick="crow.gitToggle('gitcommit')">
-              <span class="tct">⊸ Commit</span>
-              <span class="gcount" id="gitcn"></span>
-              <span class="tcx">+</span>
-            </div>
-            <div class="gbody">
-              <!-- #156. WELCHE DREI, des Owners Frage vom 2026-08-29: "WO SIN DIE 3
-                   FILES". Ein Knopf, der eine Zahl nennt und die Namen verschweigt,
-                   verlangt vom Nutzer, sie zu erraten -- und ausgerechnet vor dem
-                   Schritt, der Geschichte schreibt. Sie stehen jetzt darin, dieselbe
-                   Zeilenform wie unter Changes. -->
-              <div id="gitstaged"></div>
-              <div class="gcommit">
-                <input id="gitmsg" placeholder="commit message"
-                       onkeydown="if(event.key==='Enter')crow.gitCommit()">
-                <button id="gitdo" onclick="crow.gitCommit()">Commit</button>
-              </div>
-              <div class="gnone" id="gitcsaid"></div>
-            </div>
-          </section>
-          <section id="githist" class="gitgrp" hidden>
-            <div class="tchd" onclick="crow.gitToggle('githist')">
-              <span class="tct">History</span><span class="gcount"></span>
-              <span class="tcx">−</span>
-            </div>
-            <div class="gbody"><div id="gitrows"></div></div>
-          </section>
-        </div>
-      </aside>
-    </div>
     <div id="flow"></div>
     <div id="composer">
       <!-- #162. WO MAN STEHT, WENN ES NICHT DER LAUFENDE CHAT IST. Ein Blick in
@@ -4341,16 +4233,50 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
        zu dem, was hier steht, und nebeneinander waeren beide schmaler. -->
   <!-- #156. DIE SPALTE, die beide Panels haelt. Sie traegt die Breite und den
        Griff; was darin liegt, teilt sich die Hoehe. -->
-  <div id="side">
-  <aside id="code">
+  <!-- #384. THE INSPECTOR (mockup Main.dc.html, robin 2026-10-14): the same
+       column -- width, grip, clamp and open state (#codetoggle) -- and in it
+       ONE view at a time behind a tab strip: Goal, Tools, Subtasks, plus Git
+       and Browser while their title-bar toggles are on. The goal, subtasks
+       and git cards that floated over the chat's top right (#panels,
+       #164/#255/#156) live here now, so nothing lies over the reading column
+       and the chat keeps its width. WAI-ARIA tabs (tablist / tab /
+       tabpanel), automatic activation; `#side[data-tab]` is the state. -->
+  <div id="side" role="complementary" aria-label="Inspector" data-tab="goal">
+  <div id="itabs" role="tablist" aria-label="Inspector views"
+       onkeydown="crow.inspectorKey(event)">
+    <button id="itab-goal" class="tab on" type="button" role="tab" data-tab="goal"
+            aria-selected="true" aria-controls="igoal" tabindex="0"
+            onclick="crow.inspectorPick('goal')"><span class="tl">Goal</span></button>
+    <button id="itab-tools" class="tab" type="button" role="tab" data-tab="tools"
+            aria-selected="false" aria-controls="code" tabindex="-1"
+            onclick="crow.inspectorPick('tools')"><span class="tl">Tools</span><span
+            class="cnt" hidden></span></button>
+    <button id="itab-subs" class="tab" type="button" role="tab" data-tab="subs"
+            aria-selected="false" aria-controls="isubs" tabindex="-1"
+            onclick="crow.inspectorPick('subs')"><span class="tl">Subtasks</span><span
+            class="cnt" hidden></span></button>
+    <button id="itab-git" class="tab" type="button" role="tab" data-tab="git"
+            aria-selected="false" aria-controls="git" tabindex="-1"
+            onclick="crow.inspectorPick('git')"><span class="tl">Git</span></button>
+    <button id="itab-browser" class="tab" type="button" role="tab" data-tab="browser"
+            aria-selected="false" aria-controls="browser" tabindex="-1"
+            onclick="crow.inspectorPick('browser')"><span class="tl">Browser</span></button>
+  </div>
+  <!-- #164. DAS ZIEL. Versteckt ohne Ziel (der Owner, 2026-08-30: kein leerer
+       Rahmen) -- #384: then the tab says so in one line instead. -->
+  <div id="igoal" role="tabpanel" aria-labelledby="itab-goal" tabindex="0">
+    <div id="goalpanel" hidden></div>
+    <p class="inone">No goal in this chat.</p>
+  </div>
+  <aside id="code" role="tabpanel" aria-labelledby="itab-tools">
     <div id="codehead">
-      <h2>Code</h2><span class="n"></span>
-      <!-- #138b. LEERT ALLES, was in diesem Panel steht -- Quelltext UND
-           Aufrufe. Der `clear` in der Gruppe leert nur die Aufrufe; wer den
-           Verlauf loswerden will, meint beides und soll dafuer nicht zweimal
-           an zwei Stellen klicken. -->
-      <button id="codewipe" onclick="crow.codeWipe(event)"
-              title="clear everything in this panel">clear all</button>
+      <!-- #384: the mockup's head -- the label, what is being written, and
+           #138b's clear, which LEERT ALLES in this tab: the calls AND the
+           program code, and the watermark so a restart does not bring them
+           back. -->
+      <span class="lbl">Tool calls</span><span class="n"></span>
+      <button id="codewipe" type="button" onclick="crow.codeWipe(event)"
+              title="clear the calls and the program code">clear</button>
     </div>
     <div id="codebody">
       <!-- #138b. DIE AUFRUFE ZUERST, DER QUELLTEXT DARUNTER, und die
@@ -4358,15 +4284,8 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
            Umgekehrt gebaut wanderte die Klappe mit jeder geschriebenen Datei
            weiter nach unten: sie ist der INDEX, und ein Index, den man suchen
            muss, ist keiner. Der Quelltext ist das Lange und darf wachsen. -->
-      <div id="toolcalls" class="shut">
-        <div class="tchd" onclick="crow.toolsToggle()">
-          <span class="tct">Tool-Calls</span><span class="tcn"></span>
-          <span class="tcx">+</span>
-        </div>
-        <div class="tcbody">
-          <div id="tclist"></div>
-          <button class="tcclear" onclick="crow.toolsClear(event)">clear</button>
-        </div>
+      <div id="toolcalls">
+        <div id="tclist"></div>
       </div>
       <!-- #138b. UNTER EIGENEM NAMEN. Vorher lagen die Bloecke jedes Werkzeugs
            hier, `web_search` neben `write_file`, und das Panel beantwortete
@@ -4396,6 +4315,86 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
       </section>
     </div>
   </aside>
+  <!-- #255. DIE SUBTASKS des offenen Chats, laufende oben, fertige darunter.
+       Versteckt, solange er nichts delegiert hat (#384: the tab says so) or
+       while its `×` holds them shut for this chat (#281). -->
+  <div id="isubs" role="tabpanel" aria-labelledby="itab-subs" tabindex="0">
+    <div id="subpanel" hidden>
+      <div class="sph"><span class="lbl">Subtasks</span>
+        <span class="st"></span><button class="gx" type="button"
+          title="hide this card -- running subtasks keep running"
+          aria-label="Close subtasks card"
+          onclick="crow.subPanelClose(event)">×</button></div>
+      <div class="splive"></div>
+      <div class="spdone"></div>
+    </div>
+    <p class="inone">Nothing delegated in this chat.</p>
+  </div>
+  <!-- #156. DAS GIT-PANEL. Was der Chat als Karten zeigt -- Aenderungen, ein
+       Commit, ein Push -- steht hier als Zustand: was ist offen, auf welchem
+       Zweig, und was ist passiert. Der Chat erzaehlt den Verlauf, das Panel
+       beantwortet die Lage.
+       #384: a tab of the inspector while its title-bar toggle is on; it was
+       a card over the chat beside the goal before. -->
+  <aside id="git" role="tabpanel" aria-labelledby="itab-git">
+    <div id="githead">
+      <h2>Git tools</h2>
+      <button id="gituser" class="off" onclick="crow.gitAccount()"
+              title="GitHub account">not connected</button>
+    </div>
+    <div id="gitbody">
+      <div class="gnone" id="gitnone">no repository in the working folder</div>
+      <section id="gitchanges" class="gitgrp" hidden>
+        <div class="tchd" onclick="crow.gitToggle('gitchanges')">
+          <span class="tct">Changes</span>
+          <span class="gcount"><span class="gplus"></span>
+            <span class="gminus"></span></span>
+          <span class="tcx">−</span>
+        </div>
+        <div class="gbody"><div id="gitfiles"></div></div>
+      </section>
+      <section id="gitbranch" class="gitgrp shut" hidden>
+        <div class="tchd" onclick="crow.gitToggle('gitbranch')">
+          <span class="tct" id="gitbranchname">—</span>
+          <span class="gcount" id="gitab"></span>
+          <span class="tcx">+</span>
+        </div>
+        <div class="gbody"><div id="gitbranches"></div></div>
+      </section>
+      <!-- #156. COMMIT ALS EIGENE GRUPPE, wie im abgenommenen Mockup. Sie
+           nimmt eine Nachricht und legt GENAU die verfolgten, geaenderten
+           Dateien ab, die darueber stehen -- kein `-a`, kein Punkt, und nichts
+           Unverfolgtes: was neu ist, will jemand bewusst hinzunehmen. -->
+      <section id="gitcommit" class="gitgrp shut" hidden>
+        <div class="tchd" onclick="crow.gitToggle('gitcommit')">
+          <span class="tct">⊸ Commit</span>
+          <span class="gcount" id="gitcn"></span>
+          <span class="tcx">+</span>
+        </div>
+        <div class="gbody">
+          <!-- #156. WELCHE DREI, des Owners Frage vom 2026-08-29: "WO SIN DIE 3
+               FILES". Ein Knopf, der eine Zahl nennt und die Namen verschweigt,
+               verlangt vom Nutzer, sie zu erraten -- und ausgerechnet vor dem
+               Schritt, der Geschichte schreibt. Sie stehen jetzt darin, dieselbe
+               Zeilenform wie unter Changes. -->
+          <div id="gitstaged"></div>
+          <div class="gcommit">
+            <input id="gitmsg" placeholder="commit message"
+                   onkeydown="if(event.key==='Enter')crow.gitCommit()">
+            <button id="gitdo" onclick="crow.gitCommit()">Commit</button>
+          </div>
+          <div class="gnone" id="gitcsaid"></div>
+        </div>
+      </section>
+      <section id="githist" class="gitgrp" hidden>
+        <div class="tchd" onclick="crow.gitToggle('githist')">
+          <span class="tct">History</span><span class="gcount"></span>
+          <span class="tcx">−</span>
+        </div>
+        <div class="gbody"><div id="gitrows"></div></div>
+      </section>
+    </div>
+  </aside>
   <!-- #175. DER BROWSER, gebaut wie das Code-Panel daneben: derselbe Kopf,
        dieselbe Spalte, dieselbe Falte. Er ist eine OBERFLAECHE und nicht nur ein
        Werkzeug hinter dem Modell -- was der Nutzer hier sieht, ist dieselbe
@@ -4406,7 +4405,7 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
        und einiges mehr, und es trifft NICHT den Fall, um den es hier geht: eine
        lokale Datei oder ein localhost-Bau, den das Modell gerade geschrieben
        hat. -->
-  <aside id="browser">
+  <aside id="browser" role="tabpanel" aria-labelledby="itab-browser">
     <div id="brhead">
       <h2>Browser</h2>
       <button id="brnew" onclick="crow.brNew()" title="new tab">+</button>
@@ -5852,10 +5851,16 @@ const crow = {
     if(this.live) this.codeFinish(name,raw);
     this.live=null;
     const n=$("#codehead .n"); if(n) n.textContent="";
-    const d=document.createElement("div"); d.className="tool shut";
-    d.innerHTML='<div class="hd"><span class="ico">&#9679;</span>'+
-      '<span class="name"></span>'+
-      '<span class="note"></span><span class="tx">+</span></div>'+
+    // #384. THE MOCKUP'S ROW: number, kind dot, name, summary, the clock
+    // (#172), a chevron -- one button, so it folds by keyboard as well. `flat`
+    // until there are arguments or a result to open.
+    const d=document.createElement("div"); d.className="tool shut flat";
+    d.innerHTML='<button class="hd" type="button" aria-expanded="false">'+
+      '<span class="num"></span><span class="ico"></span>'+
+      '<span class="name"></span><span class="su"></span><span class="note"></span>'+
+      '<svg class="tx" viewBox="0 0 24 24" fill="none" stroke="currentColor"'+
+      ' stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"'+
+      ' aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg></button>'+
       '<div class="tbody"></div>';
     d.querySelector(".note").textContent =
       this.execute ? "ran" : "shown, not run";
@@ -5865,10 +5870,10 @@ const crow = {
     // der Zeile oder ueber sie -- und beim Aufklappen steht er ohnehin
     // vollstaendig da, einmal. Die Kopfzeile traegt jetzt nur, was immer kurz
     // ist: Name, Uhr, Aufklapper.
-    // #143. The delegation calls wear their own glyph and channel, so a fan-out
-    // is readable in the panel without opening a single row.
-    if(name==="delegate"||name==="collect"||name==="subtasks"){
-      d.classList.add("sub"); d.querySelector(".ico").textContent="⑂"; }
+    // #143. The delegation calls wear their own channel, so a fan-out is
+    // readable in the panel without opening a single row -- #384: as the dot
+    // of their kind, the same kinds the trace strip draws.
+    d.querySelector(".ico").classList.add("k-"+this.toolKind(name));
     // #138b. JEDE ZEILE KLAPPT FUER SICH. Vorher klappte nur die ganze Gruppe,
     // und "aufklappen" hiess: neunzig Zeilen auf einmal, von denen eine die
     // gesuchte war.
@@ -5879,18 +5884,32 @@ const crow = {
     // weg. Dieselbe Falle, die die Memory-Kachel am 2026-08-22 getroffen hat.
     d.querySelector(".hd").addEventListener("click", ev=>{
       ev.stopPropagation();
+      if(d.classList.contains("flat")) return;
       const shut=d.classList.toggle("shut");
-      d.querySelector(".tx").textContent = shut ? "+" : "−"; });
+      ev.currentTarget.setAttribute("aria-expanded", shut ? "false" : "true"); });
     // #131. INTO THE TILE, NOT INTO THE COLUMN. A 24-round turn used to put 24
     // of these between the question and the answer.
     const list=$("#tclist");
     const empty=list.querySelector(".empty"); if(empty) empty.remove();
+    const first=!list.querySelector(".tool");
     list.appendChild(d); this.toolsCount();
+    // #384. ITS NUMBER IN THIS CHAT, the key `inspectorShow("tools", n)` opens
+    // -- the place #383's trace strip gives the same call. COUNTED, NOT THE
+    // ROWS: after a `clear` the next call keeps its number, so an older
+    // segment finds no row instead of a wrong one. And the summary: the first
+    // argument's value, cut by the row's ellipsis.
+    const k=this.toolSeq=(this.toolSeq||0)+1;
+    d.dataset.n=String(k);
+    d.querySelector(".num").textContent=String(k).padStart(2,"0");
+    d.querySelector(".su").textContent=this.toolSum(raw || args);
     // DIE ARGUMENTE IN VOLLER LAENGE, in den Rumpf. Die Kopfzeile traegt die
     // gekuerzte Fassung, weil sie eine Zeile ist; wer aufklappt, will das,
     // was das Werkzeug wirklich bekommen hat.
     if(raw) this.toolArgBlock(d, name, raw);
     else if(args) this.toolArgBlock(d, name, args);
+    // #384: THE FIRST CALL OF A CHAT WITHOUT A GOAL SELECTS TOOLS -- unless the
+    // user picked a tab in this chat.
+    if(first && !this.goal) this.inspectorAuto("tools");
     // DER OFFENE AUFRUF, an den Uhr und Antwort gehen. Die drei Ereignisse
     // kommen je Aufruf in dieser Reihenfolge ueber die Naht, also ist der
     // zuletzt angelegte immer der gemeinte. `tools_reported` legt Zeilen an,
@@ -5983,7 +6002,22 @@ const crow = {
     pre.textContent=shown;
     HL.paint(pre,"json");
     wrap.appendChild(head); wrap.appendChild(pre);
-    row.querySelector(".tbody").appendChild(wrap); },
+    row.querySelector(".tbody").appendChild(wrap);
+    row.classList.remove("flat"); },
+
+  // #384. THE ROW'S SUMMARY: the first argument's value -- the command, the
+  // path, the query -- on one line. A number or a flag says its name with it
+  // ("step 3"); text that is no JSON object is shown as it came.
+  toolSum(raw){
+    const s=String(raw||"").trim(); if(!s) return "";
+    const line=x=>String(x).replace(/\s+/g," ").trim();
+    let got; try{ got=JSON.parse(s); }catch(err){ return line(s); }
+    if(!got || typeof got!=="object" || Array.isArray(got)) return line(s);
+    const keys=Object.keys(got); if(!keys.length) return "";
+    const v=got[keys[0]];
+    if(typeof v==="string") return line(v);
+    if(typeof v==="number" || typeof v==="boolean") return keys[0]+" "+v;
+    return line(JSON.stringify(v)); },
 
   toolEnd(name,seconds,repeated){
     // #172: DER AUFRUF IST ZURUECK -- die Uhr der Seite hoert auf, und was
@@ -6009,6 +6043,9 @@ const crow = {
     if(!row || row.querySelector(".name").textContent!==name) return;
     const bad=String(text||"").startsWith("error: ");
     if(bad) row.classList.add("bad");
+    // #384: AND THE WORD IN THE ROW, beside the --bad dot.
+    if(bad){ const nt=row.querySelector(".note");
+      nt.textContent = nt.textContent ? "error · "+nt.textContent : "error"; }
     const wrap=document.createElement("div"); wrap.className="tsec res";
     const head=document.createElement("div"); head.className="tsh";
     head.textContent = bad ? "error" : "result";
@@ -6021,11 +6058,14 @@ const crow = {
       more.textContent = cut.toLocaleString() + " more characters not shown";
       wrap.appendChild(more); }
     row.querySelector(".tbody").appendChild(wrap);
+    row.classList.remove("flat");
     this.openCall=null; },
 
   toolsCount(){
     const n=$("#tclist").querySelectorAll(".tool").length;
-    $("#toolcalls .tcn").textContent = n ? String(n) : "";
+    // #384: the count rides the Tools tab.
+    const c=$("#itab-tools .cnt");
+    if(c){ c.textContent = n ? String(n) : ""; c.hidden=!n; }
     if(!n && !$("#tclist").querySelector(".empty")){
       const p=document.createElement("p");
       p.className="empty"; p.textContent="Nothing called yet.";
@@ -6087,30 +6127,15 @@ const crow = {
     const dot=m[1].lastIndexOf(".");
     return dot<0 ? "" : m[1].slice(dot+1); },
 
-  toolsToggle(){
-    const box=$("#toolcalls"), shut=box.classList.toggle("shut");
-    $("#toolcalls .tcx").textContent = shut ? "+" : "−";
-    if(!shut) this.toolsCount(); },
-
-  // THE CLICK IS CAUGHT, or it bubbles to the head and folds the tile away --
-  // the trap the memory tile hit on 2026-08-22, where `discard` would have
-  // hidden the very thing it discarded.
-  toolsClear(e){
-    if(e) e.stopPropagation();
-    $("#tclist").textContent=""; this.toolsCount();
-    // AND IT STAYS CLEARED ACROSS A RESTART. The chat replays its tool rows on
-    // open, so without a watermark on the Python side a list somebody emptied
-    // comes back at the next start -- found by the owner after rebooting the window.
-    pywebview.api.tools_cleared(); },
-
   // A NEW CHAT IS A NEW LIST. The tile belongs to the conversation, not to the
   // window, so switching or resetting empties it with everything else.
   toolsReset(){
     $("#tclist").textContent="";
-    $("#toolcalls").classList.add("shut");
-    $("#toolcalls .tcx").textContent="+";
+    this.toolSeq=0;                        // #384: a new chat counts from one
     this.codeReset();
-    this.toolsCount(); },
+    this.toolsCount();
+    // #384: a new chat is a new choice -- the auto rules may pick again.
+    this.itabPicked=false; },
 
   // #138b. Der Quelltext-Abschnitt, geleert und wieder versteckt.
   //
@@ -7393,7 +7418,11 @@ const crow = {
   // folgen, seit ein Projektname `'); doSomething('` heissen darf.
   goalPanel(g){ const p=$("#goalpanel");
     if(!g){ p.hidden=true; p.textContent=""; this.goal=null; return; }
+    // #384: A NEW GOAL SELECTS THE GOAL TAB, unless the user picked a tab in
+    // this chat. New is a goal where there was none, or another title.
+    const fresh=!this.goal || this.goal.title!==g.title;
     this.goal=g;
+    // The phone's thin bar (REMOTE_JS) sets `shut` once; a redraw keeps it.
     const shut=p.classList.contains("shut");
     p.textContent=""; p.className=shut ? "shut" : "";
 
@@ -7409,53 +7438,32 @@ const crow = {
     // #294: A PAUSED GOAL SAYS SO IN THE HEAD -- the thin phone bar too.
     const pz=g.pause||null;
 
-    // ZONE 1: die Kopfzeile. Nur das Wort und der Zustand -- alles Weitere hat
-    // seinen eigenen Platz darunter.
+    // ZONE 1: GOAL and the status pill -- #384: Complete in --ok with the
+    // mockup's check, Paused in --warn, Open in the accent; a skip (#289) in
+    // its own hue -- and the `×`.
     const head=document.createElement("div"); head.className="gh";
-    head.onclick=()=>{ p.classList.toggle("shut"); };
-    const label=document.createElement("b"); label.textContent="Goal";
+    const label=document.createElement("b"); label.className="lbl";
+    label.textContent="Goal";
     const st=document.createElement("span");
-    st.className="st"+(done ? " ok" : pz ? " pz" : skipped.length ? " sk" : "");
-    st.textContent=done ? "Complete"
+    st.className="st pill "+(done ? "ok" : pz ? "warn pz"
+      : (partial || skipped.length) ? "sk" : "acc");
+    if(done) st.innerHTML=this.svgCheck(2.25);
+    st.append(done ? "Complete"
       : partial ? "Complete · "+skipText
-      : pz ? "Paused · step "+pz.step : skipText;
+      : pz ? "Paused · step "+pz.step
+      : skipText ? "Open · "+skipText : "Open");
     if(pz) st.title=pz.why||"";
     const shutBtn=document.createElement("button"); shutBtn.className="gx";
-    shutBtn.textContent="×"; shutBtn.title="close this goal";
+    shutBtn.type="button"; shutBtn.textContent="×"; shutBtn.title="close this goal";
+    shutBtn.setAttribute("aria-label", "Close this goal");
     shutBtn.onclick=ev=>{ ev.stopPropagation(); pywebview.api.close_goal(); };
     head.append(label, st, shutBtn);
 
-    // ZONE 2: das Ziel selbst, mit dem Zeichen daneben. Es bricht um.
+    // ZONE 2: das Ziel selbst, die Ueberschrift. Es bricht um.
     const title=document.createElement("div"); title.className="gt";
-    const mark=document.createElement("span"); mark.className="gi";
-    mark.innerHTML=this.svgGoal();
     const tt=document.createElement("span"); tt.className="tx";
     tt.textContent=g.title;
-    title.append(mark, tt);
-
-    // ZONE 3: die drei Zahlen in EINER Zeile -- Fortschritt, Uhr, Token.
-    // #164: DIE UHR LAEUFT IN DER SEITE WEITER, nicht mit den Pushes: gezeichnet
-    // wird nur, wenn ein Werkzeug einen Schritt bewegt, und dazwischen liegen
-    // Minuten. Die Zahl stand deshalb still, waehrend das Ziel lief.
-    // #174: DIE ZAHL KOMMT AUS DEM SPEICHER, sie wird hier nicht mehr aus der
-    // Spalte aufsummiert. Die Summe der Schritte war zweimal falsch: sie erbte
-    // deren Fehler (#169), und sie liess alles weg, was zwischen zwei Schritten
-    // passiert -- Nachdenken, Werkzeuge, den Rollover selbst.
-    const meta=document.createElement("div"); meta.className="gm";
-    const tok=g.tokens||0, deleg=g.delegated||0;
-    const base=g.seconds||0, at=Date.now();
-    // #169: DIE DELEGIERTEN STEHEN DANEBEN, nicht drin. Sie sind auf einem
-    // anderen Anbieter ausgegeben; addiert waere die Zahl eine ueber zwei Dinge.
-    const drawMeta=x=>g.done+"/"+g.total+" · "+this.clock(x)
-                      +" · "+this.tokShort(tok)+" tokens"
-                      +(deleg ? " · "+this.tokShort(deleg)+" delegated" : "");
-    meta.textContent=drawMeta(base);
-    // #164: NUR WENN CROW ANGEFANGEN HAT. Ein Plan, der dasteht und auf die
-    // Zeile wartet, die ihn anstoesst, hat noch keine Dauer -- und eine Uhr, die
-    // ab dem Tippen laeuft, misst das Tippen (der Owner, 2026-08-31).
-    if(!done && !partial && g.begun) this.goalTick=setInterval(()=>{
-      if(!document.body.contains(meta)){ clearInterval(this.goalTick); return; }
-      meta.textContent=drawMeta(base+(Date.now()-at)/1000); }, 1000);
+    title.append(tt);
 
     // #294: WHY IT WAITS, under the title -- the report itself is in the chat.
     const gz=document.createElement("div"); gz.className="gz";
@@ -7463,10 +7471,44 @@ const crow = {
       +(pz.why||"")+" -- waiting for your line.";
     else gz.hidden=true;
 
-    const prog=document.createElement("div"); prog.className="gp";
-    prog.textContent="Progress";
+    // #384: THE BAR, the share of steps done, in the pill's colour.
+    const bar=document.createElement("div");
+    bar.className="gbar"+(done ? " ok" : pz ? " warn" : partial ? " sk" : "");
+    bar.setAttribute("role", "img");
+    bar.setAttribute("aria-label", g.done+" of "+g.total+" steps done");
+    const fill=document.createElement("span");
+    fill.style.width=(g.total ? Math.min(100, 100*g.done/g.total) : 0)+"%";
+    bar.append(fill);
 
-    const list=document.createElement("ol");
+    // ZONE 3: die Zahlen in EINER Zeile -- Schritte, Uhr, Token, Delegiertes.
+    // #164: DIE UHR LAEUFT IN DER SEITE WEITER, nicht mit den Pushes: gezeichnet
+    // wird nur, wenn ein Werkzeug einen Schritt bewegt, und dazwischen liegen
+    // Minuten. #174: DIE ZAHL KOMMT AUS DEM SPEICHER, sie wird hier nicht aus
+    // der Spalte aufsummiert -- die Summe der Schritte liess alles weg, was
+    // zwischen zwei Schritten passiert.
+    const meta=document.createElement("div"); meta.className="gm";
+    const tok=g.tokens||0, deleg=g.delegated||0;
+    const base=g.seconds||0, at=Date.now();
+    const count=document.createElement("span");
+    count.textContent=g.done+"/"+g.total+" steps";
+    const clock=document.createElement("span"); clock.textContent=this.clock(base);
+    const tokens=document.createElement("span");
+    tokens.textContent=this.tokShort(tok)+" tok";
+    meta.append(count, clock, tokens);
+    // #169: DIE DELEGIERTEN STEHEN DANEBEN, nicht drin -- im --sub-Kanal.
+    if(deleg){ const dl=document.createElement("span"); dl.className="dl";
+      dl.textContent=this.tokShort(deleg)+" delegated"; meta.append(dl); }
+    // #164: NUR WENN CROW ANGEFANGEN HAT. Ein Plan, der dasteht und auf die
+    // Zeile wartet, die ihn anstoesst, hat noch keine Dauer.
+    if(!done && !partial && g.begun) this.goalTick=setInterval(()=>{
+      if(!document.body.contains(meta)){ clearInterval(this.goalTick); return; }
+      clock.textContent=this.clock(base+(Date.now()-at)/1000); }, 1000);
+
+    const prog=document.createElement("div"); prog.className="gp lbl";
+    prog.textContent="Steps";
+
+    // #384: STEPS AS A TIMELINE -- one mark per step on a line that joins them.
+    const list=document.createElement("ol"); list.className="steps";
     (g.steps||[]).forEach((s,i)=>{
       const li=document.createElement("li"); li.className=s.status;
       // #294: the step the pause stands on.
@@ -7474,91 +7516,91 @@ const crow = {
       if(held) li.classList.add("held");
       // #289: why it was skipped -- the note the user or the model gave.
       if(s.status==="skipped" && s.note) li.title=s.note;
-      const mark=document.createElement("span"); mark.className="m";
+      const mark=document.createElement("span"); mark.className="ck";
       mark.innerHTML=this.svgStep(held ? "held" : s.status);
-      const body=document.createElement("span");
-      const t=document.createElement("span"); t.className="t";
+      const body=document.createElement("div"); body.className="sb";
+      const t=document.createElement("div"); t.className="t";
       t.textContent=s.text; body.append(t);
       // #296: THE WORD, NOT ONLY THE COLOUR (WCAG 1.4.1).
       if(s.status==="skipped"){ const l=document.createElement("span");
-        l.className="lbl"; l.textContent="skipped"; body.append(l); }
+        l.className="word"; l.textContent="skipped"; t.append(l); }
       if(held){ const l=document.createElement("span");
-        l.className="lbl"; l.textContent="paused"; body.append(l); }
+        l.className="word"; l.textContent="paused"; t.append(l); }
+      // #164: WAS EIN SCHRITT GEKOSTET HAT, unter seinem Text -- #384: always,
+      // as the mockup shows it, no longer behind a click. Der laufende zeigt
+      // seine Uhr live.
+      if(s.status!=="open"){
+        const c=document.createElement("div"); c.className="sm";
+        const run=s.status==="running";
+        const sbase=s.seconds||0, sat=Date.now();
+        // #169: EIN DELEGIERTER SCHRITT SAGT ES, daneben und nicht darin.
+        const sdel=s.delegated||0;
+        // #169: DER LAUFENDE SCHRITT ZEIGT GEBUCHTES PLUS LAUFENDES, genau wie
+        // die Uhr daneben (`sbase + verstrichen`).
+        const stok = (s.status==="running" && s.at!=null)
+          ? (s.tokens||0) + Math.max(0, (g.tokens||0) - s.at) : (s.tokens||0);
+        const chk=s.checks ? " · checks "+s.checks[0]+"/"+s.checks[1] : "";
+        const draw=x=>{ c.textContent=this.clock(x)+" · "
+          +stok.toLocaleString("en-US")+" tok";
+          if(sdel){ const dl=document.createElement("span"); dl.className="dl";
+            dl.textContent=this.tokShort(sdel)+" delegated"; c.append(" · ", dl); }
+          if(chk) c.append(chk); };
+        draw(sbase);
+        if(run){ this.stepTicks.push(setInterval(()=>{
+          if(!document.body.contains(c)) return;
+          draw(sbase+(Date.now()-sat)/1000); }, 1000)); }
+        body.append(c); }
       // #294: THE SUB-STEPS OF A SPLIT STEP, under it.
       if((s.subs||[]).length){ const ol=document.createElement("ol");
         ol.className="subs";
         s.subs.forEach((x,k)=>{ const sl=document.createElement("li");
           sl.className=x.status;
-          const sm=document.createElement("span"); sm.className="m";
+          const sm=document.createElement("span"); sm.className="ck";
           sm.innerHTML=this.svgStep(x.status);
           const st2=document.createElement("span"); st2.className="t";
           st2.textContent=(i+1)+"."+(k+1)+" "+x.text;
           sl.append(sm, st2); ol.append(sl); });
         body.append(ol); }
-      // #164: KLICK AUF EINEN SCHRITT ZEIGT, WAS ER GEKOSTET HAT. Ein fertiger
-      // nennt seine Wanduhr und seine Token, ein laufender dasselbe bis jetzt.
-      if(s.status!=="open"){
-        const c=document.createElement("span"); c.className="cost";
-        // #164. DER LAUFENDE SCHRITT ZEIGT SEINE UHR OFFEN UND LIVE. Ein Schritt,
-        // der arbeitet, ist das Einzige, was gerade passiert -- ihn erst auf
-        // Klick preiszugeben hiesse, die einzige Zahl zu verstecken, die sich
-        // bewegt. Fertige bleiben zugeklappt: dort ist die Zahl ein Nachschlag.
-        const run=s.status==="running";
-        c.hidden=!run;
-        const sbase=s.seconds||0, sat=Date.now();
-        // NUR ZEIT UND TOKEN. Die Notiz des Modells stand hier auch und war ein
-        // Pfad quer durch die Zeile -- die Zeile beantwortet "was hat das
-        // gekostet", nicht "was hat es dazu gesagt".
-        // #169: EIN DELEGIERTER SCHRITT SAGT ES. Drei Schritte standen live auf
-        // "0 tok", weil ihre Arbeit auf einem fremden Spot lief -- das las sich
-        // wie "hat nichts gekostet". Die Zahl steht daneben, nicht darin.
-        const sdel=s.delegated||0;
-        // #169: DER LAUFENDE SCHRITT ZEIGT GEBUCHTES PLUS LAUFENDES, genau wie
-        // die Uhr daneben (`sbase + verstrichen`). Nur die laufende Strecke
-        // waere bei einem wieder aufgemachten Schritt (#168) ein Ruecksprung:
-        // seine erste Strecke ist bereits gebucht und gehoert ihm weiter.
-        const stok = (s.status==="running" && s.at!=null)
-          ? (s.tokens||0) + Math.max(0, (g.tokens||0) - s.at) : (s.tokens||0);
-        const chk=s.checks ? " · checks "+s.checks[0]+"/"+s.checks[1] : "";
-        const draw=x=>this.clock(x)+" · "+stok+" tok"
-                      +(sdel ? " · "+this.tokShort(sdel)+" delegated" : "")+chk;
-        c.textContent=draw(sbase);
-        if(run){ this.stepTicks.push(setInterval(()=>{
-          if(!document.body.contains(c)) return;
-          c.textContent=draw(sbase+(Date.now()-sat)/1000); }, 1000)); }
-        body.append(c);
-        li.onclick=()=>{ if(!run) c.hidden=!c.hidden; }; }
       li.append(mark, body); list.append(li); });
 
-    p.append(head, title, gz, meta, prog, list);
-    p.hidden=false; },
+    p.append(head, title, gz, bar, meta, prog, list);
+    p.hidden=false;
+    if(fresh) this.inspectorAuto("goal"); },
 
   // #164. DIE ZEICHEN, inline statt als Datei: die Seite ist eine einzige
   // Zeichenkette, und ein Bild daneben waere etwas, das beim Packen fehlen kann.
   // `currentColor` ueberall, damit sie dem Zustand und dem Theme folgen.
-  svgGoal(){ return '<svg viewBox="0 0 24 24" width="15" height="15" fill="none"'
-    +' stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/>'
-    +'<path d="M10.5 8.2l5.4 3.8-5.4 3.8z" fill="currentColor" stroke="none"/>'
-    +'</svg>'; },
+  // #384: the mockup's check, for the done step and the Complete pill.
+  svgCheck(w){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+    +' stroke-width="'+w+'" stroke-linecap="round" stroke-linejoin="round"'
+    +' aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>'; },
 
-  // Ein Ring je Zustand: mit Haken, mit Punkt, mit Kreuz, oder leer.
-  svgStep(state){ const o='<svg viewBox="0 0 24 24" width="14" height="14"'
-    +' fill="none" stroke="currentColor" stroke-width="2"'
-    +' stroke-linecap="round" stroke-linejoin="round">';
-    if(state==="done") return o+'<circle cx="12" cy="12" r="9"/>'
-      +'<path d="M8 12.4l2.7 2.6L16 9.6"/></svg>';
-    if(state==="running") return o+'<circle cx="12" cy="12" r="9"/>'
-      +'<circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/></svg>';
-    if(state==="failed") return o+'<circle cx="12" cy="12" r="9"/>'
+  // #384. A STEP'S MARK fills the 20 px circle of the timeline: done the check
+  // on its soft disc (CSS), every other state a ring of its own -- running in
+  // the accent, open hollow, failed with a cross, skipped dashed, paused with
+  // two bars.
+  svgStep(state){ const o='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+    +' stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"'
+    +' aria-hidden="true">';
+    if(state==="done") return this.svgCheck(2.5);
+    if(state==="running") return o+'<circle cx="12" cy="12" r="10.5" stroke-width="2.2"/></svg>';
+    if(state==="failed") return o+'<circle cx="12" cy="12" r="10.5"/>'
       +'<path d="M9 9l6 6M15 9l-6 6"/></svg>';
-    // #296: dashed ring and a skip-forward glyph -- not the running dot.
-    if(state==="skipped") return o+'<circle cx="12" cy="12" r="9"'
+    // #296: dashed ring and a skip-forward glyph -- not the running ring.
+    if(state==="skipped") return o+'<circle cx="12" cy="12" r="10.5"'
       +' stroke-dasharray="3 2.6"/><path d="M8 8.6l3.6 3.4L8 15.4M12.6 8.6'
       +'l3.6 3.4-3.6 3.4"/></svg>';
     // #294: the paused step -- two bars.
-    if(state==="held") return o+'<circle cx="12" cy="12" r="9"/>'
+    if(state==="held") return o+'<circle cx="12" cy="12" r="10.5"/>'
       +'<path d="M10 8.6v6.8M14 8.6v6.8"/></svg>';
-    return o+'<circle cx="12" cy="12" r="9"/></svg>'; },
+    return o+'<circle cx="12" cy="12" r="10.5"/></svg>'; },
+
+  // #384: the fork of a subtask, the mockup's.
+  svgFork(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+    +' stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"'
+    +' aria-hidden="true"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="5" r="2"/>'
+    +'<circle cx="12" cy="19" r="2"/><path d="M6 7v1a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4V7M12 12v5"/>'
+    +'</svg>'; },
 
   // 89K statt 89234: im Kopf einer Anzeige zaehlt die Groessenordnung.
   tokShort(n){ n=n||0;
@@ -8504,18 +8546,15 @@ const crow = {
     }
   },
 
-  // The status words, written once for the card and the menu. TOKEN COUNTS
-  // ONLY -- no money figure anywhere on a subtask, the owner's call 2026-08-27.
+  // The tokens and the time of a subtask, written once for its card. TOKEN
+  // COUNTS ONLY -- no money figure anywhere on a subtask, the owner's call
+  // 2026-08-27.
   subStat(it){
-    const tok=(it.tok||0).toLocaleString("en-US")+" tok";
-    if(it.st==="running") return "running · "+Math.round(it.s)+" s · "+tok;
-    if(it.st==="done")    return "✓ done · "+tok;
-    return "✗ "+it.st+" · "+Math.round(it.s)+" s";
+    return (it.tok||0).toLocaleString("en-US")+" tok · "+(it.s||0).toFixed(1)+" s";
   },
 
   // A card exists FROM THE MOMENT delegate runs -- the running state is the
-  // one that must be seen -- and is then updated in place, never rebuilt, so
-  // an open result fold survives every tick.
+  // one that must be seen -- and is then updated in place, never rebuilt.
   subCard(it){
     // getElementById: the no-money guard below reads this block for the dollar sign.
     const p=document.getElementById("subpanel");
@@ -8526,50 +8565,48 @@ const crow = {
       // its own cached copy was the frame that drew no card at all.
       if(!it.here) return;
       d=document.createElement("div"); d.className="subcard"; d.dataset.sub=it.i;
-      // des Owners letzte Kartenform 2026-08-29: die klassische Kopfzeile --
-      // ⑂ delegate · dN, Modell, Status rechts -- und der Task darunter.
-      // Der volle Output bleibt ZU; die Karte selbst ist die Klickflaeche.
-      d.innerHTML='<div class="shead"><span class="glyph">⑂</span>'
-        +'<span class="dlabel"></span><span class="sname"></span>'
-        +'<span class="sstat"></span></div><div class="stask"></div>';
-      d.querySelector(".dlabel").textContent="delegate · "+it.i;
-      d.querySelector(".sname").textContent=it.model||"";
-      d.querySelector(".stask").textContent=it.task||"";
+      // #384. THE MOCKUP'S CARD: the fork, the id, the status pill, tokens
+      // and time; the task; the model in mono; RESULT once there is one.
+      // Every text by textContent -- task, model and result come from outside.
+      d.innerHTML='<div class="sh">'+this.svgFork()+'<span class="sid"></span>'
+        +'<span class="pill"></span><span class="sq"></span></div>'
+        +'<div class="stk"></div><div class="smod"></div>';
+      d.querySelector(".sid").textContent=it.i;
+      d.querySelector(".stk").textContent=it.task||"";
+      d.querySelector(".smod").textContent=it.model||"";
       // #255. INTO THE PINNED PANEL, NEVER INTO THE FLOW. A card
       // in `#flow` was a block of the transcript and scrolled away with it
       // (the owner, 2026-09-23 on 9a59872); in a round's column it folded away
-      // with the round (2026-08-27, "die sollen bleiben"). `#subpanel` sits
-      // in `#panels` beside goal and git: it stays put while the chat
-      // scrolls, and the chat gains no block, so nothing below it moves.
+      // with the round (2026-08-27, "die sollen bleiben"). `#subpanel` is the
+      // inspector's Subtasks tab (#384): it stays put while the chat scrolls,
+      // and the chat gains no block, so nothing below it moves.
     }
-    // RUNNING ABOVE, FINISHED IN THE FOLD. appendChild MOVES an existing
-    // node, so a card that finishes changes group once and keeps its open
-    // result; a card already in the right group stays where it is.
+    // RUNNING ABOVE, FINISHED BELOW. appendChild MOVES an existing node, so a
+    // card that finishes changes group once; one already in its group stays.
     const group=p.querySelector(it.st==="running" ? ".splive" : ".spdone");
     if(d.parentNode!==group) group.appendChild(d);
-    // des Owners letzte Fassung 2026-08-28: die LAUFENDE Karte atmet als Zeile;
-    // fertig steht sie still. Die Klasse traegt den Zustand, das CSS den Atem.
     d.classList.toggle("run", it.st==="running");
-    const stat=d.querySelector(".sstat");
+    // THE STATE IN THE PILL: running in the delegation channel with its
+    // pulsing dot, done in --ok, anything else (failed, cancelled) in --bad.
+    const pill=d.querySelector(".pill");
     if(it.st==="running"){
-      stat.innerHTML='<span class="sdot run"></span><span></span>';
-      stat.lastChild.textContent=this.subStat(it);
-    } else if(it.st==="done"){
-      stat.innerHTML='<span class="okword"></span>';
-      stat.firstChild.textContent=this.subStat(it);
+      pill.className="pill sub";
+      pill.innerHTML='<span class="sdot run"></span><span></span>';
+      pill.lastChild.textContent="running";
     } else {
-      stat.innerHTML='<span class="badword"></span>';
-      stat.firstChild.textContent=this.subStat(it);
+      pill.className="pill "+(it.st==="done" ? "ok" : "bad");
+      pill.textContent=it.st;
     }
-    if(it.st!=="running" && it.res && !d.querySelector(".sresult")){
-      // ZU PER DEFAULT (der Owner, 2026-08-28): der Hauptchat zeigt die Karte,
-      // der volle Output wohnt hinter dem Klick auf sie. Fuer den ganzen
-      // Text gibt es KEINEN Subtask-Chat; dieser eine Ort ist es.
-      const res=document.createElement("div"); res.className="sresult";
-      res.hidden=true; res.textContent=it.res;
-      d.appendChild(res);
-      d.classList.add("can"); d.title="click for the result";
-      d.onclick=()=>{ res.hidden=!res.hidden; };
+    d.querySelector(".sq").textContent=this.subStat(it);
+    if(it.st!=="running" && it.res && !d.querySelector(".sres")){
+      // #384: THE RESULT STANDS IN THE CARD, under its name, as the mockup
+      // shows it. It still never opens in the chat (the owner, 2026-08-28:
+      // "nicht offen in den Hauptchat") -- this is the inspector, and there is
+      // no subtask chat; this one place holds the whole text.
+      const l=document.createElement("span"); l.className="lbl"; l.textContent="Result";
+      const res=document.createElement("pre"); res.className="sres";
+      res.textContent=it.res;
+      d.append(l, res);
     }
   },
 
@@ -8667,44 +8704,39 @@ const crow = {
     const run=p.querySelectorAll(".splive .subcard").length;
     const fin=p.querySelectorAll(".spdone .subcard").length;
     // #281. CLOSED BY ITS `×` for this chat until a NEW subtask starts
-    // (born unmarked) or a jump reopens it. `hidden` is the whole state, so
-    // the #233/#256 reserve on `#subpanel:not([hidden])` lets go with it.
+    // (born unmarked) or a jump reopens it. `hidden` is the whole state.
     const open=items.some(x=>x.here && !x.closed);
     p.hidden=!(run+fin) || !open;
     p.querySelector(".sph .st").textContent=run+" running · "+fin+" finished";
-    const fold=p.querySelector(".spfold"), done=p.querySelector(".spdone");
-    fold.hidden=!fin;
-    // THE HOUSE CARET, not U+25B8/U+25BE: neither is in the shipped Google Sans Code
-    // faces (check_gui_prereqs, 2026-09-23), while &#9654; is, and every other
-    // fold in this file turns that one by 90 degrees.
-    fold.classList.toggle("open", !done.hidden);
-    fold.innerHTML='<span class="caret">&#9654;</span>finished · '+fin;
+    // #384: the count rides the Subtasks tab, and an empty tab says why.
+    const c=$("#itab-subs .cnt");
+    if(c){ c.textContent=(run+fin) ? String(run+fin) : ""; c.hidden=!(run+fin); }
+    const none=$("#isubs .inone");
+    if(none) none.textContent=(run+fin)
+      ? "Closed for this chat -- a new subtask or a jump to one opens it again."
+      : "Nothing delegated in this chat.";
   },
-
-  subPanelFold(){ $("#subpanel").classList.toggle("shut"); },
 
   // #281. The `×`: hidden at once here, the mark in the registry. Closing is
   // not cancelling -- no subtask is touched.
   subPanelClose(ev){ if(ev) ev.stopPropagation();
     $("#subpanel").hidden=true;
     (this.subItems||[]).forEach(x=>{ if(x.here) x.closed=true; });
-    pywebview.api.close_subtasks(); },
-
-  subDoneFold(){ const p=$("#subpanel"), done=p.querySelector(".spdone");
-    done.hidden=!done.hidden; this.subPanel(this.subItems||[]); },
+    pywebview.api.close_subtasks();
+    this.subPanel(this.subItems||[]); },
 
   // A jump opens whatever hides the card and rolls it into view INSIDE the
   // panel -- the element-level jump would also scroll #main, which clips on
   // purpose, so the panel's own scrollTop is set instead.
   subReveal(d){
-    const p=$("#subpanel"); p.classList.remove("shut");
+    const p=$("#subpanel");
+    // #384: THE CARD IS IN THE SUBTASKS TAB, so the inspector shows it first
+    // -- and the panel has a size to scroll in.
+    this.inspectorShow("subs");
     // #281: a jump is the way back into a closed card.
     if(p.hidden){ p.hidden=false;
       (this.subItems||[]).forEach(x=>{ if(x.here) x.closed=false; });
-      pywebview.api.reopen_subtasks(); }
-    const done=p.querySelector(".spdone");
-    if(done.contains(d) && done.hidden){ done.hidden=false;
-      this.subPanel(this.subItems||[]); }
+      pywebview.api.reopen_subtasks(); this.subPanel(this.subItems||[]); }
     p.scrollTop=Math.max(0, d.offsetTop-p.clientHeight/2+d.offsetHeight/2);
     d.classList.remove("seen"); void d.offsetWidth; d.classList.add("seen");
   },
@@ -8994,15 +9026,139 @@ const crow = {
   // Aussehen und sonst nichts. Beim Aufklappen bekommt ein leerer Browser
   // seinen ersten Reiter -- ein Panel, in dem man erst auf `+` klicken muss,
   // um irgendwas tun zu koennen, hat einen Schritt zu viel.
+  // #384: A TAB OF THE INSPECTOR NOW. On, it opens the inspector and shows
+  // the Browser tab; off, the tab goes and the one before it comes back.
   toggleBrowser(){ const el=document.body;
     const open=el.dataset.browser!=="shut";
     el.dataset.browser=open ? "shut" : "open";
     sizing.pulse();                        // #237: .16s Breitenuebergang
     pywebview.api.set_browser_open(!open);
-    if(open) return;                       // zugeklappt: `set_browser_open` versteckt
-    if(!this.tabs.length){ this.brNew(); return; }
+    if(open){ this.inspectorToggled("browser", false); return; }   // `set_browser_open` versteckt
+    // Unfolded: the tab's page again, loaded once its tab shows (`brSync`) --
+    // #279: a render made while folded loads its capture.
+    this.brOwe=true;
+    this.inspectorToggled("browser", true);
+    if(!this.tabs.length) this.brNew(); },
+
+  // -- #384: the inspector ---------------------------------------------------
+  //
+  // ONE VIEW AT A TIME behind a tab strip, the WAI-ARIA tabs pattern with
+  // automatic activation (the panels show without delay). `#side[data-tab]`
+  // is the state and CSS shows the one panel. Git and Browser have a tab only
+  // while their title-bar toggle is on.
+  // `itabPicked`: the user chose a tab in this chat -- the automatic rules (a
+  // new goal, the first call) never take it away. `itabSeen`: the tabs shown
+  // before this one, latest last -- switching Git or Browser off returns to
+  // the latest that is still there.
+  itab: "goal", itabSeen: [], itabPicked: false,
+
+  inspectorOn(tab){ const b=document.body.dataset;
+    return tab==="git" ? b.git!=="shut" : tab==="browser" ? b.browser!=="shut"
+      : (tab==="goal" || tab==="tools" || tab==="subs"); },
+
+  inspectorSelect(tab, focus){
+    if(!this.inspectorOn(tab)) tab=this.inspectorBack();
+    if(tab!==this.itab){
+      this.itabSeen=this.itabSeen.filter(t=>t!==tab && t!==this.itab)
+        .concat(this.itab).slice(-5);
+      this.itab=tab; }
+    const side=$("#side"); if(side) side.dataset.tab=tab;
+    document.querySelectorAll("#itabs .tab").forEach(b=>{
+      const on=b.dataset.tab===tab;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+      b.tabIndex = on ? 0 : -1;
+      if(on && focus) b.focus(); });
+    this.brSync(); },
+
+  // The latest tab before this one that is still there; Goal when none is.
+  inspectorBack(){
+    for(let i=this.itabSeen.length-1; i>=0; i--){ const t=this.itabSeen[i];
+      if(t!==this.itab && this.inspectorOn(t)) return t; }
+    return "goal"; },
+
+  // A click on a tab, or a key: the user's choice for this chat.
+  inspectorPick(tab){ this.itabPicked=true; this.inspectorSelect(tab); },
+
+  // The automatic rules, only while the user has not picked in this chat.
+  inspectorAuto(tab){ if(!this.itabPicked) this.inspectorSelect(tab); },
+
+  // APG keys: Left/Right move over the tabs that are there and wrap,
+  // Home/End jump to the ends; the move selects (automatic activation).
+  inspectorKey(e){
+    const tabs=Array.prototype.filter.call(document.querySelectorAll("#itabs .tab"),
+      b=>this.inspectorOn(b.dataset.tab));
+    if(!tabs.length) return;
+    let at=tabs.indexOf(e.target.closest ? e.target.closest(".tab") : null);
+    if(at<0) at=Math.max(0, tabs.findIndex(b=>b.dataset.tab===this.itab));
+    const to = e.key==="ArrowRight" ? (at+1)%tabs.length
+      : e.key==="ArrowLeft" ? (at-1+tabs.length)%tabs.length
+      : e.key==="Home" ? 0 : e.key==="End" ? tabs.length-1 : -1;
+    if(to<0) return;
+    e.preventDefault();
+    this.itabPicked=true;
+    this.inspectorSelect(tabs[to].dataset.tab, true); },
+
+  // #384. THE WAY IN FROM ELSEWHERE (#383's trace strip, #385's rail and chat
+  // head): opens the inspector if it is shut -- switching Git or Browser on
+  // when that is the tab asked for -- and selects the tab, as the user's pick.
+  // "tools": opens call `key`, the number its row shows (1 is the chat's
+  // first call), and scrolls it into view. "subs": scrolls card `key`, a
+  // subtask id, into view. "goal": shows the goal.
+  inspectorShow(tab, key){
+    const b=document.body.dataset;
+    if(tab==="git" && b.git==="shut") this.toggleGit();
+    else if(tab==="browser" && b.browser==="shut") this.toggleBrowser();
+    else if(b.code==="shut") this.toggleCode();
+    this.inspectorPick(tab);
+    if(tab==="tools" && key!=null) this.toolOpen(key);
+    if(tab==="subs" && key!=null) this.subJump(String(key)); },
+
+  // Git or Browser switched on or off by its title-bar toggle.
+  inspectorToggled(tab, on){
+    if(on){ this.inspectorOpen(); this.inspectorPick(tab); return; }
+    if(this.itab===tab) this.inspectorSelect(this.inspectorBack()); },
+
+  // Open, not toggled: a toggle that opens the inspector is one gesture with
+  // it, and on the phone (REMOTE_JS) it already runs inside its drawer's.
+  inspectorOpen(){ const el=document.body;
+    if(el.dataset.code!=="shut") return;
+    el.dataset.code="open"; sizing.pulse(); pywebview.api.set_code_open(true); },
+
+  // Whoever flipped a panel attribute (a toggle, the phone's drawers): a tab
+  // whose toggle went off gives way, and the page follows its tab.
+  inspectorSync(){
+    if(this.inspectorOn(this.itab)) this.brSync();
+    else this.inspectorSelect(this.inspectorBack()); },
+
+  // Call `n` open and in view, n as its row shows it.
+  toolOpen(n){
+    const row=$('#tclist .tool[data-n="'+Number(n)+'"]'); if(!row) return;
+    if(row.classList.contains("shut") && !row.classList.contains("flat")){
+      row.classList.remove("shut");
+      row.querySelector(".hd").setAttribute("aria-expanded", "true"); }
+    const body=$("#codebody"), r=row.getBoundingClientRect(),
+          b=body.getBoundingClientRect();
+    if(r.top<b.top || r.bottom>b.bottom) body.scrollTop += r.top-b.top-8; },
+
+  // #384. THE PAGE IS THERE ONLY WHILE ITS TAB IS. The browser page is a
+  // native view over the window (#175, #201); on any other tab, or with the
+  // inspector shut, it would lie over what that tab shows. `pane_hide` keeps
+  // the page (on GTK it parks a heavy one, #279) and `pane_show` brings it
+  // back; a send made while the tab was away is owed and loaded on return.
+  brVisible(){ const b=document.body.dataset;
+    return b.browser!=="shut" && b.code!=="shut" && this.itab==="browser"; },
+  brSync(){
+    if(!window.pywebview) return;
+    const vis=this.brVisible();
+    if(vis===this.brWas) return;
+    this.brWas=vis;
+    if(!vis){ pywebview.api.pane_hide(); return; }
     const t=this.brTab(this.tabOn);
-    if(t && t.at>=0) this.brSend(this.brShown(t)); else pywebview.api.pane_show(); },
+    if(!t || t.at<0) return;               // a blank tab shows our own panel
+    if(this.brOwe){ this.brSend(this.brShown(t)); return; }
+    this.brSent=""; this.brPlace(); pywebview.api.pane_show(); },
+  brWas: false, brOwe: false,
 
   // #279. WHAT A TAB SHOWS: the model's capture for a render tab (the PNG,
   // a still image), else the address. Unfolding a render tab that was filled
@@ -9169,6 +9325,10 @@ const crow = {
     // #279: THE ONE DOOR, SHUT WHILE FOLDED. No path loads a page into a
     // panel nobody can see; unfolding sends the tab's entry again.
     if(document.body.dataset.browser==="shut") return;
+    // #384: and while its tab is not the one shown -- owed, and loaded when
+    // the Browser tab comes back (`brSync`).
+    if(!this.brVisible()){ this.brOwe=true; return; }
+    this.brOwe=false;
     this.brPlace();
     pywebview.api.pane_go(url); },
 
@@ -9206,7 +9366,9 @@ const crow = {
   // #201. EIN LINK AUS EINER ANTWORT, im Panel statt in einem zweiten
   // Fenster. Ein neuer Reiter, weil der Link neben dem steht, was gerade
   // offen ist, und es nicht ersetzen soll.
-  brOpen(url){ if(!url) return; this.brUnfold(); this.brNew(url); },
+  // #384: and shown -- the Browser tab, in an open inspector.
+  brOpen(url){ if(!url) return; this.brUnfold();
+    this.inspectorToggled("browser", true); this.brNew(url); },
 
   // #227. DIE SEITE IST SELBST GEGANGEN (Link, Formular, Umleitung). "replace"
   // heisst: die Last kam von hier (getippt, Zurueck, Reiterwechsel) und ihre
@@ -9261,9 +9423,11 @@ const crow = {
     const open=el.dataset.git!=="shut";
     el.dataset.git=open ? "shut" : "open";
     pywebview.api.set_git_open(!open);
-    if(!open) this.gitRefresh(); },
+    if(!open) this.gitRefresh();
+    // #384: a tab of the inspector while it is on.
+    this.inspectorToggled("git", !open); },
 
-  // Eine Klappgruppe im Git-Panel. Dieselbe Mechanik wie `toolsToggle`.
+  // Eine Klappgruppe im Git-Panel. Dieselbe Mechanik wie `filesToggle`.
   gitToggle(id){
     const box=$("#"+id); if(!box) return;
     const shut=box.classList.toggle("shut");
@@ -9968,8 +10132,8 @@ const fitFlow = () => {
   // over the flow, so there is nothing to keep clear of.
   flow.style.paddingBottom = composer.parentNode.classList.contains("empty") ? ""
     : (composer.offsetHeight + 10) + "px";
-  // #233: DIESELBE ZAHL FUER DIE KARTEN. #panels endet dort, wo der
-  // Composer anfaengt, statt bei festen 70 % -- siehe die Regel an #panels.
+  // #233: DIESELBE ZAHL FUER DIE KARTEN -- seit #384 liest sie nur noch das
+  // Telefon (REMOTE_CSS: Fluss, Menues, die festgesteckte Freigabe).
   composer.parentNode.style.setProperty("--comph", composer.offsetHeight + "px");
   // RE-PIN, or typing a third line pushes the answer you were reading up and
   // out of sight -- the padding grows downwards and the view does not follow.
@@ -10198,6 +10362,12 @@ new ResizeObserver(() => crow.brPlace()).observe($("#brbody"));
 ["#settings","#menu"].forEach(sel => { const el=$(sel); if(el)
   new MutationObserver(() => requestAnimationFrame(() => crow.brCover()))
     .observe(el, {attributes:true, attributeFilter:["hidden","class","style"]}); });
+// #384. THE INSPECTOR FOLLOWS THE PANEL STATE, whoever flips it -- a title-bar
+// toggle, the phone's drawers: a tab whose toggle went off gives way, and the
+// browser page shows only while its tab does.
+new MutationObserver(() => crow.inspectorSync())
+  .observe(document.body, {attributes:true,
+    attributeFilter:["data-code","data-git","data-browser"]});
 // KEINE STARTBREITEN-AUTOMATIK MEHR. #138c richtete eine nie gezogene Breite
 // an der halben Flaeche aus -- auf dem Fenster des Owners am 2026-08-27 war genau das
 // der zu breite Start, und die Icons standen wieder neben der Maske. Seine
@@ -10455,7 +10625,6 @@ REMOTE_CSS = """
 :root{
   --sbw:0px;           /* iOS draws overlay scrollbars */
   --colpad:14px;       /* #flow / .turn / #composer inset */
-  --reserve:0px;       /* no card column beside the chat */
   --barh:48px;
   --tap:44px;          /* Apple HIG minimum target */
   --drawer:min(86vw,340px);

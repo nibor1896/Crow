@@ -290,10 +290,11 @@ class BrowserTests(unittest.TestCase):
         self.assertLessEqual(result["rects"]["#box"]["x"] + result["rects"]["#box"]["w"], 390)
 
     def test_clicks_and_focus_run_and_a_missed_selector_is_reported(self):
+        # #384: the calls are the inspector's Tools tab, no longer a group to unfold.
         result, _ = self.render("clicks", (1440, 960), rects=("#toolcalls", "#in"),
-                                clicks=["#toolcalls .tchd"], focus="#in")
+                                clicks=["#itab-tools"], focus="#in")
         self.assertEqual(result["errors"], [])
-        self.assertGreater(result["rects"]["#toolcalls"]["h"], 100)     # the group unfolded
+        self.assertGreater(result["rects"]["#toolcalls"]["h"], 100)     # the tab is shown
         missed, _ = self.render("missed", (1440, 960), clicks=["#no-such-button"], focus="#no-such")
         self.assertEqual(len(missed["errors"]), 2)
         self.assertIn("nothing matches #no-such-button", missed["errors"][0])
