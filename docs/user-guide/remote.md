@@ -18,7 +18,7 @@ phone. (#249).
 ## On the phone (#387)
 
 <div align="center">
-<img src="../images/window-phone-2026-10-14.png" alt="The phone page at 390×844, rendered by tools/render_window.py --remote from the goal-run fixture: the header with rail toggle, CROW, magnifier, model chip and inspector toggle; the chat head with the folder chip and the Goal 3/3 pill; the turn head, the trace strip, the one-line d1 subtask card, the folded Thought and the answer; the one-row composer" width="300">
+<img src="../images/window-phone-2026-10-14.png" alt="The phone page at 390×844, rendered by tools/render_window.py --remote from the goal-run fixture: the header with rail toggle, CROW, magnifier, model chip and inspector toggle; the chat head with the folder chip and the Goal 3/3 pill; the trace strip, the one-line d1 subtask card, the folded Thought and the answer; the one-row composer" width="300">
 </div>
 
 Below 700 px the phone shows the window's own page, redesigned with it (#380), in phone form. The
