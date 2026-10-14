@@ -7018,6 +7018,44 @@ class TheAnswerHeadingsSitOnTheBodyTests(unittest.TestCase):
         self.assertEqual(sizes[1], "16px")
 
 
+class TheGoalStepRowSaysItsStatusTests(unittest.TestCase):
+    """#384, from the acceptance review of #380: the Tools tab's `goal_step` row
+    read "step 3"; the mockup reads "step 3 · done", the status taken from the
+    call's arguments. Every other tool keeps the generic rule (the first
+    argument's value, a number or a flag with its name)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.node = _node()
+        cls.source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+
+    def summaries(self, calls: list) -> list:
+        if not self.node:
+            self.skipTest("no node on this machine")
+        head = re.search(r"(?m)^  toolSum\(", self.source)
+        self.assertIsNotNone(head, "toolSum is gone from the page")
+        method = self.source[head.start():self.source.index("  toolEnd(", head.start())]
+        prog = ("const o={" + method + "};\nconsole.log(JSON.stringify("
+                + json.dumps(calls) + ".map(([name, raw]) => o.toolSum(raw, name))));\n")
+        done = subprocess.run([self.node], input=prog, capture_output=True, text=True,
+                              encoding="utf-8", timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_a_goal_step_says_its_status_and_other_tools_keep_the_first_argument(self):
+        got = self.summaries([
+            ["goal_step", '{"step": 3, "status": "done", "note": "returned 42"}'],
+            ["goal_step", '{"step": 2, "status": "skipped"}'],
+            ["goal_step", '{"step": 3, "note": "no status given"}'],
+            ["goal_step", ""],
+            ["not_goal_step", '{"step": 3, "status": "done"}'],
+            ["run_command", '{"command": "ls -la", "status": "done"}']])
+        self.assertEqual(got, ["step 3 · done", "step 2 · skipped", "step 3", "",
+                               "step 3", "ls -la"])
+        # The row hands its tool's name over -- the summary cannot know it else.
+        self.assertIn("this.toolSum(raw || args, name)", self.source)
+
+
 class TheTraceFoldsFinishedRoundsTests(unittest.TestCase):
     """#131, variant A. `reply_started` fires once per ROUND, so a 24-round turn
     drew 24 blocks of thoughts and running commentary -- and the answer, which is
@@ -9228,7 +9266,7 @@ out.more = $('#tclist .tool[data-n="13"] .tsmore').textContent;
                                    "Compute 21 multiplied by 2 and state the numeric result.",
                                    False])
         self.assertEqual(rows[9][:3], ["10", "ico k-sub", "collect"])
-        self.assertEqual(rows[10][:4], ["11", "ico k-goal", "goal_step", "step 3"])
+        self.assertEqual(rows[10][:4], ["11", "ico k-goal", "goal_step", "step 3 · done"])
         self.assertEqual(out["four"], [False, "true", ["arguments", "result"],
                                        "[exit 0]\nrecursive excluding .git/.ruff_cache:\n282\n"
                                        "directories recursive:\n61"])

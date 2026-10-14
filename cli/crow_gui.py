@@ -5907,7 +5907,7 @@ const crow = {
     const k=this.toolSeq=(this.toolSeq||0)+1;
     d.dataset.n=String(k);
     d.querySelector(".num").textContent=String(k).padStart(2,"0");
-    d.querySelector(".su").textContent=this.toolSum(raw || args);
+    d.querySelector(".su").textContent=this.toolSum(raw || args, name);
     // DIE ARGUMENTE IN VOLLER LAENGE, in den Rumpf. Die Kopfzeile traegt die
     // gekuerzte Fassung, weil sie eine Zeile ist; wer aufklappt, will das,
     // was das Werkzeug wirklich bekommen hat.
@@ -6013,13 +6013,17 @@ const crow = {
 
   // #384. THE ROW'S SUMMARY: the first argument's value -- the command, the
   // path, the query -- on one line. A number or a flag says its name with it
-  // ("step 3"); text that is no JSON object is shown as it came.
-  toolSum(raw){
+  // ("step 3"); text that is no JSON object is shown as it came. A goal_step
+  // adds the status it reports, the mockup's "step 3 · done" -- the one tool
+  // whose first argument alone says too little.
+  toolSum(raw,name){
     const s=String(raw||"").trim(); if(!s) return "";
     const line=x=>String(x).replace(/\s+/g," ").trim();
     let got; try{ got=JSON.parse(s); }catch(err){ return line(s); }
     if(!got || typeof got!=="object" || Array.isArray(got)) return line(s);
     const keys=Object.keys(got); if(!keys.length) return "";
+    if(name==="goal_step" && got.step!=null && typeof got.status==="string"
+       && line(got.status)) return "step "+got.step+" · "+line(got.status);
     const v=got[keys[0]];
     if(typeof v==="string") return line(v);
     if(typeof v==="number" || typeof v==="boolean") return keys[0]+" "+v;
