@@ -2752,19 +2752,24 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
 .cost{margin-top:11px;font-size:10.5px;color:var(--dimmer);
   border-top:1px dashed var(--line);padding-top:7px}
 /* #383. THE TELEMETRY STRIP, the mockup's `.tele`: labelled cells that wrap
-   (a 112 px basis each) instead of one line that scrolled sideways -- no
-   nowrap, nothing to scroll. Two classes, so it wins over `.cost` above. */
+   instead of one line that scrolled sideways -- nothing to scroll. A CELL IS
+   SIZED BY ITS CONTENT and its label, value and sub-line never break inside
+   themselves (nowrap on those three, not on the strip): when the row is too
+   narrow whole cells go to a second row. A fixed 112 px basis let a phrase
+   outgrow its cell and break ("subtask . 65 / tok"). Two classes, so it wins
+   over `.cost` above. */
 .cost.tele{display:flex;flex-wrap:wrap;margin-top:12px;padding:0;
   border:1px solid var(--line-soft);border-radius:12px;background:var(--panel);
   overflow:hidden;overflow-wrap:normal;font-family:var(--ui);font-size:13px;
   color:var(--dim)}
-.tele .m{flex:1 1 112px;display:flex;flex-direction:column;gap:1px;
+.tele .m{flex:1 1 auto;display:flex;flex-direction:column;gap:1px;
   padding:9px 13px;box-shadow:1px 0 0 var(--line-soft)}
 .tele .ml{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
-  color:var(--dim);font-weight:600}
-.tele .mv{font-size:15px;color:var(--text);font-weight:500;line-height:1.35}
+  color:var(--dim);font-weight:600;white-space:nowrap}
+.tele .mv{font-size:15px;color:var(--text);font-weight:500;line-height:1.35;
+  white-space:nowrap}
 .tele .mv small{font-size:11px;color:var(--dim);margin-left:3px;font-weight:400}
-.tele .ms{font-size:11px;color:var(--dim)}
+.tele .ms{font-size:11px;color:var(--dim);white-space:nowrap}
 .tele .m.dlg .mv{color:var(--sub)}
 .tcut{margin-top:6px;font-size:11.5px;color:var(--warn)}
 .fail{color:var(--bad);font-size:11.5px;margin-top:8px;

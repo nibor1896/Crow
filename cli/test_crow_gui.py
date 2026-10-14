@@ -6755,7 +6755,7 @@ class TheTelemetryStripTests(_TurnPage):
         for rule in (tele, cost):
             self.assertNotIn("nowrap", rule)
             self.assertNotIn("overflow-x", rule)
-        self.assertIn("flex:1 1 112px", self._rule(".tele .m{"))
+        self.assertIn("flex:1 1 auto", self._rule(".tele .m{"))
         self.assertIn("font-size:10.5px", self._rule(".tele .ml{"))
         self.assertIn("text-transform:uppercase", self._rule(".tele .ml{"))
         self.assertIn("font-size:15px", self._rule(".tele .mv{"))
@@ -7075,6 +7075,36 @@ class TheInspectorStartsAt340Tests(unittest.TestCase):
             self._settings(code_width=saved)
             self.assertEqual(crow_gui.code_width_setting(), saved)
             self.assertIn("--codew:%dpx" % saved, crow_gui.stamped_page())
+
+
+class TheTelemetryCellNeverBreaksInsideItselfTests(unittest.TestCase):
+    """#383, from the render at 1440x960 with the 340 px inspector: the
+    Delegated cell's sub-line broke as "subtask · 65 / tok". A cell's label,
+    value and sub-line never break inside themselves; the row is too narrow ->
+    whole cells wrap onto a second row (still no scrollbar). The cells are
+    sized by their content, not by a fixed 112 px basis that a phrase could
+    outgrow."""
+
+    @classmethod
+    def setUpClass(cls):
+        source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        css = source[source.index("<style>"):source.index("</style>")]
+        cls.css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+    def _rule(self, selector: str) -> str:
+        found = self.css[self.css.index(selector):]
+        return found[:found.index(chr(125))]
+
+    def test_a_cell_is_sized_by_its_content_and_its_lines_do_not_break(self):
+        cell = self._rule(".tele .m{")
+        self.assertIn("flex:1 1 auto", cell)
+        self.assertNotRegex(cell, r"flex:[^;]*\d+px")
+        for part in (".tele .ml{", ".tele .mv{", ".tele .ms{"):
+            self.assertIn("white-space:nowrap", self._rule(part), part)
+        # NEGATIVE: the strip itself still wraps, and still never scrolls.
+        tele = self._rule(".cost.tele{")
+        self.assertIn("flex-wrap:wrap", tele)
+        self.assertNotIn("overflow-x", tele)
 
 
 class TheTraceFoldsFinishedRoundsTests(unittest.TestCase):
