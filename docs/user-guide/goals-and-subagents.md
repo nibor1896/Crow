@@ -7,7 +7,7 @@ itself and works through step by step, and a **subagent** is a task it hands to 
 while it keeps going.
 
 <div align="center">
-<img src="../images/window-goal-2026-09-16.png" alt="A goal at 3/3 with a delegate round in the trace and the tool calls in the code panel" width="900">
+<img src="../images/window-goal-2026-10-14.png" alt="A goal at 3/3, rendered by tools/render_window.py from the goal-run fixture of 2026-09-16: the trace strip with the goal, run_command and delegate calls, the one-line d1 subtask card in the flow, the telemetry strip, and the inspector on its Goal tab with three done steps" width="900">
 </div>
 
 ---
@@ -18,7 +18,7 @@ while it keeps going.
 |---|---|
 | Tools | `goal_set(title, steps)` writes the plan, `goal_step(step, status, note)` moves one step |
 | From the composer | `/goal <title>` then one step per line, or `title \| step \| step`. A line `check: <command>` (or a `\| check: <command>` part) is the acceptance check, not a step (#250). A line `accept: <item>, <item>` is the judge's checklist for every visual step, and `accept: 5: <item>` binds it to step 5 (#266, #295). A line `reference: <image> -- <criterion>` gives the judge a reference image (#295). Neither is a step. `/goal` alone shows where it stands, `/goal skip <n> [reason]` skips step n (#289), `/goal redo <n>` takes that skip back (#296), `/goal off` clears it and its check |
-| Panel | the first of the pinned cards at the top right of the chat (goal, subtasks, git): title, `done/total`, wall clock, tokens, delegated tokens, and one row per step |
+| Goal tab | the first tab of the inspector beside the chat, selected when a new goal is set unless you picked another tab in that chat: a status pill, the title, a progress bar, `done/total` steps, wall clock, tokens, delegated tokens, and one row per step on a timeline (#384). The chat head's `Goal 3/3` pill opens it ([window](window.md)) |
 | Store | `<root>/.crow/goal.json`, beside `MEMORY.md` — the goal belongs to the folder the work is in |
 | States | `open` · `running` · `done` · `failed` · `skipped` (#289, only by you). The goal can be `paused` (#294), and it ends `done`, or "complete with N skipped" when you skipped a step |
 | Talking to it | a line typed while a goal turn runs is queued and runs **before** the next nudge, resetting the turn caps (#264). **Stop pauses the goal**: the turn ends, no next turn starts, a note says so, and the next line you send resumes it (#282). Escape = Stop |
@@ -59,7 +59,7 @@ A rung is climbed once per attempt: three judge calls in one turn are one attemp
 and the step's clock stops. Crow gives the model **one** more turn with no tools, to write for you
 what it identified, why it cannot proceed, 2–3 concrete proposals, and whether you have further
 input. The report appears in the chat, in the window and on the phone. It is also kept as
-`pause.report`. The goal bar reads **Paused · step N**, and a line under the title gives the
+`pause.report`. The Goal tab's pill reads **Paused · step N**, and a line under the title gives the
 reason. After that the engine waits. **Only a typed line resumes**, from the window or the phone.
 It starts the step's counters and its budget over. `/goal` alone does not resume. The turn caps
 (25 per step, 60 per goal) pause the same way, and so do the two budgets:
@@ -74,13 +74,13 @@ It starts the step's counters and its budget over. `/goal` alone does not resume
 | `/goal skip <n> [reason]` | you skip step n: window, terminal and phone. The reason becomes the step's note (default: "skipped by the user"). A `done` step cannot be skipped. There is no `/goal done <n>`: acceptance stays with the evidence gates below |
 | `/goal redo <n>` | takes your skip back: the step is `open` again (#296). The model cannot do this: its `done` or `running` on a step you skipped is refused |
 | `skipped` | counts as not done. The engine moves past it. The goal ends "complete with N skipped", never `done`, and an acceptance check does not run for it. A step stored `done` whose note starts with "skipped" (the 2026-09-24 hand edit) is read as skipped (#296) |
-| Panel | a skipped step has its own colour (violet `--skip`), a dashed ring with a skip glyph, and the word "skipped". The running step stays amber with a dot, and the paused step shows a red pause glyph. The head (and the thin phone bar) says `step 4 skipped`, `Complete · step 4 skipped` at the end, or `Paused · step N`. A split step lists its sub-steps under it |
+| Goal tab | a skipped step has its own colour (violet `--skip`), a dashed ring with a skip glyph, and the word "skipped". The running step has an accent ring, and the paused step shows a red pause glyph and the word "paused" (#384). The status pill says `Open · step 4 skipped`, `Complete · step 4 skipped` at the end, or `Paused · step N`. A split step lists its sub-steps under it |
 
 Not measured live: whether the pause reports read well, and how often a local model recovers on
 the reflection and split rungs.
 
-**The panel follows goal.json, not only the goal tools (#289).** Every round, before every turn and
-on `/goal`, Crow reads the file and redraws the panel when a step or the goal changed state. A hand
+**The Goal tab follows goal.json, not only the goal tools (#289).** Every round, before every turn and
+on `/goal`, Crow reads the file and redraws the tab when a step or the goal changed state. A hand
 edit of `goal.json` shows up at the latest after the current round. Before, only `goal_set` and
 `goal_step` redrew it during a turn, so a hand edit stayed hidden until the next turn ended.
 
@@ -330,11 +330,11 @@ collecting in turn waits exactly as long as doing the work would have.
 | Tokens | counted from the remote's `usage` block — remote endpoints send no llama timings |
 | Stop | cancels the local turn **and** the subtasks; whatever a stream still delivers is dropped and the card ends `interrupted` |
 
-**In the window.** A subtask is a card in the pinned **Subtasks** panel (top right, with the goal and git
-cards; it does not scroll with the chat) — spot, state, token count; running cards on top,
-finished ones folded under `finished · N` — and a child row
-under its root chat in the rail, marked `⑂`. Clicking either jumps to the card; a subtask is never
-opened as a chat. Cards keep breathing outside a turn, and they come back after a restart from
+**In the window.** A subtask is a card in the inspector's **Subtasks** tab — id, state, time and
+tokens, the task, the model and the result; running cards on top (#384) — a one-line card in the
+flow where `delegate` was called, with id, task, model, state and `tok · s` (#383), and a child row
+under its root chat in the rail, marked with a fork. Clicking the flow card or the rail row opens
+the Subtasks tab with the card in view; a subtask is never opened as a chat. Cards keep breathing outside a turn, and they come back after a restart from
 `session/subtasks-registry.json`: a `running` one becomes `interrupted`, the numbering continues,
 and deleting a chat deletes its subtasks.
 
@@ -352,6 +352,6 @@ maker that may skip its own checker will.
 | | |
 |---|---|
 | [Tools](../reference/tools.md) | every built-in tool, with the delegation section in full |
-| [Window](window.md) | the panels these two draw into |
+| [Window](window.md) | the Goal and Subtasks tabs these two draw into |
 | [Remote models](remote-models.md) | the spot a subtask runs on, and how it is chosen |
 | [Settings](../reference/settings.md) | `subtask_max_tokens`, `turn_token_budget` |

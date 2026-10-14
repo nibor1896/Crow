@@ -398,7 +398,7 @@ for the push.
 polls in the background — the browser leg takes minutes and no tool call may hold the
 turn that long. The token lands in `provider_keys.json`, owner-only, and is never
 handed to a surface; what a surface shows is the login name. Needs a client id, see
-[the window's git panel](../user-guide/window.md).
+[the window's Git tab](../user-guide/window.md#git-tab-156-384).
 
 ### `write_file` and `append_file` (#244, #251, #252, #254)
 
