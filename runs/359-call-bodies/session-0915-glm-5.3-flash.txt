@@ -1,0 +1,54 @@
+session: <home>\dev\crow-nest\decode_out\meas-245\session-0915.json
+model: not recorded
+tokenizer: <home>\dev\crow-nest\models\GLM-5.3-Flash-original\tokenizer.json
+mode: rendered template (<home>\dev\crow-nest\models\GLM-5.3-Flash-original\chat_template.jinja)
+messages: 274; keep window: the last 5 assistant messages, from message 264
+recorded context_tokens: 180,263 (the server's count, tools block included)
+
+| category | tokens | behind keep window | values | values behind |
+|---|---|---|---|---|
+| head | 1,280 | 1,280 | 1 | 1 |
+| user | 1,526 | 1,526 | 14 | 14 |
+| reasoning | 81,259 | 78,254 | 132 | 127 |
+| assistant text | 5,921 | 5,720 | 71 | 67 |
+| args edit_file | 1,125 | 838 | 15 | 12 |
+| args list_dir | 12 | 12 | 1 | 1 |
+| args read_file | 306 | 277 | 41 | 35 |
+| args run_command | 5,939 | 5,795 | 80 | 79 |
+| args search_text | 159 | 159 | 12 | 12 |
+| args session_search | 6 | 6 | 2 | 2 |
+| args write_file | 9,350 | 8,363 | 38 | 36 |
+| results edit_file | 95 | 76 | 5 | 4 |
+| results list_dir | 1,010 | 1,010 | 1 | 1 |
+| results read_file | 15,302 | 14,725 | 17 | 15 |
+| results run_command | 30,968 | 30,743 | 78 | 77 |
+| results search_text | 43 | 43 | 5 | 5 |
+| results session_search | 175 | 175 | 1 | 1 |
+| results write_file | 472 | 453 | 19 | 18 |
+| markup (by difference) | 2,276 | | | |
+| total | 157,224 | 149,455 | | |
+
+replay: batch at message 264 (keep 5) on messages [0, 274), 157,224 tokens before
+
+| arm | results | call bodies | tokens freed | first changed message | re-prefill tokens | re-prefill events | crow_core estimate (typical / low) |
+|---|---|---|---|---|---|---|---|
+| results | 31 | 0 | 38,908 | 3 | 116,427 | 1 | 44,526 / 27,885 |
+| results+calls | 31 | 13 | 45,727 | 3 | 109,608 | 1 | 53,608 / 33,314 |
+
+call bodies on top of the results: 6,819 tokens
+call body stubs: n 13, tokens mean 84.1, min 80, max 87 (naming <home>\AppData\Local\Crow\session\cleared\20261014-120000.json)
+render stable (only the stubbed values moved): yes
+
+walk: n_ctx 200,000, batch at 0.65 with at_least 0.1, keep 5, count + 0, rollover at 0.9
+
+| arm | batch at message | window count | results | call bodies | tokens freed | first changed message | re-prefill tokens |
+|---|---|---|---|---|---|---|---|
+| results | 216 | 130,777 | 29 | 0 | 38,275 | 3 | 90,636 |
+| results+calls | 216 | 130,777 | 29 | 7 | 42,873 | 3 | 86,038 |
+
+| arm | re-prefill events | re-prefill tokens | tokens freed | rolls over at | tokens at the end |
+|---|---|---|---|---|---|
+| results | 1 | 90,636 | 38,275 | no | 118,949 |
+| results+calls | 1 | 86,038 | 42,873 | no | 114,351 |
+
+re-prefill events equal: yes

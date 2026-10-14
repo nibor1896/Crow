@@ -38,15 +38,27 @@ kept one. Two arms on that same conversation:
 
 Per arm: what was cleared, tokens freed, the first changed message, the tokens
 re-read from there (longest common token prefix, the server's rule) and the
-re-prefill events (one batch is one). `render_stable` says whether the rewritten
-arguments render exactly as the original arguments with only the stubbed values
-swapped. The originals go to <temp>/context-breakdown-359, removed afterwards;
-the stubs name that dir, so their length differs from a real one by a few
-chars.
+re-prefill events (one batch is one, by construction). `render_stable` says
+whether the rewritten arguments render exactly as the original arguments with
+only the stubbed values swapped. `stub_tokens`: the call body stubs, counted.
+The originals go to <temp>/context-breakdown-359, removed afterwards; every
+count is taken with the stubs naming <SESSION_DIR>/cleared/<stamp>.json, the
+file a live batch on this machine names.
+
+--walk replays the history round by round under the LIVE rule, per arm: at
+every point the turn loop calls `clear_before_roll` the window count is the
+conversation as it stands (rendered through the last assistant message, plus
+--offset for the tools block a session does not store), and crow_core decides
+with its own share (0.65 at home) and `at_least` (0.10 of --n-ctx). Per arm:
+every batch (where, the count, what was cleared, tokens freed, re-prefill
+tokens), the re-prefill events, and where `should_roll` would roll. The count
+is exact after a batch, where the live loop holds a low estimate until the
+next usage block.
 
 Usage:
   python tools/context_breakdown.py SESSION.json [--tokenizer PATH] [--raw] [--keep N] [--json]
   python tools/context_breakdown.py SESSION.json --replay [--at N] [--n-ctx N] [--json]
+  python tools/context_breakdown.py SESSION.json --walk [--n-ctx N] [--offset N] [--json]
 
 The default tokenizer follows the session's `model`: GLM-5.3-Flash or
 Qwen3.8-Flash-Next under <crow-nest>/models/<name>-original/ (CROW_NEST, else
@@ -60,6 +72,7 @@ dependency of Crow; it imports crow_core to replay the batch Crow ships.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -71,6 +84,10 @@ REPO = os.path.dirname(HERE)
 HOME = os.path.expanduser("~")
 KEEP = 5
 N_CTX = 200_000
+# The originals file's name in a replay: a real stamp's length.
+STAMP = "20261014-120000"
+# (arm, inputs): #263's batch, and the same batch with the call bodies (#359)
+ARMS = (("results", False), ("results+calls", True))
 # (substring of the recorded model, lower case) -> crow-nest model folder
 MODELS = (("glm", "GLM-5.3-Flash-original"),
           ("qwen", "Qwen3.8-Flash-Next-original"),
@@ -91,8 +108,9 @@ def default_tokenizer(model):
 
 
 def shown(path) -> str:
-    """A path for the report: the user profile as <home>."""
-    path = str(path)
+    """A path for the report: the user profile as <home>, whichever
+    separators the path was given with."""
+    path = os.path.normpath(str(path))
     if HOME and path.lower().startswith(HOME.lower()):
         return "<home>" + path[len(HOME):]
     return path
@@ -348,28 +366,70 @@ def _swapped(conv, after) -> list:
     return out
 
 
+def _relocate(messages, path, real) -> list:
+    """`messages` with the originals file `path` named `real` in every stub:
+    in tool contents as written, in call arguments as JSON writes it."""
+    if path == real:
+        return messages
+    quoted = (json.dumps(path, ensure_ascii=False)[1:-1],
+              json.dumps(real, ensure_ascii=False)[1:-1])
+    out = []
+    for m in messages:
+        if isinstance(m.get("content"), str) and path in m["content"]:
+            m = dict(m, content=m["content"].replace(path, real))
+        if m.get("tool_calls"):
+            calls = []
+            for c in m["tool_calls"]:
+                fn = c.get("function") or {}
+                raw = fn.get("arguments")
+                if isinstance(raw, str) and quoted[0] in raw:
+                    c = dict(c, function=dict(fn, arguments=raw.replace(*quoted)))
+                calls.append(c)
+            m = dict(m, tool_calls=calls)
+        out.append(m)
+    return out
+
+
+def _stub_values(before, after) -> list:
+    """Every call body value `after` holds as a stub where `before` held text."""
+    out = []
+    for old, new in zip(before, after):
+        if old.get("role") != "assistant" or old.get("tool_calls") == new.get("tool_calls"):
+            continue
+        for c_old, c_new in zip(old["tool_calls"], new["tool_calls"]):
+            a_old = parse_args((c_old.get("function") or {}).get("arguments"))
+            a_new = parse_args((c_new.get("function") or {}).get("arguments"))
+            out += [v for k, v in a_new.items() if a_old.get(k) != v
+                    and isinstance(v, str) and v.startswith("[cleared at ")]
+    return out
+
+
+def _batch(core, conv, tokens, n_ctx, path, real, **kw):
+    """One crow_core batch on `conv`: (done, the messages after it, with the
+    stubs naming `real` instead of the temp file `path`)."""
+    talk = core.Conversation(None)
+    talk.restore(conv)
+    done = core.clear_old_results(talk, tokens, n_ctx, path=path, **kw)
+    return done, _relocate(talk.payload(), path, real) if done else conv
+
+
 def replay(messages, encode, render, at=None, keep=KEEP, n_ctx=N_CTX, core=None) -> dict:
     core = core or import_core()
     cut, end = fire_window(messages, at, keep)
     conv = [dict(m) for m in messages[:end]]
     ids0 = encode(render(conv))
-    # A FIXED NAME, not mkdtemp's: the stubs carry this path, and a random
-    # one tokenises to a different length on every run.
     tmp = os.path.join(tempfile.gettempdir(), "context-breakdown-359")
     shutil.rmtree(tmp, ignore_errors=True)
+    real = os.path.join(core.SESSION_DIR, "cleared", STAMP + ".json")
     arms, stable = {}, None
     try:
-        for arm, inputs in (("results", False), ("results+calls", True)):
-            talk = core.Conversation(None)
-            talk.restore(conv)
-            path = os.path.join(tmp, "r" if not inputs else "c", "cleared",
-                                "20261014-120000.json")
-            done = core.clear_old_results(talk, max(1, len(ids0)), n_ctx, at=1e-9,
-                                          keep_rounds=keep, at_least=0.0, path=path,
-                                          inputs=inputs)
-            after = talk.payload()
+        for arm, inputs in ARMS:
+            path = os.path.join(tmp, "r" if not inputs else "c", "cleared", STAMP + ".json")
+            done, after = _batch(core, conv, max(1, len(ids0)), n_ctx, path, real,
+                                 at=1e-9, keep_rounds=keep, at_least=0.0, inputs=inputs)
             ids1 = encode(render(after))
             first = next((i for i, (a, b) in enumerate(zip(conv, after)) if a != b), None)
+            stubs = [len(encode(s)) for s in _stub_values(conv, after)]
             arms[arm] = {
                 "results": done["results"] if done else 0,
                 "call_bodies": done["calls"] if done else 0,
@@ -381,15 +441,89 @@ def replay(messages, encode, render, at=None, keep=KEEP, n_ctx=N_CTX, core=None)
                 "estimate_typical": done["typical"] if done else 0,
                 "estimate_low": done["freed"] if done else 0,
                 "estimate_call_bodies": done["typical_calls"] if done else 0,
+                "stub_tokens": {"n": len(stubs),
+                                "mean": round(sum(stubs) / len(stubs), 1) if stubs else 0,
+                                "min": min(stubs) if stubs else 0,
+                                "max": max(stubs) if stubs else 0},
             }
             if inputs:
                 stable = render(after) == render(_swapped(conv, after))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return {"cut": cut, "end": end, "keep": max(1, int(keep)), "n_ctx": n_ctx,
-            "tokens_before": len(ids0), "arms": arms,
+            "tokens_before": len(ids0), "originals_named": shown(real), "arms": arms,
             "bodies_on_top": arms["results+calls"]["freed"] - arms["results"]["freed"],
             "render_stable": stable}
+
+
+def walk(messages, encode, render, keep=KEEP, n_ctx=N_CTX, offset=0, at=None,
+         at_least=None, arms=None, core=None) -> dict:
+    """The stored history replayed round by round under the live rule, per arm.
+
+    At every point the turn loop calls `clear_before_roll` (before each
+    assistant message: a turn's start or a tool round's end) the window count
+    is the conversation as it stands then, rendered, through the last
+    assistant message (the server's last usage: prompt plus answer), plus
+    `offset`. crow_core's own `clear_old_results` decides with the endpoint
+    default share and `at_least` (or the ones given); a batch rewrites the
+    conversation for every later point. The arm stops where `should_roll`
+    would roll. One difference to the live loop: after a batch the count is
+    recounted here, where the live loop holds crow_core's low estimate until
+    the next usage block.
+    """
+    core = core or import_core()
+    rounds = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
+    share = core.context_clear_share(False) if at is None else at
+    least = core.CONTEXT_CLEAR_AT_LEAST if at_least is None else at_least
+    counted = {}
+
+    def count(msgs):
+        text = render(msgs)
+        key = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if key not in counted:
+            counted[key] = len(encode(text))
+        return counted[key]
+
+    tmp = os.path.join(tempfile.gettempdir(), "context-breakdown-359-walk")
+    shutil.rmtree(tmp, ignore_errors=True)
+    out = {}
+    try:
+        for name, inputs in arms or ARMS:
+            conv, batches, rolled = [dict(m) for m in messages], [], None
+            for n in range(1, len(rounds)):
+                k, last = rounds[n], rounds[n - 1]
+                tokens = count(conv[:last + 1]) + offset
+                stamp = "20261014-%06d.json" % k
+                path = os.path.join(tmp, "c" if inputs else "r", "cleared", stamp)
+                real = os.path.join(core.SESSION_DIR, "cleared", stamp)
+                done, after = _batch(core, conv[:k], tokens, n_ctx, path, real,
+                                     at=share, keep_rounds=keep, at_least=least,
+                                     inputs=inputs)
+                if done:
+                    ids0, ids1 = encode(render(conv[:k])), encode(render(after))
+                    batches.append({
+                        "message": k, "context_tokens": tokens,
+                        "results": done["results"], "call_bodies": done["calls"],
+                        "first_changed_message": next(
+                            (i for i, (a, b) in enumerate(zip(conv, after)) if a != b), None),
+                        "freed": len(ids0) - len(ids1),
+                        "reprefill_tokens": len(ids1) - _common(ids0, ids1),
+                        "estimate_typical": done["typical"]})
+                    conv = after + conv[k:]
+                    tokens = count(conv[:last + 1]) + offset
+                if core.should_roll(tokens, n_ctx):
+                    rolled = k
+                    break
+            out[name] = {"batches": batches, "reprefill_events": len(batches),
+                         "reprefill_tokens": sum(b["reprefill_tokens"] for b in batches),
+                         "freed": sum(b["freed"] for b in batches),
+                         "rolled_at": rolled,
+                         "tokens_end": None if rolled is not None else count(conv) + offset}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return {"n_ctx": n_ctx, "at": share, "at_least": least, "keep": max(1, int(keep)),
+            "offset": offset, "rollover_at": core.ROLLOVER_AT, "arms": out,
+            "events_equal": len({a["reprefill_events"] for a in out.values()}) <= 1}
 
 
 def _table(doc) -> str:
@@ -427,10 +561,43 @@ def _table(doc) -> str:
                 a["freed"], a["reprefill_tokens"], a["estimate_typical"], a["estimate_low"])
                 % (name, a["results"], a["call_bodies"], a["first_changed_message"],
                    a["reprefill_events"]))
+        stubs = rep["arms"]["results+calls"]["stub_tokens"]
         lines += ["",
                   "call bodies on top of the results: {:,} tokens".format(rep["bodies_on_top"]),
+                  "call body stubs: n %d, tokens mean %s, min %d, max %d (naming %s)"
+                  % (stubs["n"], stubs["mean"], stubs["min"], stubs["max"],
+                     rep["originals_named"]),
                   "render stable (only the stubbed values moved): %s"
                   % ("yes" if rep["render_stable"] else "NO")]
+    wk = doc.get("walk")
+    if wk:
+        lines += ["",
+                  "walk: n_ctx {:,}, batch at {} with at_least {}, keep {}, count + {:,}, "
+                  "rollover at {}".format(wk["n_ctx"], wk["at"], wk["at_least"], wk["keep"],
+                                          wk["offset"], wk["rollover_at"]),
+                  "",
+                  "| arm | batch at message | window count | results | call bodies "
+                  "| tokens freed | first changed message | re-prefill tokens |",
+                  "|---|---|---|---|---|---|---|---|"]
+        for name, a in wk["arms"].items():
+            for b in a["batches"]:
+                lines.append("| %s | %d | {:,} | %d | %d | {:,} | %s | {:,} |".format(
+                    b["context_tokens"], b["freed"], b["reprefill_tokens"])
+                    % (name, b["message"], b["results"], b["call_bodies"],
+                       b["first_changed_message"]))
+            if not a["batches"]:
+                lines.append("| %s | none | | | | | | |" % name)
+        lines += ["",
+                  "| arm | re-prefill events | re-prefill tokens | tokens freed | rolls over at "
+                  "| tokens at the end |",
+                  "|---|---|---|---|---|---|"]
+        for name, a in wk["arms"].items():
+            lines.append("| %s | %d | {:,} | {:,} | %s | %s |".format(
+                a["reprefill_tokens"], a["freed"])
+                % (name, a["reprefill_events"],
+                   "message %d" % a["rolled_at"] if a["rolled_at"] is not None else "no",
+                   "{:,}".format(a["tokens_end"]) if a["tokens_end"] is not None else ""))
+        lines += ["", "re-prefill events equal: %s" % ("yes" if wk["events_equal"] else "NO")]
     return "\n".join(lines)
 
 
@@ -443,6 +610,10 @@ def main(argv=None, encode=None) -> int:
     ap.add_argument("--replay", action="store_true")
     ap.add_argument("--at", type=int, default=None)
     ap.add_argument("--n-ctx", type=int, default=N_CTX)
+    ap.add_argument("--walk", action="store_true",
+                    help="the history round by round under the live rule")
+    ap.add_argument("--offset", type=int, default=0,
+                    help="tokens added to the walk's window count (the tools block)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     try:
@@ -480,6 +651,8 @@ def main(argv=None, encode=None) -> int:
         except ValueError as exc:
             print("SETUP ERROR: %s" % exc, file=sys.stderr)
             return 2
+    if args.walk:
+        out["walk"] = walk(messages, encode, render, args.keep, args.n_ctx, args.offset)
     print(json.dumps(out, indent=1) if args.json else _table(out))
     return 0
 

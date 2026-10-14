@@ -145,33 +145,95 @@
   "keep": 5,
   "n_ctx": 200000,
   "tokens_before": 157224,
+  "originals_named": "<home>\\AppData\\Local\\Crow\\session\\cleared\\20261014-120000.json",
   "arms": {
    "results": {
     "results": 31,
     "call_bodies": 0,
-    "tokens_after": 118502,
-    "freed": 38722,
+    "tokens_after": 118316,
+    "freed": 38908,
     "first_changed_message": 3,
-    "reprefill_tokens": 116613,
+    "reprefill_tokens": 116427,
     "reprefill_events": 1,
     "estimate_typical": 44526,
     "estimate_low": 27885,
-    "estimate_call_bodies": 0
+    "estimate_call_bodies": 0,
+    "stub_tokens": {
+     "n": 0,
+     "mean": 0,
+     "min": 0,
+     "max": 0
+    }
    },
    "results+calls": {
     "results": 31,
     "call_bodies": 13,
-    "tokens_after": 112017,
-    "freed": 45207,
+    "tokens_after": 111497,
+    "freed": 45727,
     "first_changed_message": 3,
-    "reprefill_tokens": 110128,
+    "reprefill_tokens": 109608,
     "reprefill_events": 1,
-    "estimate_typical": 53400,
-    "estimate_low": 33008,
-    "estimate_call_bodies": 8874
+    "estimate_typical": 53608,
+    "estimate_low": 33314,
+    "estimate_call_bodies": 9082,
+    "stub_tokens": {
+     "n": 13,
+     "mean": 84.1,
+     "min": 80,
+     "max": 87
+    }
    }
   },
-  "bodies_on_top": 6485,
+  "bodies_on_top": 6819,
   "render_stable": true
+ },
+ "walk": {
+  "n_ctx": 200000,
+  "at": 0.65,
+  "at_least": 0.1,
+  "keep": 5,
+  "offset": 0,
+  "rollover_at": 0.9,
+  "arms": {
+   "results": {
+    "batches": [
+     {
+      "message": 216,
+      "context_tokens": 130777,
+      "results": 29,
+      "call_bodies": 0,
+      "first_changed_message": 3,
+      "freed": 38275,
+      "reprefill_tokens": 90636,
+      "estimate_typical": 43634
+     }
+    ],
+    "reprefill_events": 1,
+    "reprefill_tokens": 90636,
+    "freed": 38275,
+    "rolled_at": null,
+    "tokens_end": 118949
+   },
+   "results+calls": {
+    "batches": [
+     {
+      "message": 216,
+      "context_tokens": 130777,
+      "results": 29,
+      "call_bodies": 7,
+      "first_changed_message": 3,
+      "freed": 42873,
+      "reprefill_tokens": 86038,
+      "estimate_typical": 49688
+     }
+    ],
+    "reprefill_events": 1,
+    "reprefill_tokens": 86038,
+    "freed": 42873,
+    "rolled_at": null,
+    "tokens_end": 114351
+   }
+  },
+  "events_equal": true
  }
 }

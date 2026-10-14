@@ -141,6 +141,61 @@ class TheReplayTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             B.replay(messages, words, B.raw_render, at=12, keep=5)
 
+    def test_the_stubs_name_the_real_originals_dir_and_are_counted(self):
+        """The replay writes its originals to a temp dir, but counts the stubs
+        as the live batch writes them: naming <SESSION_DIR>/cleared."""
+        core = B.import_core()
+        messages = session(10, size=300, result_size=400)
+        rep = B.replay(messages, words, B.raw_render, keep=5)
+        both = rep["arms"]["results+calls"]
+        self.assertEqual(both["stub_tokens"]["n"], both["call_bodies"])
+        self.assertGreater(both["stub_tokens"]["mean"], 0)
+        self.assertLessEqual(both["stub_tokens"]["min"], both["stub_tokens"]["max"])
+        real = os.path.join(core.SESSION_DIR, "cleared", B.STAMP + ".json")
+        self.assertEqual(rep["originals_named"], B.shown(real))
+        self.assertTrue(rep["render_stable"])
+
+
+class TheWalkTests(unittest.TestCase):
+    """--walk: the session's history under the live rule, round by round, so
+    the batches are the ones crow_core would fire, not one forced batch."""
+
+    def test_both_arms_fire_under_the_live_rule_and_say_where(self):
+        messages = session(20, size=300, result_size=400)
+        total = len(words(B.raw_render(messages)))
+        rep = B.walk(messages, words, B.raw_render, keep=5, n_ctx=int(total / 0.8))
+        for name in ("results", "results+calls"):
+            arm = rep["arms"][name]
+            self.assertGreaterEqual(arm["reprefill_events"], 1, name)
+            self.assertEqual(arm["reprefill_events"], len(arm["batches"]))
+            for b in arm["batches"]:
+                self.assertGreaterEqual(b["context_tokens"], 0.65 * rep["n_ctx"], b)
+                self.assertGreater(b["freed"], 0, b)
+                self.assertGreater(b["reprefill_tokens"], 0, b)
+        self.assertEqual(rep["arms"]["results"]["batches"][0]["call_bodies"], 0)
+        self.assertGreater(rep["arms"]["results+calls"]["batches"][0]["call_bodies"], 0)
+        self.assertEqual((rep["at"], rep["at_least"]), (0.65, 0.10))
+        self.assertIn("events_equal", rep)
+
+    def test_a_batch_only_the_bodies_pay_for_is_an_extra_event(self):
+        """Short results never pass the at_least test alone; with the bodies
+        in, the same history fires. The forced replay cannot show this."""
+        messages = session(20, size=300, result_size=0)
+        total = len(words(B.raw_render(messages)))
+        rep = B.walk(messages, words, B.raw_render, keep=5, n_ctx=int(total / 0.8))
+        self.assertEqual(rep["arms"]["results"]["reprefill_events"], 0)
+        self.assertGreaterEqual(rep["arms"]["results+calls"]["reprefill_events"], 1)
+        self.assertFalse(rep["events_equal"])
+
+    def test_the_walk_stops_where_the_window_would_roll(self):
+        messages = session(20, size=300, result_size=0)
+        total = len(words(B.raw_render(messages)))
+        rep = B.walk(messages, words, B.raw_render, keep=5, n_ctx=int(total / 2),
+                     arms=(("results", False),))
+        arm = rep["arms"]["results"]
+        self.assertIsNotNone(arm["rolled_at"])
+        self.assertLess(arm["rolled_at"], len(messages))
+
 
 class TheCommandLineTests(unittest.TestCase):
 
@@ -156,6 +211,13 @@ class TheCommandLineTests(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             code = B.main([path, "--raw", *argv], encode=words)
         return code, out.getvalue()
+
+    def test_home_is_hidden_whichever_separator_the_path_came_with(self):
+        """A tokenizer passed as C:/Users/... is still under the profile."""
+        with mock.patch.object(B, "HOME", self.dir):
+            for path in (os.path.join(self.dir, "m", "t.json"),
+                         self.dir.replace("\\", "/") + "/m/t.json"):
+                self.assertEqual(B.shown(path), "<home>" + os.sep + os.path.join("m", "t.json"))
 
     def test_json_for_the_breakdown_and_the_replay(self):
         code, text = self._run("--json")
