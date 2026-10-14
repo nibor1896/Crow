@@ -14,19 +14,21 @@
    "${INSTALL}/cuda/lib"
   ]
  },
- "_engine_package": "The crow-nest engine package this Crow version is built and tested against (#367). CrowSetup installs it on a fresh install (its packages.json is written by installer/build.ps1 from the same asset); Crow's About pane compares ${INSTALL}/bin/serve against serve_sha256 and offers to fetch exactly url, checked against bytes and sha256, then every file against the MANIFEST.json inside the zip. The package carries no version (installer/core/src/layout.rs), so serve's sha256 is the identity of an installed engine. serve_sha256 is the serve.exe entry of that MANIFEST.json. Windows only: crow-nest v0.12.0 publishes no Linux engine asset.",
+ "_engine_package": "The crow-nest engine package this Crow version is built and tested against (#367). CrowSetup installs it on a fresh install (its packages.json is written by installer/build.ps1 from the same asset); Crow's About pane compares ${INSTALL}/bin/serve against serve_sha256 and offers to fetch exactly url, checked against bytes and sha256, then every file against the MANIFEST.json inside the zip. The package carries no version (installer/core/src/layout.rs), so serve's sha256 is the identity of an installed engine. serve_sha256 is the serve.exe entry of that MANIFEST.json. Windows only: crow-nest v0.13.2 publishes no Linux engine asset.",
  "engine_package": {
-  "version": "0.13.0",
+  "version": "0.13.2",
   "known": {
    "0.12.0": "670a93f9101d3896b4f70df5e9bae88e90df68bb422fc429e37320d297196200",
-   "0.13.0": "7d73f8de681bed915bfd02242a7e618428ca22136898d7e4ed6677038dfd8cd3"
+   "0.13.0": "7d73f8de681bed915bfd02242a7e618428ca22136898d7e4ed6677038dfd8cd3",
+   "0.13.1": "af74502742857793a9cda5f758582b79b797a5eb63316d57851efcc3e34f3aee",
+   "0.13.2": "ef439127375df747d8f3bae9f62d85ea5723b82a30d14f546c187bf0d58de0c9"
   },
   "windows": {
-   "asset": "crow-nest-engine-0.13.0-win-x64.zip",
-   "url": "https://github.com/nibor1896/crow-nest/releases/download/v0.13.0/crow-nest-engine-0.13.0-win-x64.zip",
-   "bytes": 4526571,
-   "sha256": "4b3d2e4b33be78e54d5aa2b5622996cd53d22b8f7c38a6e560a54272d1b285a8",
-   "serve_sha256": "7d73f8de681bed915bfd02242a7e618428ca22136898d7e4ed6677038dfd8cd3"
+   "asset": "crow-nest-engine-0.13.2-win-x64.zip",
+   "url": "https://github.com/nibor1896/crow-nest/releases/download/v0.13.2/crow-nest-engine-0.13.2-win-x64.zip",
+   "bytes": 4561178,
+   "sha256": "54454734a4d0c3dc26d0e4bc379c21bd692f35560febfe29fe38a50776bde732",
+   "serve_sha256": "ef439127375df747d8f3bae9f62d85ea5723b82a30d14f546c187bf0d58de0c9"
   }
  },
  "licenses": {

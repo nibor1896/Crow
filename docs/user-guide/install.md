@@ -407,8 +407,8 @@ so re-running the command at the top of this page by hand is the same update.
 
 That button updates Crow only; the crow-nest engine in `bin\` is the entry below it (#367), and
 it reads the same way: `CROW-NEST <installed version>`, then crow-nest's newest release from
-github.com (`0.13.0 is out, this is 0.12.0` or `0.13.0 is the newest release`), and the button
-**install 0.13.0** or **reinstall 0.13.0**. The engine carries no version, so the installed one
+github.com (`0.13.2 is out, this is 0.13.0` or `0.13.2 is the newest release`), and the button
+**install 0.13.2** or **reinstall 0.13.2**. The engine carries no version, so the installed one
 is named by the sha256 of `bin\serve.exe`: the `bin\.crow-engine.json` an engine update writes,
 else the table `manifests/stack.json` `engine_package.known`, else `unknown (<sha8>)`.
 
@@ -420,7 +420,7 @@ else the table `manifests/stack.json` `engine_package.known`, else `unknown (<sh
 | replace | each listed file is renamed to `<name>.bak-<first 8 hex of the old serve.exe's sha256>` and written new, `MANIFEST.json` last, then `.crow-engine.json` |
 | afterwards | start the point again. Crow itself needs no restart |
 
-Linux: crow-nest v0.13.0 publishes no Linux engine zip, so the entry names the release and offers
+Linux: crow-nest v0.13.2 publishes no Linux engine zip, so the entry names the release and offers
 no button.
 
 ---
