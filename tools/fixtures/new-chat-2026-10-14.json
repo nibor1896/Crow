@@ -1,0 +1,19 @@
+{
+ "name": "new-chat-2026-10-14",
+ "source": "A new, empty chat in the crow folder after the goal run of goal-run-2026-09-16.json: the start screen of the approved mockup Crow/02_docs/mockup-crow-gui-redesign-2026-10-14/Start.dc.html (Obsidian vault), as the page messages cli/crow_gui.py pushes for it (#385).",
+ "notes": ["Taken from the mockup: the model Qwen3.8-27B at high (default), the context 0 / 200k, the release level auto, the folder ~/Projects/crow, the rail (crow with the new chat and the goal-run chat, No folder with Latest n8n news, one archived chat), the greeting line.", "Fixture, not measured: the file paths, the message counts and the clocks of the saved chats, subtask d1's record. `goal` and `at` on a rail entry are what Api._entry_of reads off the file (#385).", "The rail message comes before the greeting on purpose: the start screen has to come out the same whichever of the two arrives first."],
+ "settings": {"rail_open": true, "code_open": false},
+ "api": {"copy": true, "paste_clipboard": ""},
+ "messages": [
+  {"k": "meta", "version": "3.5.0", "url": "http://127.0.0.1:8080", "tools": 12, "execute": true},
+  {"k": "mode", "name": "auto", "modes": [{"name": "manual", "what": "asks before animate_image, append_file, build_bundle, edit_file, edit_image, generate_image, render_page, run_command, write_file"}, {"name": "allowedit", "what": "asks before animate_image, build_bundle, edit_image, generate_image, render_page, run_command"}, {"name": "auto", "what": "every tool runs unasked"}, {"name": "yolo", "what": "every tool runs unasked -- outside paths and git commit included; git_push still asks"}]},
+  {"k": "root", "path": "~/Projects/crow", "name": "crow", "short": "~/Projects/crow", "roots": [{"path": "~/Projects/crow", "name": "crow"}]},
+  {"k": "tools", "on": true},
+  {"k": "up", "model": "Qwen3.8-27B", "n_ctx": 200000, "tokens": 0, "state": "ok", "models": [["qwen3.8-27b", "Qwen3.8-27B"]], "model_key": "qwen3.8-27b", "reasoning": "", "levels": ["off", "low", "medium", "high"], "groups": [["off", "high"], ["low"], ["medium"]]},
+  {"k": "clear"},
+  {"k": "rail", "title": "new chat", "meta": "no turn yet", "unsaved": true, "live_active": true, "live_running": false, "live_done": false, "live_goal": null, "live_at": "", "rollovers": [{"path": "fixture/count-files-delegate.json", "rollover": false, "title": "Count files, delegate 21×2", "root": "~/Projects/crow", "meta": "24 messages · put aside", "goal": [3, 3], "at": "16:41", "active": false, "running": false, "done": false}, {"path": "fixture/latest-n8n-news.json", "rollover": false, "title": "Latest n8n news", "root": "", "meta": "6 messages · put aside", "goal": null, "at": "15:02", "active": false, "running": false, "done": false}], "archived": [{"path": "fixture/archive/draft-the-release-notes.json", "rollover": false, "title": "Draft the release notes", "root": "", "meta": "14 messages · put aside"}], "projects": [{"path": "~/Projects/crow", "name": "crow", "open": true}], "live_root": "~/Projects/crow", "subs": [{"i": "d1", "task": "Compute 21 multiplied by 2 and state the numeric result.", "model": "inclusionai/ling-3.0-flash-vl:free", "st": "done", "s": 1.1, "tok": 65, "res": "42", "path": "", "collected": true, "parent": "fixture/count-files-delegate.json", "closed": false, "here": false}], "foot": ""},
+  {"k": "hello", "t": "Winding down, or still something on, Robin?"},
+  {"k": "goal", "goal": null},
+  {"k": "idle"}
+ ]
+}

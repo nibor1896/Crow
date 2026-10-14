@@ -3795,13 +3795,20 @@ class TheModelMenuSurvivesASwitchTests(ApiCase):
 
 
 class TheComposerControlsAreOneHeightTests(unittest.TestCase):
-    """The four controls in #acts -- folder, level, microphone, arrow.
+    """The controls in #acts -- level, microphone, arrow (the folder moved to
+    the chat head with #385).
 
     THEY SAT AT FOUR HEIGHTS because each was as tall as whatever it held: the
     folder and the level are an 11.5px line box at the inherited 1.55 factor
     (25.83px once padding and border are counted), the arrow is 14px at a 1.2
     line-height (22.8), and the microphone is an SVG that declares height="13"
     (19). `align-items:center` let every one of them keep its own number.
+
+    #385 CHANGES THIS REQUIREMENT. The approved mockup gives each KIND of
+    control its own size -- a chip 28 px, the icon button 32, the send 34 --
+    on one centre line. A size that comes from the kind is not a guess about
+    one font, so the row centres again, and no control of a kind pins a
+    height of its own beside its class.
     """
 
     def setUp(self) -> None:
@@ -3816,14 +3823,16 @@ class TheComposerControlsAreOneHeightTests(unittest.TestCase):
         self.assertIsNotNone(m, "no rule for %s" % selector)
         return m.group(1)
 
-    def test_the_row_stretches_so_one_height_reaches_all_four(self):
-        """`stretch` is the initial value of align-items; the row gets ONE height
-        from its tallest control and the rest adopt it. Pinning a px number on
-        each button instead would go stale the first time a font-size moves."""
+    def test_the_row_centres_the_mockups_three_sizes(self):
+        """#385: the chips, the icon button and the send on one centre line,
+        each at the mockup's size for its kind."""
         acts = self.rule("#acts")
-        self.assertIn("align-items:stretch", acts)
-        self.assertNotIn("align-items:center", acts,
-                         "center is what let the four keep four heights")
+        self.assertIn("align-items:center", acts)
+        self.assertNotIn("align-items:stretch", acts,
+                         "stretch would draw every chip at the send's 34 px")
+        self.assertIn("height:28px", self.rule(".chip"))
+        self.assertIn("height:32px", self.rule(".ib"))
+        self.assertIn("height:34px", self.rule("#go"))
 
     def test_the_stretch_reaches_the_buttons_inside_their_wrappers(self):
         """#root and #mode are not children of #acts -- their menu wrappers are.
@@ -3846,10 +3855,15 @@ class TheComposerControlsAreOneHeightTests(unittest.TestCase):
         up, and a stretched span puts its text at the top of the box."""
         self.assertIn("align-self:center", self.rule("#hint"))
 
-    def test_no_control_pins_a_height_of_its_own(self):
-        """The whole point of the fix. A `height:` on any of the four would be
-        the number that disagrees with the row the next time the font moves."""
-        for selector in ("#root", "#mode", "#mic", "#go"):
+    def test_a_control_takes_its_height_from_its_kind(self):
+        """#385: the folder, the level and the microphone wear their kind's
+        class and pin nothing of their own -- a second number there would be
+        the one that disagrees with its neighbours."""
+        page = self.source[self.source.index("</style>"):]
+        for marker in ('id="root" class="chip mono"', 'id="mode" data-mode="auto" class="chip"',
+                       'id="mic" onclick="crow.mic()" class="ib"'):
+            self.assertIn(marker, page)
+        for selector in ("#root", "#mode", "#mic"):
             self.assertIsNone(re.search(r"(?<![-a-z])height:\s*\d", self.rule(selector)),
                               "%s pins its own height" % selector)
 
@@ -3968,19 +3982,27 @@ class TheBarLostThreeChipsAndTheMenuGainedASubmenuTests(unittest.TestCase):
         (default)` means nothing was chosen and the template lands there anyway.
         The word is six characters and it is the entire finding."""
         self.assertIn('c.querySelector("b").textContent = this.modelName;', self.source)
-        self.assertIn('c.querySelector(".lvl").textContent = this.levelLabel();',
+        # #385 CHANGES THE FORM: the level is the chip's own dim word, the
+        # chip's gap its separator (the mockup's `high`, as on the engine chip).
+        self.assertIn('c.querySelector(".lvl").textContent = this.levelLabel().replace(/^ · /,"");',
                       self.source)
         self.assertIn('" (default)"', self.source)
 
     def test_the_chip_borrows_the_shape_of_its_new_neighbours(self):
         """The rule the microphone was built under: a neighbour with its own
-        radius and padding reads as an accident. #root and #mode are 6px and
-        3px/11px at 11.5px, and this control now stands beside them."""
-        rule = re.search(r"(?m)^#model\{(.*?)\}", self.css, re.S)
-        self.assertIsNotNone(rule, "no #model rule")
-        for decl in ("border-radius:6px", "padding:3px 11px", "font-size:11.5px"):
-            self.assertIn(decl, rule.group(1),
-                          "the chip keeps the bar's pill shape in the composer")
+        radius and padding reads as an accident.
+
+        #385 CHANGES THIS REQUIREMENT: the shape is the mockup's `.chip` now
+        (28 px, a full pill, 12.5 px), worn by the model, the level and the
+        folder alike, and `#model`'s own rule only lets it give way (#138c)."""
+        rule = re.search(r"(?m)^\.chip\{(.*?)\}", self.css, re.S)
+        self.assertIsNotNone(rule, "no .chip rule")
+        for decl in ("height:28px", "border-radius:999px", "font-size:12.5px"):
+            self.assertIn(decl, rule.group(1))
+        own = re.search(r"(?m)^#model\{(.*?)\}", self.css, re.S)
+        self.assertIsNotNone(own, "no #model rule")
+        self.assertNotIn("border-radius", own.group(1), "a second shape beside the class")
+        self.assertIn('class="chip pick" id="model"', self.composer)
 
     # -- a click elsewhere closes every popup, not two of the five -----------
 
@@ -5999,6 +6021,524 @@ class TheUserBubbleTests(unittest.TestCase):
         self.assertNotIn("max-width", say[:say.index(chr(125))])
 
 
+# -- #385: rail, chat head, composer and start screen ----------------------------
+
+def _crow_methods(source: str, *names: str) -> str:
+    """#385. The named methods of the page's `crow` object, as object-literal
+    source to run in node. A method runs from its head at two spaces to the
+    next line that starts at two spaces with anything but its closing brace."""
+    page = source[source.index("const crow = {"):source.index("const composer =")]
+    out = []
+    for name in names:
+        head = re.search(r"(?m)^  %s\(" % re.escape(name), page)
+        assert head, name
+        lines = page[head.start():].split("\n")
+        body = [lines[0]]
+        for line in lines[1:]:
+            if re.match(r"  [^ }]", line):
+                break
+            body.append(line)
+        out.append("\n".join(body).rstrip())
+    return "\n".join(out)
+
+
+# Just enough DOM for those methods: every element answers every selector with
+# a child of its own, records classes, attributes and `after` moves.
+_FAKE_PAGE_DOM = r"""
+const cl = () => { const s = new Set(); return {s,
+  add: c => s.add(c), remove: c => s.delete(c), contains: c => s.has(c),
+  toggle(c, on){ if(on === undefined) on = !s.has(c); on ? s.add(c) : s.delete(c); return on; }}; };
+class El { constructor(id){ this.id = id || ""; this.kids = {}; this.children = [];
+    this.hidden = false; this.attrs = {}; this.dataset = {}; this.style = {};
+    this.classList = cl(); this._t = ""; this.moves = []; this.parentNode = null; }
+  set innerHTML(v){ this._h = String(v); this.kids = {}; this.children = []; }
+  get innerHTML(){ return this._h || ""; }
+  set textContent(v){ this._t = String(v); if(this._t === ""){ this.kids = {}; this.children = []; } }
+  get textContent(){ return this._t; }
+  querySelector(sel){ return this.kids[sel] || (this.kids[sel] = new El(sel)); }
+  get firstChild(){ return this.querySelector(":first"); }
+  get lastChild(){ return this.querySelector(":last"); }
+  appendChild(c){ this.children.push(c); return c; }
+  setAttribute(k, v){ this.attrs[k] = String(v); } removeAttribute(k){ delete this.attrs[k]; }
+  after(x){ this.moves.push(x.id); } }
+const els = {};
+const $ = sel => els[sel] || (els[sel] = new El(sel.replace(/^#/, "")));
+const document = {createElement: tag => new El(tag)};
+const log = [];
+"""
+
+
+def _run_page(test: unittest.TestCase, js: str) -> dict:
+    """Run `js` in node and hand back the JSON it printed last."""
+    node = _node()
+    if not node:
+        test.skipTest("no node on this machine")
+    done = subprocess.run([node, "-e", js], capture_output=True, text=True,
+                          encoding="utf-8", timeout=30)
+    test.assertEqual(done.returncode, 0, done.stderr)
+    return json.loads(done.stdout.strip().splitlines()[-1])
+
+
+class CtrlNStartsANewChatTests(unittest.TestCase):
+    """#385, Expected result: "Ctrl+N opens a new chat". The handler is RUN in
+    node against a document that records its listeners; what it must do is
+    what the rail's "New chat" does, `crow.reset()`."""
+
+    def setUp(self) -> None:
+        self.source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+
+    def run_keys(self) -> dict:
+        handler = self.source[self.source.index("// #385. CTRL+N STARTS A NEW CHAT"):
+                              self.source.index("// #385. THE START SCREEN FOLLOWS")]
+        js = ("const ls = []; const document = {addEventListener: (t, f) => ls.push([t, f])};\n"
+              "const resets = []; const crow = {reset(){ resets.push(1); }};\n"
+              + handler +
+              "\nconst press = o => { let held = false; const before = resets.length;\n"
+              "  const ev = Object.assign({key: 'n', ctrlKey: false, metaKey: false, altKey: false,\n"
+              "    shiftKey: false, repeat: false, preventDefault(){ held = true; }}, o);\n"
+              "  ls.filter(l => l[0] === 'keydown').forEach(l => l[1](ev));\n"
+              "  return [resets.length - before, held]; };\n"
+              "console.log(JSON.stringify({ctrl: press({ctrlKey: true}),\n"
+              "  caps: press({ctrlKey: true, key: 'N'}), meta: press({metaKey: true}),\n"
+              "  plain: press({}), shift: press({ctrlKey: true, shiftKey: true}),\n"
+              "  alt: press({ctrlKey: true, altKey: true}), other: press({ctrlKey: true, key: 'k'}),\n"
+              "  held: press({ctrlKey: true, repeat: true})}));\n")
+        return _run_page(self, js)
+
+    def test_ctrl_n_resets_like_the_new_chat_button(self):
+        out = self.run_keys()
+        self.assertEqual(out["ctrl"], [1, True])
+        self.assertEqual(out["caps"], [1, True])
+        self.assertEqual(out["meta"], [1, True])
+        rail = self.source[self.source.index('<aside id="rail">'):]
+        rail = rail[:rail.index("</aside>")]
+        self.assertIn('id="new" type="button" onclick="crow.reset()"', rail,
+                      "the button and the key are not the same action")
+
+    def test_other_keys_and_a_held_key_do_not(self):
+        """NEGATIVE: a plain `n` is typing, Ctrl+Shift+N and Ctrl+Alt+N are
+        somebody else's, Ctrl+K is the search's; a held Ctrl+N is one chat."""
+        out = self.run_keys()
+        for case in ("plain", "shift", "alt", "other"):
+            self.assertEqual(out[case], [0, False], case)
+        self.assertEqual(out["held"], [0, True])
+
+
+class TheRailOfTheMockupTests(unittest.TestCase):
+    """#385, Proposed fix 1: the rail as in Main.dc.html -- New chat with its
+    key, folder heads and "No folder", two-line rows with no accent bar, the
+    subtasks as child rows, Archive and Settings at the foot."""
+
+    def setUp(self) -> None:
+        self.source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        self.css = self.source[self.source.index("<style>"):self.source.index("</style>")]
+        body = self.source[self.source.index("</style>"):]
+        self.rail = body[body.index('<aside id="rail">'):body.index('<div id="main">')]
+
+    def rule(self, selector: str) -> str:
+        m = re.search(r"(?m)^%s\{(.*?)\}" % re.escape(selector), self.css, re.S)
+        self.assertIsNotNone(m, "no rule for %s" % selector)
+        return m.group(1)
+
+    def test_the_head_is_one_new_chat_button_with_its_key(self):
+        self.assertIn('class="nl">New chat</span><span class="kbd">Ctrl N</span>', self.rail)
+        self.assertNotIn("<h2>Chats</h2>", self.rail)
+        new = self.rule("#new")
+        for decl in ("width:100%", "height:34px", "background:var(--panel)",
+                     "border:1px solid var(--line)", "font-size:13px", "font-weight:600"):
+            self.assertIn(decl, new)
+
+    def test_loose_chats_stand_under_no_folder(self):
+        rail = self.source[self.source.index("  rail(e){"):self.source.index("  railMenu(e){")]
+        self.assertIn('h.innerHTML=RICON.folderOff+"<span>No folder</span>";', rail)
+        self.assertNotIn('textContent="Chats"', rail)
+        self.assertIn("h.innerHTML=RICON.folder+", self.source[
+            self.source.index("  projectRow(p,count){"):self.source.index("  rail(e){")])
+        head = self.rule(".proj")
+        for decl in ("font-size:11px", "letter-spacing:.06em", "text-transform:uppercase",
+                     "color:var(--dim)"):
+            self.assertIn(decl, head)
+
+    def test_the_open_row_is_raised_and_carries_no_bar(self):
+        self.assertIn("background:var(--raised)", self.rule(".sess.on"))
+        self.assertNotIn(".sess.on::before", self.css)
+        self.assertNotIn(".sess.inproj::after", self.css, "the tree line is back")
+        self.assertIn("font-size:13px", self.rule(".sess .t"))
+        self.assertIn("text-overflow:ellipsis", self.rule(".sess .t"))
+        sub = self.rule(".sess .s")
+        self.assertIn("font-size:11.5px", sub)
+        self.assertIn("color:var(--dim)", sub)
+
+    def test_a_child_row_is_fork_id_task_and_state(self):
+        rail = self.source[self.source.index("  subRail(){"):self.source.index("  subPanel(items){")]
+        self.assertIn("b.innerHTML=RICON.fork+'<span class=\"sid mono\"></span>'", rail)
+        self.assertIn('b.querySelector(".stitle").textContent=it.task||"";', rail)
+        self.assertIn("var(--sub)", self.rule(".subchat svg"))
+        self.assertIn("color:var(--ok)", self.rule('.subchat .sst[data-st="ok"]'))
+        self.assertIn("color:var(--accent)", self.rule('.subchat .sst[data-st="run"]'))
+        self.assertIn("color:var(--bad)", self.rule(".subchat .sst"))
+        self.assertIn("padding:5px 10px 5px 20px", self.rule(".subchat"))
+
+    def test_the_foot_holds_the_archive_and_the_settings(self):
+        self.assertIn('id="archbar" class="foot"', self.rail)
+        self.assertIn('<span class="count mono"></span>', self.rail)
+        self.assertLess(self.rail.index('id="archbar"'), self.rail.index('id="settingsbtn"'))
+        self.assertLess(self.rail.index('id="arch"'), self.rail.index('id="archbar"'),
+                        "the drawer opens above its row")
+
+    def run_rowsub(self) -> dict:
+        js = (_FAKE_PAGE_DOM + "const crow = {\n"
+              + _crow_methods(self.source, "rowSub") + "\n};\n"
+              "const main = $('#main');\n"
+              "crow.subItems = [{parent: 'p'}, {parent: 'q'}, {parent: 'q'}, {parent: ''}];\n"
+              "const out = {};\n"
+              "out.plain = crow.rowSub({path: 'x', meta: '6 messages · put aside', goal: null});\n"
+              "out.saved = crow.rowSub({path: 'p', meta: 'm', goal: [3, 3], at: '16:41'});\n"
+              "out.two = crow.rowSub({path: 'q', meta: 'm', goal: [1, 4], at: ''});\n"
+              "crow.headGoal = {done: 2, total: 3}; crow.turnAt = '19:02';\n"
+              "out.open = crow.rowSub({path: null, active: true, meta: '24 messages', goal: null});\n"
+              "main.classList.add('empty');\n"
+              "out.empty = crow.rowSub({path: null, active: true, meta: 'no turn yet', goal: null});\n"
+              "console.log(JSON.stringify(out));\n")
+        return _run_page(self, js)
+
+    def test_a_row_that_ran_a_goal_says_so_in_its_second_line(self):
+        out = self.run_rowsub()
+        self.assertEqual(out["saved"], "goal 3/3 · 1 subtask · 16:41")
+        self.assertEqual(out["two"], "goal 1/4 · 2 subtasks")
+        # The chat in view takes the goal the page holds, and its turn's clock.
+        self.assertEqual(out["open"], "goal 2/3 · 1 subtask · 19:02")
+
+    def test_any_other_row_keeps_its_own_line(self):
+        """NEGATIVE: no goal, no goal line -- and an empty chat in view is "no
+        turn yet" even while its folder holds a goal."""
+        out = self.run_rowsub()
+        self.assertEqual(out["plain"], "6 messages · put aside")
+        self.assertEqual(out["empty"], "no turn yet")
+
+
+class TheRailCarriesTheGoalAndTheClockTests(ApiCase):
+    """#385, the Python half of the second line: a chat's goal numbers come
+    from ITS goal tools' answers (goal.json belongs to the folder), its clock
+    from its file, the folder chip's `~` path from the home folder."""
+
+    def goal_chat(self) -> list:
+        talk = crow_core.Conversation("SYS")
+        talk.append("user", "make a goal")
+        talk.append("assistant", "", tool_calls=[{"id": "c1", "name": "goal_set",
+                                                  "arguments": "{}"}])
+        talk.append("tool", json.dumps({"ok": True, "title": "t", "steps": 3}),
+                    tool_call_id="c1")
+        talk.append("assistant", "", tool_calls=[{"id": "c2", "name": "goal_step",
+                                                  "arguments": "{}"}])
+        talk.append("tool", json.dumps({"ok": True, "done": 2, "total": 3}),
+                    tool_call_id="c2")
+        talk.append("assistant", "", tool_calls=[{"id": "c3", "name": "goal_step",
+                                                  "arguments": "{}"}])
+        talk.append("tool", json.dumps({"ok": False, "error": "no"}), tool_call_id="c3")
+        return talk.payload()
+
+    def test_a_chat_carries_the_numbers_its_goal_tools_last_answered(self):
+        self.assertEqual(crow_gui.chat_goal(self.goal_chat()), [2, 3])
+        first = self.goal_chat()[:4]
+        self.assertEqual(crow_gui.chat_goal(first), [0, 3], "goal_set alone")
+
+    def test_a_chat_without_goal_tools_carries_none(self):
+        """NEGATIVE: another tool that answers `done`/`total`, a cleared result
+        and no tools at all are no goal."""
+        talk = crow_core.Conversation("SYS")
+        talk.append("assistant", "", tool_calls=[{"id": "c1", "name": "run_command",
+                                                  "arguments": "{}"}])
+        talk.append("tool", json.dumps({"ok": True, "done": 1, "total": 2}), tool_call_id="c1")
+        talk.append("assistant", "", tool_calls=[{"id": "c2", "name": "goal_step",
+                                                  "arguments": "{}"}])
+        talk.append("tool", "[cleared: 812 chars]", tool_call_id="c2")
+        self.assertIsNone(crow_gui.chat_goal(talk.payload()))
+        self.assertIsNone(crow_gui.chat_goal([{"role": "user", "content": "hi"}]))
+
+    def test_the_rail_entry_reads_goal_and_clock_off_the_file(self):
+        api = self.api()
+        path = os.path.join(self.dir, "chat-20261014-164100.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"messages": self.goal_chat()}, fh)
+        stamp = time.mktime((2026, 10, 14, 16, 41, 0, 0, 0, -1))
+        os.utime(path, (stamp, stamp))
+        entry = [r for r in api._archives() if r["path"] == path][0]
+        self.assertEqual(entry["goal"], [2, 3])
+        self.assertEqual(entry["at"], "16:41")
+        self.assertEqual(entry["meta"], "8 messages · put aside", "the old line stays")
+
+    def test_the_live_chat_carries_its_own(self):
+        api = self.api()
+        empty = api._rail_message()
+        self.assertIsNone(empty["live_goal"])
+        self.assertEqual(empty["live_at"], "")
+        for m in self.goal_chat()[1:]:
+            api._conversation.append(m["role"], m.get("content") or "",
+                                     tool_calls=[{"id": c["id"], "name": c["function"]["name"],
+                                                  "arguments": "{}"}
+                                                 for c in m.get("tool_calls") or []] or None,
+                                     tool_call_id=m.get("tool_call_id"))
+        self.assertEqual(api._rail_message()["live_goal"], [2, 3])
+
+    def test_the_folder_chip_writes_home_as_a_tilde(self):
+        home = os.path.expanduser("~")
+        self.assertEqual(crow_gui.tilde_path(os.path.join(home, "Projects", "crow")),
+                         "~" + os.sep + os.path.join("Projects", "crow"))
+        self.assertEqual(crow_gui.tilde_path(home), "~")
+        outside = os.path.abspath(os.sep + "srv-crow-385")
+        self.assertEqual(crow_gui.tilde_path(outside), outside)
+        self.assertEqual(crow_gui.tilde_path(""), "")
+        api = self.api()
+        self.assertIn("short", api._root_message())
+
+
+class TheChatHeadTests(unittest.TestCase):
+    """#385, Proposed fix 2: one row at the top of #main -- title, folder chip
+    (today's #rootwrap), branch chip, spacer, goal pill -- hidden on an empty
+    chat."""
+
+    def setUp(self) -> None:
+        self.source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        self.css = self.source[self.source.index("<style>"):self.source.index("</style>")]
+        body = self.source[self.source.index("</style>"):]
+        self.main = body[body.index('<div id="main">'):body.index('<div id="codegrip"')]
+
+    def test_the_head_opens_the_panel_in_the_mockups_order(self):
+        head = self.main[:self.main.index('<div id="panels">')]
+        order = [head.index(x) for x in ('<div id="chathead">', 'id="chattitle"',
+                                         'id="rootwrap"', 'id="branchchip"',
+                                         'class="sp"', 'id="goalpill"')]
+        self.assertEqual(order, sorted(order))
+        self.assertIn('id="root" class="chip mono"', head)
+        acts = self.main[self.main.index('<div id="acts">'):]
+        acts = acts[:acts.index('id="go"')]
+        self.assertNotIn("rootwrap", acts, "the folder chip is still in the button row")
+
+    def test_the_pill_opens_the_goal_tab(self):
+        pill = self.source[self.source.index("  goalPill(){"):]
+        self.assertIn('this.inspectorShow && this.inspectorShow("goal")', pill[:120])
+        self.assertIn('onclick="crow.goalPill()"', self.main)
+        self.assertIn("#main.empty #chathead{display:none}", self.css)
+
+    def run_head(self) -> dict:
+        js = (_FAKE_PAGE_DOM + "const crow = {\n"
+              + _crow_methods(self.source, "headOn", "headDraw") + "\n"
+              "  railSubs(){ log.push('subs'); }, clockNow(){ return '19:05'; } };\n"
+              "const pill = $('#goalpill'), br = $('#branchchip'), out = {};\n"
+              "const look = () => ({pill: pill.hidden, text: pill.querySelector('.gt').textContent,\n"
+              "  part: pill.classList.contains('part'), branch: br.hidden,\n"
+              "  name: br.querySelector('.bt').textContent});\n"
+              "crow.on = e => crow.headOn(e);\n"
+              "crow.on({k: 'goal', goal: {done: 3, total: 3, status: 'done'}}); out.done = look();\n"
+              "crow.on({k: 'goal', goal: {done: 1, total: 3}}); out.part = look();\n"
+              "crow.on({k: 'git', state: {ok: true, branch: 'main'}}); out.git = look();\n"
+              "crow.on({k: 'git', state: {ok: false, problem: 'no repository'}}); out.nogit = look();\n"
+              "crow.on({k: 'goal', goal: null}); out.none = look();\n"
+              "crow.on({k: 'idle'}); out.at = crow.turnAt; out.log = log;\n"
+              "console.log(JSON.stringify(out));\n")
+        return _run_page(self, js)
+
+    def test_the_pill_and_the_branch_follow_their_messages(self):
+        out = self.run_head()
+        self.assertEqual(out["done"]["text"], "Goal 3/3")
+        self.assertFalse(out["done"]["pill"])
+        self.assertFalse(out["done"]["part"], "a finished goal wears the tick")
+        self.assertEqual(out["part"]["text"], "Goal 1/3")
+        self.assertTrue(out["part"]["part"])
+        self.assertFalse(out["git"]["branch"])
+        self.assertEqual(out["git"]["name"], "main")
+        self.assertEqual(out["at"], "19:05")
+        self.assertIn("subs", out["log"])
+
+    def test_no_goal_and_no_repository_draw_nothing(self):
+        """NEGATIVE: the pill and the chip are hidden, not drawn empty."""
+        out = self.run_head()
+        self.assertTrue(out["nogit"]["branch"])
+        self.assertTrue(out["none"]["pill"])
+
+    def test_the_messages_reach_the_head_beside_their_builders(self):
+        on = self.source[self.source.index("  on(msg){"):]
+        on = on[:on.index("switch(e.k){")]
+        self.assertIn("if(e.bg) return;\n    this.headOn(e);", on)
+        self.assertIn('case "root": this.rootIs(e.path, e.name, e.roots, e.short); break;',
+                      self.source)
+        self.assertIn("top:calc(100% + 6px)", self.css[
+            self.css.index("#chathead #rootmenu{"):][:80], "the head's menu opens downwards")
+
+
+class TheComposerOfTheMockupTests(unittest.TestCase):
+    """#385, Proposed fix 3: one row -- context meter, model chip, subtask
+    chip, the hint's spacer, release chip, microphone, round send -- in a box
+    with radius 16 and a drop shadow."""
+
+    def setUp(self) -> None:
+        self.source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        self.css = self.source[self.source.index("<style>"):self.source.index("</style>")]
+        body = self.source[self.source.index("</style>"):]
+        self.composer = body[body.index('<div id="composer">'):body.index('<div id="cont"')]
+
+    def rule(self, selector: str) -> str:
+        m = re.search(r"(?m)^%s\{(.*?)\}" % re.escape(selector), self.css, re.S)
+        self.assertIsNotNone(m, "no rule for %s" % selector)
+        return m.group(1)
+
+    def test_the_row_is_in_the_mockups_order(self):
+        order = [self.composer.index(x) for x in (
+            'id="ctx"', 'id="modelwrap"', 'id="subwrap"', 'id="hint"', 'id="modewrap"',
+            'id="mic"', 'id="go"')]
+        self.assertEqual(order, sorted(order))
+        self.assertIn('id="mic" onclick="crow.mic()" class="ib"', self.composer)
+
+    def test_the_box_and_the_send_wear_the_mockups_numbers(self):
+        box = re.search(r"(?m)^#box\{(border:.*?)\}", self.css, re.S).group(1)
+        for decl in ("border-radius:16px", "background:var(--panel)",
+                     "border:1px solid var(--line)", "box-shadow:0 10px 30px var(--shadow)"):
+            self.assertIn(decl, box)
+        self.assertIn("font-size:14.5px", self.rule("#in"))
+        go = self.rule("#go")
+        for decl in ("width:34px", "height:34px", "border-radius:50%",
+                     "background:var(--accent)", "color:var(--on-accent)"):
+            self.assertIn(decl, go)
+        self.assertIn("M12 19V5M6 11l6-6 6 6", self.rule("#go::before"))
+        self.assertIn("color:var(--bad)", self.rule("#go.stop"))
+        auto = self.rule('#mode[data-mode="auto"]')
+        for decl in ("color:var(--warn)", "border-color:var(--warn-soft)",
+                     "background:var(--warn-soft)"):
+            self.assertIn(decl, auto)
+        bar = self.rule("#ctx .ctxbar")
+        self.assertIn("width:44px", bar)
+        self.assertIn("height:4px", bar)
+
+    def run_ctx(self) -> dict:
+        js = (_FAKE_PAGE_DOM + "const crow = {\n"
+              + _crow_methods(self.source, "tokK", "ctx") + "\n"
+              "  showEngine(){} };\n"
+              "const el = $('#ctx'), out = {};\n"
+              "const look = () => ({html: el.innerHTML, text: el.lastChild.textContent,\n"
+              "  fill: el.firstChild.firstChild.style.width || ''});\n"
+              "crow.ctx(6100, 200000); out.run = look();\n"
+              "crow.ctx(0, 200000); out.fresh = look();\n"
+              "crow.ctx(150000, 200000); out.warm = look();\n"
+              "crow.ctx(0, 0); out.none = el.innerHTML;\n"
+              "console.log(JSON.stringify(out));\n")
+        return _run_page(self, js)
+
+    def test_the_meter_is_a_bar_and_the_figure(self):
+        out = self.run_ctx()
+        self.assertEqual(out["run"]["text"], "6.1k / 200k")
+        self.assertEqual(out["run"]["fill"], "3.0%")
+        self.assertIn('class="ctxbar"', out["run"]["html"])
+        self.assertEqual(out["fresh"]["text"], "0 / 200k", "the start screen's reading")
+        self.assertIn('class="ctxbar w"', out["warm"]["html"], "amber from half")
+
+    def test_nothing_known_is_nothing_drawn(self):
+        self.assertEqual(self.run_ctx()["none"], "")
+
+
+class TheStartScreenTests(unittest.TestCase):
+    """#385, Proposed fix 4: an empty chat is one centred group -- mark 200 px,
+    greeting 26 px, the composer under it (`#main.empty`), the folder chip in
+    its row, "Continue" with up to two cards -- and the first turn puts the
+    composer back at the bottom."""
+
+    def setUp(self) -> None:
+        self.source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        self.css = self.source[self.source.index("<style>"):self.source.index("</style>")]
+        block = self.css[self.css.index("@media (min-width:701px){"):]
+        self.empty = block[:block.index("\n}\n")]
+
+    def test_an_empty_chat_centres_one_group(self):
+        e = self.empty
+        self.assertIn("#main.empty::before,#main.empty::after{content:\"\";flex:1 0 0}", e)
+        pad = re.search(r"#main\.empty\{[^}]*padding:(\d+)px 0[;}]", e)
+        self.assertIsNotNone(pad, "equal padding above and below the group")
+        self.assertIn("#main.empty #composer{position:relative;", e)
+        self.assertIn("padding:26px var(--colpad) 0", e, "26 px under the greeting")
+        self.assertIn("#main.empty #box{max-width:760px", e)
+        self.assertIn("#main.empty #cont:not([hidden]){display:flex}", e)
+        self.assertRegex(self.css, r"\.mk\{width:200px;[^}]*margin-bottom:-18px")
+        hello = re.search(r"(?m)^\.hellotext\{(.*?)\}", self.css, re.S).group(1)
+        self.assertIn("font-size:26px", hello)
+        self.assertIn("font-weight:400", hello)
+
+    def test_the_phone_keeps_its_layout(self):
+        """NEGATIVE: the start screen is the desktop's; the phone (#387) hides
+        the head and the cards and never sees `#main.empty` rules."""
+        self.assertNotIn("max-width:700px", self.empty)
+        self.assertIn("#chathead,#cont{display:none!important}", crow_gui.REMOTE_CSS)
+        fit = self.source[self.source.index("const fitFlow"):]
+        fit = fit[:fit.index("};")]
+        self.assertIn('composer.parentNode.classList.contains("empty") ? ""', fit)
+
+    def run_empty(self) -> dict:
+        js = (_FAKE_PAGE_DOM + "const crow = {\n"
+              + _crow_methods(self.source, "emptyCheck", "placeRoot") + "\n"
+              "  railSubs(){ log.push('subs'); }, contDraw(){ log.push('cont'); } };\n"
+              "let hello = new El('hello');\n"
+              "const flow = {querySelector: s => s === ':scope > #hello' ? hello : null};\n"
+              "const fitFlow = () => log.push('fit');\n"
+              "const main = $('#main'), w = $('#rootwrap'), out = {};\n"
+              "let home = '#chathead'; w.parentNode = {matches: s => s.split(',').indexOf(home) >= 0};\n"
+              "crow.emptyCheck(); out.on = main.classList.contains('empty');\n"
+              "out.toComposer = $('#subwrap').moves.slice();\n"
+              "home = '#foot'; hello = null;\n"
+              "crow.emptyCheck(); out.off = main.classList.contains('empty');\n"
+              "out.toHead = $('#chattitle').moves.slice();\n"
+              "home = '#mtools'; hello = new El('hello'); crow.emptyCheck();\n"
+              "out.phone = $('#subwrap').moves.length;\n"
+              "out.log = log; console.log(JSON.stringify(out));\n")
+        return _run_page(self, js)
+
+    def test_the_greeting_switches_the_start_screen_and_the_first_turn_ends_it(self):
+        out = self.run_empty()
+        self.assertTrue(out["on"])
+        self.assertFalse(out["off"])
+        self.assertEqual(out["toComposer"], ["rootwrap"], "the folder chip joins the row")
+        self.assertEqual(out["toHead"], ["rootwrap"], "and goes back into the head")
+        self.assertIn("fit", out["log"])
+        self.assertIn("cont", out["log"])
+
+    def test_the_phone_sheet_keeps_the_folder_chip(self):
+        """NEGATIVE: once the phone layer has moved it, it is not moved again."""
+        self.assertEqual(self.run_empty()["phone"], 1)
+
+    def run_cards(self) -> dict:
+        js = (_FAKE_PAGE_DOM + "const crow = {\n"
+              + _crow_methods(self.source, "sameDir", "projectOf", "contMeta", "contDraw") + "\n"
+              "  open(p){ log.push(p); } };\n"
+              "crow.projects = [{path: '~/Projects/crow', name: 'crow'}];\n"
+              "const rows = [\n"
+              "  {path: 'a', title: 'New chat', active: true, root: '~/Projects/crow'},\n"
+              "  {path: 'b', title: 'Count files', root: '~/Projects/crow', goal: [3, 3], at: '16:41', meta: '24 messages'},\n"
+              "  {path: 'c', title: 'Latest n8n news', root: '', goal: null, meta: '6 messages · put aside'},\n"
+              "  {path: 'd', title: 'Third', root: '', meta: 'x'}];\n"
+              "crow.railE = {rollovers: rows};\n"
+              "const main = $('#main'), box = $('#cont'), list = box.querySelector('.cards'), out = {};\n"
+              "main.classList.add('empty'); crow.contDraw();\n"
+              "out.cards = list.children.map(b => [b.querySelector('.cont-t').textContent,\n"
+              "  b.querySelector('.cont-s').textContent]);\n"
+              "out.shown = !box.hidden; list.children[0].onclick(); out.opened = log.slice();\n"
+              "main.classList.remove('empty'); crow.contDraw(); out.chat = box.hidden;\n"
+              "main.classList.add('empty'); crow.railE = {rollovers: [rows[0]]}; crow.contDraw();\n"
+              "out.alone = box.hidden;\n"
+              "console.log(JSON.stringify(out));\n")
+        return _run_page(self, js)
+
+    def test_continue_shows_the_two_newest_other_chats(self):
+        out = self.run_cards()
+        self.assertEqual(out["cards"], [["Count files", "crow · goal 3/3 · 16:41"],
+                                        ["Latest n8n news", "no folder · 6 messages · put aside"]])
+        self.assertTrue(out["shown"])
+        self.assertEqual(out["opened"], ["b"])
+
+    def test_no_section_without_other_chats_or_outside_the_start_screen(self):
+        """NEGATIVE: no other chat, no "Continue"; a chat with turns, none."""
+        out = self.run_cards()
+        self.assertTrue(out["chat"])
+        self.assertTrue(out["alone"])
+
+
 class TheBubblesStandOnTheComposersEdgesTests(unittest.TestCase):
     """#280, robin 2026-09-24: chat and composer read as ONE column -- the
     user's bubble with its right edge on #box's right border, Crow's text with
@@ -7641,11 +8181,15 @@ class TheVoiceLineTests(ApiCase):
         box = box[:box.index("}")]
         self.assertIn("border:1px solid var(--line)", box)
         self.assertNotIn("var(--bevel)", box)
-        self.assertIn("box-shadow:none", box)
+        # #385 CHANGES THE SHADOW: the mockup lifts the box off the chat with a
+        # soft drop shadow (a lift, not a ring -- the frame stays --line), and
+        # focus is the accent frame alone.
+        self.assertIn("box-shadow:0 10px 30px var(--shadow)", box)
+        self.assertNotIn("0 0 0 ", box, "a ring at rest")
         focus = source[source.index("#box.focus{"):]
         focus = focus[:focus.index("}")]
         self.assertIn("border-color:var(--accent)", focus)
-        self.assertIn("box-shadow:0 0 0 3px", focus)
+        self.assertNotIn("box-shadow", focus)
 
     def test_the_bars_are_mirrored_and_thin(self):
         """robins zweite Vorgabe: nach oben UND unten, und nicht so breit.
@@ -8660,8 +9204,10 @@ class NothingSticksOutOfTheComposerTests(unittest.TestCase):
         """Sie sind das Angeklickte. Ein halber Knopf ist schlimmer als ein
         gekuerztes Wort, und ein Knopf, der bei jeder Fensterbreite eine andere
         Groesse hat, ist ein Ziel, das man suchen muss."""
+        # #385: the folder left #acts for the chat head (and the start
+        # screen's row); it keeps `flex:none` wherever it stands.
         self.assertIn("flex:none",
-                      self._rule("#acts>#rootwrap,#acts>#modewrap,#acts>#mic,#acts>#go{"))
+                      self._rule("#acts>#modewrap,#acts>#mic,#acts>#go,#rootwrap{"))
 
     def test_what_gives_way_gives_way_in_order(self):
         """NEGATIV zur Regel darueber: gaebe NICHTS nach, waere `min-width:0`
@@ -8822,13 +9368,15 @@ class NothingOverhangsOrClipsTests(unittest.TestCase):
         self.assertIn("flex:1", self._rule("#goalpanel li>span:last-child{"))
         self.assertIn("align-items:stretch", self._rule("#brbar{"))
 
-    def test_the_accent_bar_sits_on_the_tree_line(self):
-        """2 px Balken auf 1 px Linie: der Balken beginnt einen Pixel links der
-        Linie und deckt sie."""
-        line = self._px(self._rule(".sess.inproj::after{"), "left")
-        bar = self._rule(".sess.inproj.on::before,.sess.inproj.done::before{")
-        self.assertEqual(self._px(bar, "left"), line - 1)
-        self.assertIn("z-index:1", bar)
+    def test_no_bar_meets_a_tree_line(self):
+        """#235 held the open row's 2 px bar on the 1 px tree line of a
+        project. #385 CHANGES THIS REQUIREMENT: the mockup's open row has no
+        bar (only --raised) and its rows stand flush under the group head, so
+        there is neither a bar nor a line left to line up -- and the one bar
+        the rail keeps, amber for "done, unread", sits on the row's own edge."""
+        self.assertNotIn(".sess.inproj::after", self.css)
+        self.assertNotIn(".sess.on::before", self.css)
+        self.assertEqual(self._px(self._rule(".sess.done::before{"), "left"), 2)
 
     def test_scrollbars_stay_out_of_rounded_corners(self):
         """Der Spurrand ist der Radius, gegen den die Leiste laeuft."""
@@ -9609,7 +10157,10 @@ class TheDelegationWearsTheMockupTests(unittest.TestCase):
         chip = self.source[self.source.index("subChip(items){"):
                            self.source.index("subsMenu(){")]
         self.assertIn('chip.classList.toggle("live", running>0)', chip)
-        self.assertIn('"⑂ "+running', chip)
+        # #385: the mockup's fork icon stands where the glyph was; the number
+        # is still the running count.
+        self.assertIn("chip.insertAdjacentHTML(\"beforeend\", RICON.fork);", chip)
+        self.assertIn("String(running)", chip)
         self.assertNotIn("items.length))", chip)
 
     def test_the_cost_line_carries_the_share_in_channel(self):
