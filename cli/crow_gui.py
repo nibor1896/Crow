@@ -709,7 +709,7 @@ def rail_width_setting() -> int:
 # Zug stand auf exakt 260. Der Vorgaenger (380, dann #138c "halbe Flaeche")
 # entschied die Startbreite fuer ihn und lag zweimal daneben; wer mehr Panel
 # will, zieht den Griff, und DIESE Entscheidung bleibt gespeichert.
-# #384, robin 2026-10-14: "340 px" -- the inspector starts at 340 px on a fresh
+# #384, the owner 2026-10-14: "340 px" -- the inspector starts at 340 px on a fresh
 # install, as in the approved mockup. CODE_MIN stays 260 (the narrowest the grip
 # goes), and a width somebody saved is read back as it is, so nobody's panel
 # moves.
@@ -1141,7 +1141,7 @@ PAGE = r"""<!doctype html>
      all: a rule can only be switched if what it points at can be redefined.
      Before this, 52 lines of CSS carried a literal and no palette could reach
      any of them. A test holds that: no rule may name a colour of its own. */
-  /* #382. THE MOCKUP'S VALUES (robin approved it on 2026-10-14, vault
+  /* #382. THE MOCKUP'S VALUES (the owner approved it on 2026-10-14, vault
      Crow/02_docs/mockup-crow-gui-redesign-2026-10-14/Main.dc.html): a touch
      darker rail under a lighter panel, so the rounded chat sheet reads as lying
      on it. The five `-soft` names and `--on-accent` are new in all three
@@ -1170,7 +1170,7 @@ PAGE = r"""<!doctype html>
   --shadow:rgba(0,0,0,.45); --shadow-strong:rgba(0,0,0,.7);
   /* #382. THE SHIPPED FACE FOR CODE, THE SYSTEM'S FOR PROSE. Until #382 the
      page named no typeface of its own (a window that looked different depending
-     on an installed font had two appearances). robin approved the mockup set in
+     on an installed font had two appearances). the owner approved the mockup set in
      Google Sans Code on 2026-10-14, and the face now comes WITH Crow: the page
      asks the bridge for cli/fonts/GoogleSansCode[MONO,wght].ttf after load
      (`crow.monoFace`, `Api.mono_font`) and adds it as a FontFace, so every
@@ -1226,7 +1226,7 @@ PAGE = r"""<!doctype html>
    read.
    #382: THE ACCENT IS REDEFINED HERE TOO. The core's blue on white is about
    2.2:1 (WCAG formula), under the 3:1 a control needs (WCAG 2.2 SC 1.4.11);
-   the mockup robin approved darkens it for this ground only. */
+   the mockup the owner approved darkens it for this ground only. */
 :root[data-theme="light"]{
   --bevel:#d3d7dd; --model:#1a1c1f;
   --accent:#2b67c9;
@@ -1264,7 +1264,7 @@ PAGE = r"""<!doctype html>
    brand value is spelled out.
    #382: THE SURFACES ABOVE THE GROUND MOVED, the ground did not. The chat
    panel, the raised rows, the lines and the text took the mockup's values
-   (robin, 2026-10-14) so the panel stands off the rail in this theme too. */
+   (the owner, 2026-10-14) so the panel stands off the rail in this theme too. */
 :root[data-theme="crow"]{
   --bg:__BG__; --rail:#0e1220; --panel:#111628; --raised:#161c30;
   --line:#222b42; --line-soft:#171e30;
@@ -1338,7 +1338,7 @@ body{background:var(--bg);color:var(--dim);font:13px/1.55 var(--ui);
 /* #125. ONE SURFACE WITH THE RAIL, and therefore its colour and no rule under
    it. The ribbon, the rail head and the chat list are the same panel; the chat
    is the thing that sits ON it, which is what the rounded corner below says. */
-/* #382. THREE ZONES OVER THE THREE COLUMNS, as in the mockup robin approved
+/* #382. THREE ZONES OVER THE THREE COLUMNS, as in the mockup the owner approved
    on 2026-10-14 (vault Crow/02_docs/mockup-crow-gui-redesign-2026-10-14/
    Main.dc.html). #barl stands over the rail, #barm over the chat panel (its
    8 px right margin is the panel's), #barr over the side column while that is
@@ -1899,7 +1899,7 @@ body[data-git="shut"] #git{display:none}
 .gcommit button:hover:not([disabled]){border-color:var(--bevel);color:var(--accent)}
 .gcommit button[disabled]{color:var(--dimmer);cursor:default}
 
-/* #385. THE RAIL OF THE MOCKUP robin approved on 2026-10-14 (vault
+/* #385. THE RAIL OF THE MOCKUP the owner approved on 2026-10-14 (vault
    Crow/02_docs/mockup-crow-gui-redesign-2026-10-14/Main.dc.html), its
    `.newchat`, `.grp`, `.ri`, `.ri-t`, `.ri-s`, `.ri.child` and `.foot` on the
    elements the rail already had: #new, .proj / #railsep, .sess, .subchat,
@@ -2245,7 +2245,7 @@ body:not([data-git="shut"]) #gittoggle{color:var(--accent);background:var(--acce
 #arch.open{display:flex;flex-direction:column;gap:2px;flex:0 1 auto;min-height:0;
   max-height:40%;overflow-y:auto;padding:0 8px 6px}
 /* #382. SETTINGS AT THE RAIL'S FOOT, below the archive. The Help menu that
-   held it as its only entry is gone from the title bar (mockup, robin
+   held it as its only entry is gone from the title bar (mockup, the owner
    2026-10-14). The mockup's `.foot` row; #385 restyles the rail around it. */
 .foot{display:flex;align-items:center;gap:8px;width:100%;height:32px;padding:0 10px;
   border:0;border-radius:8px;background:transparent;color:var(--dim);font:inherit;
@@ -2277,7 +2277,7 @@ body:not([data-git="shut"]) #gittoggle{color:var(--accent);background:var(--acce
      bleibt auch bei geschlossenem Panel stehen -- dahinter liegt dann der
      Fensterhintergrund, und eine Ecke, die beim Zuklappen aufspringt, macht
      aus dem Falten eine Formaenderung.
-     #382: EIN BLATT MIT VIER ECKEN, wie im Mockup, das robin am 2026-10-14
+     #382: EIN BLATT MIT VIER ECKEN, wie im Mockup, das der Owner am 2026-10-14
      abgenommen hat: 14 px Radius, eine leise Kante, und 8 px Rail-Farbe
      rechts und unten, damit es auf der Rail LIEGT statt an den Fensterrand
      zu stossen. Links liegt die Rail selbst daneben. */
@@ -2437,7 +2437,7 @@ details.rollcard pre.rtp{max-height:220px;overflow:auto;white-space:pre-wrap;
 .as{display:block}
 .col{min-width:0}
 
-/* #383. THE TURN'S HEAD BLOCK (mockup Main.dc.html, robin 2026-10-14): the
+/* #383. THE TURN'S HEAD BLOCK (mockup Main.dc.html, the owner 2026-10-14): the
    head line, the trace strip and the delegate cards, 12 px apart and 12 px
    above the round under them -- the mockup's article gap. */
 .turn.crowturn{display:flex;flex-direction:column;gap:12px}
@@ -3799,7 +3799,7 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 <style>/* __REMOTE_CSS__ */</style></head><body data-rail="__RAIL__" data-code="__CODE__" data-git="__GIT__" data-browser="__BROWSER__">
 
 <div id="bar" class="pywebview-drag-region" ondblclick="pywebview.api.maximise()">
-  <!-- #382. THREE ZONES OVER THE THREE COLUMNS (mockup Main.dc.html, robin
+  <!-- #382. THREE ZONES OVER THE THREE COLUMNS (mockup Main.dc.html, the owner
        2026-10-14): rail toggle and wordmark over the rail; the search and the
        engine chip on the chat panel's two edges; the panel toggles and the
        window buttons over the side column. Every icon is the mockup's inline
@@ -4106,7 +4106,7 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 </template>
 <div id="body">
   <aside id="rail">
-    <!-- #385. THE RAIL AS IN THE MOCKUP (Main.dc.html, robin 2026-10-14): a
+    <!-- #385. THE RAIL AS IN THE MOCKUP (Main.dc.html, the owner 2026-10-14): a
          full-width "New chat" with its key, the chats grouped under their
          folders, the archive and the settings at the foot. Ctrl+N anywhere
          does what this button does. -->
@@ -4248,7 +4248,7 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
        zu dem, was hier steht, und nebeneinander waeren beide schmaler. -->
   <!-- #156. DIE SPALTE, die beide Panels haelt. Sie traegt die Breite und den
        Griff; was darin liegt, teilt sich die Hoehe. -->
-  <!-- #384. THE INSPECTOR (mockup Main.dc.html, robin 2026-10-14): the same
+  <!-- #384. THE INSPECTOR (mockup Main.dc.html, the owner 2026-10-14): the same
        column -- width, grip, clamp and open state (#codetoggle) -- and in it
        ONE view at a time behind a tab strip: Goal, Tools, Subtasks, plus Git
        and Browser while their title-bar toggles are on. The goal, subtasks
@@ -5274,7 +5274,7 @@ const crow = {
 
   // -- #383: the turn as the mockup draws it -------------------------------
   //
-  // ONE BLOCK ABOVE THE ROUNDS (mockup Main.dc.html, robin 2026-10-14): the
+  // ONE BLOCK ABOVE THE ROUNDS (mockup Main.dc.html, the owner 2026-10-14): the
   // head -- who answered, with which model and level, when, a copy button --
   // the trace strip, and a one-line card for each subtask the turn delegated.
   // Made at the turn's first `start`, or by the first fold or call that needs
@@ -5470,7 +5470,7 @@ const crow = {
         s.textContent=c.note; m.appendChild(s); }
       d.appendChild(m); }); },
 
-  // THE CELLS, pure (the suite runs it), in the formats of TurnCost.line():
+  // THE CELLS, pure (the suite runs it), in the formats of crow_core.TurnCost.line():
   // en-US thousands, a rate to two places, a time as format_clock writes it,
   // the model/tools split only from half a second of tools on. NEVER PARSED
   // OUT OF THE LINE -- a second formatter would drift from the core's.
@@ -11593,7 +11593,7 @@ MONO_FONT_FILE = os.path.join(HERE, "fonts", "GoogleSansCode[MONO,wght].ttf")
 _MONO_FONT: "str | None" = None
 
 
-# #382. WHAT THE PAGE GETS OF A TURN'S BALANCE (`TurnCost.record()`), as
+# #382. WHAT THE PAGE GETS OF A TURN'S BALANCE (`crow_core.TurnCost.record()`), as
 # numbers rather than as the line it would have to take apart again. `line`
 # stays: the core still assembles it, and the page still prints it. The seeds
 # stay in the archive; the page has no use for them.
