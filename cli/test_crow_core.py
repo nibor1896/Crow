@@ -23027,6 +23027,384 @@ class ToolResultClearingTests(unittest.TestCase):
         self.assertTrue(os.path.exists(first["path"]))
 
 
+def _write_round(talk: "crow_core.Conversation", r: int, size: int = 3000,
+                 result_size: int = 0) -> None:
+    """#359: one round that writes -- write_file, edit_file, append_file in
+    turn by `r`, every body `size` chars, the result short unless asked."""
+    kind = ("write_file", "edit_file", "append_file")[r % 3]
+    path = "src/f%d.js" % r
+    if kind == "edit_file":
+        args = {"path": path, "old": ("o%d\n" % r) * (size // 3),
+                "new": ("n%d\n" % r) * (size // 3)}
+    else:
+        args = {"path": path, "content": ("c%d\n" % r) * (size // 3)}
+    talk.append("assistant", "", reasoning="thinking %d" % r, tool_calls=[
+        {"id": "c0", "name": kind, "arguments": json.dumps(args)}])
+    talk.append("tool", "wrote %s (%d bytes, sha256 abc)" % (path, size)
+                + "." * result_size, tool_call_id="c0")
+
+
+def _writes_talk(n_rounds: int, size: int = 3000,
+                 result_size: int = 0) -> "crow_core.Conversation":
+    """A goal-run shape whose every round writes a file (#359)."""
+    talk = crow_core.Conversation("SYS")
+    talk.append("user", "build the thing")
+    for r in range(n_rounds):
+        _write_round(talk, r, size, result_size)
+    return talk
+
+
+class CallBodyClearingTests(unittest.TestCase):
+    """#359. The bodies the model wrote itself join #263's batch.
+
+    write_file / append_file `content` and edit_file `old` / `new` behind the
+    last five rounds become a stub. What must hold: the argument NAMES stay
+    and the JSON stays an object (#214: with no example left the model sent
+    `old_string` in 22 of 22 calls), the keep window and the head never move,
+    the originals are on disk before any stub points at them, and it is one
+    batch -- the same re-prefill, not a second one.
+    """
+
+    BODY = {"write_file": ("content",), "append_file": ("content",),
+            "edit_file": ("old", "new")}
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="crow-clear-calls-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, crow_core, "SESSION_DIR", crow_core.SESSION_DIR)
+        crow_core.SESSION_DIR = os.path.join(self.dir, "session")
+        self.addCleanup(crow_core.context_clear_set, crow_core.CONTEXT_CLEAR_AT)
+        crow_core.context_clear_set(None)
+        self.addCleanup(setattr, crow_core, "CONTEXT_CLEAR_INPUTS",
+                        getattr(crow_core, "CONTEXT_CLEAR_INPUTS", None))
+        crow_core.CONTEXT_CLEAR_INPUTS = None
+        self.addCleanup(setattr, crow_core, "_GOAL_REBASE", crow_core._GOAL_REBASE)
+        self.addCleanup(setattr, crow_core, "GOAL_TOKENS_NOW", crow_core.GOAL_TOKENS_NOW)
+
+    @staticmethod
+    def _args(message: dict) -> dict:
+        return json.loads(message["tool_calls"][0]["function"]["arguments"])
+
+    def test_only_bodies_behind_the_last_k_rounds_are_clearable(self):
+        talk = _writes_talk(8)
+        picked = crow_core.clearable_calls(talk.payload(), keep_rounds=5)
+        # rounds 0..2 are behind the last five (3..7): messages 2, 4, 6
+        self.assertEqual([(i, j, name, key) for i, j, name, key, _, _ in picked],
+                         [(2, 0, "write_file", "content"), (4, 0, "edit_file", "old"),
+                          (4, 0, "edit_file", "new"), (6, 0, "append_file", "content")])
+        for _, _, _, key, text, args in picked:
+            self.assertEqual(text, args[key])
+        # keep 0 is read as 1, as for the results
+        last = crow_core.clearable_calls(talk.payload(), keep_rounds=0)
+        self.assertNotIn(len(talk) - 2, [i for i, _, _, _, _, _ in last])
+
+    def test_small_bodies_stubs_other_tools_and_broken_json_are_left_alone(self):
+        talk = crow_core.Conversation("SYS")
+        talk.append("user", "go")
+        for name, arguments in (
+                ("write_file", json.dumps({"path": "a.js", "content": "x" * 100})),
+                ("run_command", json.dumps({"command": "echo " + "y" * 2000})),
+                ("write_file", '{"path": "b.js", "content": "' + "z" * 2000),
+                ("write_file", json.dumps({"path": "c.js", "content":
+                                           crow_core.CONTEXT_CLEAR_MARK + "1 of 2]" + "w" * 900})),
+                ("edit_file", json.dumps({"path": "d.js", "old_string": "v" * 2000,
+                                          "new_string": "u" * 2000}))):
+            talk.append("assistant", "", tool_calls=[
+                {"id": "c0", "name": name, "arguments": arguments}])
+            talk.append("tool", "ok", tool_call_id="c0")
+        for _ in range(6):
+            talk.append("assistant", "next")
+            talk.append("user", "go on")
+        self.assertEqual(crow_core.clearable_calls(talk.payload(), 5), [])
+
+    def test_a_stub_keeps_the_key_names_and_valid_json(self):
+        talk = _writes_talk(8)
+        before = talk.payload()
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        self.assertIsNotNone(done)
+        self.assertEqual((done["results"], done["calls"]), (0, 4))
+        after = talk.payload()
+        for i in (2, 4, 6):
+            old, new = self._args(before[i]), self._args(after[i])
+            name = before[i]["tool_calls"][0]["function"]["name"]
+            self.assertEqual(list(new), list(old), "the argument names or their order moved")
+            self.assertEqual(new["path"], old["path"])
+            for key in self.BODY[name]:
+                stub = new[key]
+                self.assertNotEqual(stub, old[key])
+                self.assertTrue(stub.startswith(crow_core.CONTEXT_CLEAR_MARK), stub)
+                for part in (name, "`%s`" % key, "`%s`" % old["path"], done["path"],
+                             "700 of 1,000 tokens", "{:,} chars".format(len(old[key]))):
+                    self.assertIn(part, stub)
+            # the turn around the call is the turn it was
+            for field in ("role", "content", "reasoning_content"):
+                self.assertEqual(after[i][field], before[i][field])
+            self.assertEqual(after[i]["tool_calls"][0]["id"], before[i]["tool_calls"][0]["id"])
+            self.assertEqual(after[i]["tool_calls"][0]["function"]["name"], name)
+        # tool results this short are not part of the batch
+        for old, new in zip(before, after):
+            if old["role"] != "assistant":
+                self.assertEqual(old, new)
+
+    def test_the_rewrite_moves_only_the_value(self):
+        """Non-ASCII, a number, a nested object and spaced JSON survive the
+        re-serialisation as the same parsed object -- the form both chat
+        templates render (crow-nest serve parses `arguments` first)."""
+        talk = crow_core.Conversation("SYS")
+        talk.append("user", "go")
+        original = {"path": "src/größe.js", "content": "ü" * 900, "n": 5,
+                    "opts": {"b": [1, 2.5, None], "a": True}}
+        talk.append("assistant", "", tool_calls=[
+            {"id": "c0", "name": "write_file",
+             "arguments": json.dumps(original, indent=2)}])
+        talk.append("tool", "ok", tool_call_id="c0")
+        for _ in range(5):
+            talk.append("assistant", "next")
+            talk.append("user", "go on")
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        self.assertIsNotNone(done)
+        new = self._args(talk.payload()[2])
+        self.assertEqual(list(new), list(original))
+        self.assertEqual({k: v for k, v in new.items() if k != "content"},
+                         {k: v for k, v in original.items() if k != "content"})
+        self.assertIn("`src/größe.js`", new["content"])
+
+    def test_the_keep_window_and_the_head_are_untouched(self):
+        talk = _writes_talk(10)
+        before = talk.payload()
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        self.assertIsNotNone(done)
+        after = talk.payload()
+        self.assertEqual(after[:2], before[:2], "the head moved")
+        self.assertEqual(after[-10:], before[-10:], "a kept round moved")
+        changed = [i for i, (old, new) in enumerate(zip(before, after)) if old != new]
+        self.assertEqual(changed, [2, 4, 6, 8, 10])
+
+    def test_originals_are_on_disk_before_a_stub_is_applied(self):
+        talk = _writes_talk(8)
+        before = talk.payload()
+        seen = []
+        real = talk.clear_call_args
+
+        def spy(stubs):
+            path = next(iter(stubs.values())).rsplit("Original: ", 1)[1].rstrip("]")
+            with open(path, encoding="utf-8") as fh:
+                seen.append(json.load(fh))
+            return real(stubs)
+
+        talk.clear_call_args = spy
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        self.assertIsNotNone(done)
+        self.assertEqual(len(seen), 1, "the stubs went in before the originals were written")
+        calls = seen[0]["calls"]
+        self.assertEqual([(c["index"], c["call"], c["tool"], c["keys"]) for c in calls],
+                         [(2, 0, "write_file", ["content"]), (4, 0, "edit_file", ["old", "new"]),
+                          (6, 0, "append_file", ["content"])])
+        for c in calls:
+            self.assertEqual(c["arguments"],
+                             before[c["index"]]["tool_calls"][0]["function"]["arguments"])
+        # an archive that cannot be written: no batch, nothing changed
+        talk = _writes_talk(8)
+        before = talk.payload()
+        blocker = os.path.join(self.dir, "a-file")
+        with open(blocker, "w", encoding="utf-8") as fh:
+            fh.write("x")
+        self.assertIsNone(crow_core.clear_old_results(
+            talk, 700, 1000, at=0.65, at_least=0.0, inputs=True,
+            path=os.path.join(blocker, "cleared.json")))
+        self.assertEqual(talk.payload(), before)
+
+    def test_on_at_home_off_remote_zero_is_off_and_results_go_alone(self):
+        crow_core.context_clear_inputs_set(None)
+        self.assertTrue(crow_core.context_clear_inputs_on(remote=False))
+        self.assertFalse(crow_core.context_clear_inputs_on(remote=True))
+        for off in (0, "0", False, "off", "false"):
+            crow_core.context_clear_inputs_set(off)
+            self.assertFalse(crow_core.context_clear_inputs_on(remote=False), off)
+        for on in (1, "1", True, "on", "true"):
+            crow_core.context_clear_inputs_set(on)
+            self.assertTrue(crow_core.context_clear_inputs_on(remote=True), on)
+        crow_core.context_clear_inputs_set("nonsense")
+        self.assertTrue(crow_core.context_clear_inputs_on(remote=False))
+        self.assertFalse(crow_core.context_clear_inputs_on(remote=True))
+        # off: the results still go, the bodies stay
+        crow_core.context_clear_inputs_set(0)
+        talk = _writes_talk(8, result_size=2000)
+        before = talk.payload()
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0)
+        self.assertEqual((done["results"], done["calls"]), (3, 0))
+        after = talk.payload()
+        self.assertEqual([m for m in after if m["role"] == "assistant"],
+                         [m for m in before if m["role"] == "assistant"])
+        # the default on a remote endpoint: the same
+        crow_core.context_clear_inputs_set(None)
+        talk = _writes_talk(8, result_size=2000)
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           remote=True)
+        self.assertEqual((done["results"], done["calls"]), (3, 0))
+        # and at home both go in ONE batch: one originals file
+        talk = _writes_talk(8, result_size=2000)
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0)
+        self.assertEqual((done["results"], done["calls"]), (3, 4))
+        with open(done["path"], encoding="utf-8") as fh:
+            saved = json.load(fh)
+        self.assertEqual((len(saved["results"]), len(saved["calls"])), (3, 3))
+
+    def test_the_turn_loop_call_logs_both_counts_in_one_line(self):
+        self.addCleanup(setattr, crow_core, "LOG_FILE", crow_core.LOG_FILE)
+        crow_core.LOG_FILE = os.path.join(self.dir, "log", "crow.log")
+        talk = _writes_talk(10, size=30_000)
+        after = crow_core.clear_before_roll(talk, 150_000, 200_000)
+        self.assertLess(after, 150_000)
+        with open(crow_core.LOG_FILE, encoding="utf-8") as fh:
+            lines = [ln for ln in fh.read().splitlines() if "context-clear" in ln]
+        self.assertEqual(len(lines), 1, lines)
+        # rounds 0..4: write, edit (old, new), append, write, edit (old, new)
+        self.assertIn("context-clear: 0 tool results and 7 call bodies", lines[0])
+        self.assertRegex(lines[0], r"call bodies ~\d+")
+
+    def test_a_payload_taken_before_the_batch_keeps_its_calls(self):
+        """The request already sent holds the old dicts; the batch builds new ones."""
+        talk = _writes_talk(8)
+        before = talk.payload()
+        snapshot = copy.deepcopy(before)
+        crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0, inputs=True)
+        self.assertNotEqual(talk.payload()[2], before[2], "nothing was cleared")
+        self.assertEqual(before, snapshot, "the batch edited a list someone else holds")
+
+    def test_a_second_batch_does_not_clear_a_stub_again(self):
+        talk = _writes_talk(8)
+        first = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                            inputs=True)
+        stub = self._args(talk.payload()[2])["content"]
+        for r in range(8, 11):
+            _write_round(talk, r)
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        # rounds 3..5 now: write, edit (old, new), append
+        self.assertEqual(done["calls"], 4)
+        self.assertEqual(self._args(talk.payload()[2])["content"], stub)
+        self.assertNotEqual(done["path"], first["path"])
+
+    def test_a_stubbed_round_is_never_carried_across_a_rollover(self):
+        """#214 carries the youngest edit_file round when the last three show
+        none. A stub there would be an EXAMPLE of writing a stub into a file."""
+        def talk_with(old):
+            talk = crow_core.Conversation("SYS")
+            talk.append("user", "go")
+            talk.append("assistant", "", tool_calls=[
+                {"id": "c0", "name": "edit_file",
+                 "arguments": json.dumps({"path": "src/app.js", "old": old, "new": "b"})}])
+            talk.append("tool", "edited src/app.js", tool_call_id="c0")
+            for n in range(3):
+                talk.append("assistant", "", tool_calls=[
+                    {"id": "c0", "name": "list_dir",
+                     "arguments": json.dumps({"path": "d%d" % n})}])
+                talk.append("tool", "a\nb", tool_call_id="c0")
+            return talk
+
+        def carried_names(talk):
+            return [c["function"]["name"] for m in crow_core.carry_rounds(talk.payload())
+                    for c in m.get("tool_calls") or []]
+
+        self.assertIn("edit_file", carried_names(talk_with("a")), "the control round")
+        stub = crow_core.CONTEXT_CLEAR_MARK + "1 of 2 tokens to keep the window: edit_file]"
+        self.assertNotIn("edit_file", carried_names(talk_with(stub)))
+
+    def test_a_cleared_body_forgets_the_files_read_state(self):
+        """#215-H: a file whose whole body is now a stub is a file the model no
+        longer holds, so the next write over it reads first -- as after a
+        cleared read_file. A write in the keep window keeps its stamp."""
+        self.addCleanup(setattr, crow_core, "LOG_FILE", crow_core.LOG_FILE)
+        crow_core.LOG_FILE = os.path.join(self.dir, "log", "crow.log")
+        read_before = dict(crow_core._READ)
+        self.addCleanup(crow_core._READ.update, read_before)
+        self.addCleanup(crow_core._READ.clear)
+        files = {}
+        for name in ("old.js", "kept.js"):
+            files[name] = os.path.join(self.dir, name)
+            with open(files[name], "w", encoding="utf-8") as fh:
+                fh.write("x")
+            crow_core._mark_read(files[name])
+        talk = crow_core.Conversation("SYS")
+        talk.append("user", "go")
+        talk.append("assistant", "", tool_calls=[
+            {"id": "c0", "name": "write_file",
+             "arguments": json.dumps({"path": files["old.js"], "content": "a" * 1300})}])
+        talk.append("tool", "wrote 1300 bytes", tool_call_id="c0")
+        for _ in range(5):
+            talk.append("assistant", "", tool_calls=[
+                {"id": "c0", "name": "write_file",
+                 "arguments": json.dumps({"path": files["kept.js"], "content": "b" * 1300})}])
+            talk.append("tool", "wrote 1300 bytes", tool_call_id="c0")
+        self.assertEqual(crow_core._read_state(files["old.js"])[0], "fresh")
+        crow_core.clear_before_roll(talk, 700, 1000)
+        self.assertTrue(self._args(talk.payload()[2])["content"].startswith(
+            crow_core.CONTEXT_CLEAR_MARK), "nothing was cleared")
+        self.assertEqual(crow_core._read_state(files["old.js"])[0], "unread")
+        self.assertEqual(crow_core._read_state(files["kept.js"])[0], "fresh",
+                         "a write in the keep window was forgotten")
+
+    def test_verify_reads_a_cleared_body_back_from_the_originals(self):
+        """#149: /verify sends the checker what was WRITTEN, and the checker
+        cannot read the file -- an edit's `old` is on no disk at all. A batch
+        changes nothing about that material; without the originals file the
+        stub goes, not an error."""
+        talk = _writes_talk(8)
+        before = crow_core.verify_material(talk)
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        self.assertEqual(done["calls"], 4)
+        after = crow_core.verify_material(talk)
+        self.assertFalse(crow_core.CONTEXT_CLEAR_MARK in after, "the checker got a stub")
+        self.assertTrue(after == before, "the material changed")
+        os.remove(done["path"])
+        self.assertTrue(crow_core.CONTEXT_CLEAR_MARK in crow_core.verify_material(talk),
+                        "no originals file: the stub goes as it is")
+
+    def test_a_refused_write_is_not_called_readable_on_disk(self):
+        """A write whose result is an error never reached the file: its stub
+        says so instead of 'read the file'. Paired by position, as results are."""
+        talk = crow_core.Conversation("SYS")
+        talk.append("user", "go")
+        talk.append("assistant", "", tool_calls=[
+            {"id": "c0", "name": "write_file",
+             "arguments": json.dumps({"path": "src/app.js", "content": "a" * 1140})},
+            {"id": "c0", "name": "write_file",
+             "arguments": json.dumps({"path": "src/ok.js", "content": "b" * 1140})}])
+        talk.append("tool", "error: refusing to overwrite src/app.js without reading "
+                    "it first in this conversation", tool_call_id="c0")
+        talk.append("tool", "wrote 1140 bytes to src/ok.js", tool_call_id="c0")
+        for _ in range(5):
+            talk.append("assistant", "next")
+            talk.append("user", "go on")
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        self.assertEqual(done["calls"], 2)
+        calls = talk.payload()[2]["tool_calls"]
+        refused = json.loads(calls[0]["function"]["arguments"])["content"]
+        written = json.loads(calls[1]["function"]["arguments"])["content"]
+        self.assertIn("never reached the file", refused)
+        self.assertNotIn("Read the file", refused)
+        self.assertIn("Read the file", written)
+        self.assertNotIn("never reached", written)
+
+    def test_the_stub_is_short(self):
+        """The ticket's stub was about 50 tokens; the first one measured 100
+        (GLM-5.3-Flash) and 118 (Qwen3.8-Flash-Next) on session-0915. Its
+        words outside the path and the archive name stay under 140 chars."""
+        talk = _writes_talk(8)
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        stub = self._args(talk.payload()[2])["content"]
+        words = stub.replace(done["path"], "").replace(" for `src/f0.js`", "")
+        self.assertLessEqual(len(words), 140, words)
+
+
 class ImageTokensByEngineTests(unittest.TestCase):
     """An image costs what the SERVING engine makes of it: crow-nest resizes
     into [1024, 1280] visual tokens (vit.rs `VitBudget`), other servers get
@@ -26065,6 +26443,318 @@ class ToolResultCeilingTests(ToolLayerCase):
                                                  "var a = = 1;" * 5_000)), 1000)
         crow_core.tool_read_file(path)
         self.assertLess(len(crow_core.tool_edit_file(path, old="x" * 50_000, new="y")), 200)
+
+
+class CutResultPositionTests(ToolLayerCase):
+    """#361. A cut result keeps the part that matters and says where it stopped.
+
+    `_clip` kept the first 16,000 characters and one generic line. A
+    `run_command` whose stdout ran long lost the end of stdout and ALL of
+    stderr; a whole-file `read_file` named neither the line it stopped at nor
+    the file's length. The four probes are the ticket's Evidence table
+    (2026-10-08, d2a7d0b), called on the tools directly: no model, no GPU.
+
+    Below the cap nothing changes; the golden cases pin today's bytes.
+    """
+
+    # The ticket's bound: the cap plus one marker line.
+    SLACK = 200
+    # One line of the 2,000-line probe file: 33 characters, 34 with its newline.
+    PROBE_LINE = "line %05d: some source text here"
+
+    def _python(self, name, source):
+        """A python child run through run_command, as the probes ran it."""
+        script = self._make(name, source)
+        return crow_core.tool_run_command('"%s" "%s"' % (sys.executable, script),
+                                          cwd=self.dir)
+
+    def _probe_file(self):
+        return self._make("probe.txt", "".join(
+            self.PROBE_LINE % n + "\n" for n in range(1, 2001)))
+
+    def _one_marker_line(self, out):
+        """What the result may carry past the cap: its longest cut line."""
+        marks = [line for line in out.split("\n") if line.startswith("[cut at")]
+        self.assertTrue(marks, out[-300:])
+        return max(len(line) for line in marks) + 4      # its blank lines
+
+    # -- the four probes ------------------------------------------------------
+
+    def test_probe_1_the_linker_error_survives_a_long_stdout(self):
+        out = self._python("build.py", (
+            "import sys\n"
+            "for i in range(3000):\n"
+            "    print('compiling unit %05d ... ok' % i)\n"
+            "sys.stdout.flush()\n"
+            "sys.stderr.write('error: linker failed\\n')\n"
+            "sys.exit(1)\n"))
+        self.assertTrue(out.startswith("[exit 1]\ncompiling unit 00000 ... ok\n"), out[:80])
+        # stderr travels unstripped, as it always did.
+        self.assertTrue(out.endswith("\n[stderr]\nerror: linker failed\n"), out[-200:])
+        self.assertIn("compiling unit 02999 ... ok\n[stderr]", out)
+        self.assertLessEqual(len(out), crow_core.MAX_TOOL_BYTES + self._one_marker_line(out))
+        self.assertLessEqual(len(out), crow_core.MAX_TOOL_BYTES + self.SLACK)
+
+    def test_probe_2_the_test_summary_at_the_end_survives(self):
+        out = self._python("suite.py", (
+            "import sys\n"
+            "for i in range(1500):\n"
+            "    print('PASS test_%04d' % i)\n"
+            "print('FAILED test_x: assert 1 == 2')\n"
+            "print('1 failed, 1500 passed')\n"
+            "sys.exit(1)\n"))
+        self.assertTrue(out.startswith("[exit 1]\nPASS test_0000\n"), out[:80])
+        self.assertTrue(out.endswith(
+            "PASS test_1499\nFAILED test_x: assert 1 == 2\n1 failed, 1500 passed"), out[-200:])
+        self.assertLessEqual(len(out), crow_core.MAX_TOOL_BYTES + self.SLACK)
+        # The count in the middle is what is not shown: "[exit 1]\n" (9) and
+        # 22,551 chars of stdout, its last newline stripped, less the 16,000 kept.
+        self.assertIn("[cut at 16000 bytes -- 6,559 chars elided here", out)
+
+    def test_probe_3_a_whole_read_names_its_last_line_and_the_length(self):
+        """16,001 characters are read; the last newline at or before 16,000
+        ends line 470 (34 x 470 - 1 = 15,979), so 470 whole lines are shown."""
+        path = self._probe_file()
+        out = crow_core.tool_read_file(path)
+        body, note = out.rsplit("\n\n", 1)
+        self.assertEqual(
+            note, "[cut at 16000 bytes -- showing lines 1-470 of 2,000; "
+                  "continue with start_line=471]")
+        self.assertTrue(body.endswith("\n" + self.PROBE_LINE % 470), body[-80:])
+        self.assertEqual(body.count("\n") + 1, 470)
+        self.assertLessEqual(len(out), crow_core.MAX_TOOL_BYTES + self.SLACK)
+        # The round trip: the line the note names comes next, nothing skipped.
+        more = crow_core.tool_read_file(path, start_line=471)
+        self.assertTrue(more.startswith("471: " + self.PROBE_LINE % 471 + "\n"), more[:80])
+
+    def test_probe_4_a_short_range_is_unchanged(self):
+        """Under the cap, so byte-identical to today: no total is added."""
+        out = crow_core.tool_read_file(self._probe_file(), start_line=10, end_line=12)
+        self.assertEqual(out, "\n".join("%d: %s" % (n, self.PROBE_LINE % n)
+                                        for n in (10, 11, 12)))
+
+    # -- read_file past the cap -----------------------------------------------
+
+    def test_a_range_past_the_cap_names_its_lines_and_round_trips(self):
+        """`N: ` plus 120 characters: lines 1-9 are 124 wide with the newline,
+        10-99 are 125, 100-127 are 126; 9*124 + 90*125 + 28*126 - 1 = 15,893."""
+        path = self._make("wide.txt", "".join(f"{'y' * 120}\n" for _ in range(400)))
+        out = crow_core.tool_read_file(path, start_line=1, end_line=400)
+        body, note = out.rsplit("\n\n", 1)
+        self.assertEqual(note, "[cut at 16000 bytes -- showing lines 1-127 of 400; "
+                               "continue with start_line=128]")
+        self.assertTrue(body.endswith("\n127: " + "y" * 120))
+        more = crow_core.tool_read_file(path, start_line=128, end_line=400)
+        self.assertTrue(more.startswith("128: " + "y" * 120 + "\n"))
+
+    def test_a_range_that_starts_late_counts_from_its_start(self):
+        path = self._make("wide.txt", "".join(f"{'y' * 120}\n" for _ in range(400)))
+        out = crow_core.tool_read_file(path, start_line=200, end_line=400)
+        shown = out.rsplit("\n\n", 1)[0].count("\n") + 1
+        self.assertTrue(out.endswith(
+            "showing lines 200-%d of 400; continue with start_line=%d]"
+            % (199 + shown, 200 + shown)), out[-120:])
+
+    def test_a_file_past_the_count_bound_says_more_than(self):
+        """The count reads at most SEARCH_MAX_FILE_BYTES characters (2 MiB);
+        lowered here to 40,000, which hold 40,000 // 34 = 1,176 newlines."""
+        path = self._probe_file()
+        with mock.patch.object(crow_core, "SEARCH_MAX_FILE_BYTES", 40_000):
+            out = crow_core.tool_read_file(path)
+        self.assertTrue(out.endswith(
+            "showing lines 1-470 of more than 1,176; continue with start_line=471]"),
+            out[-120:])
+
+    def test_a_first_line_longer_than_the_cap(self):
+        """A minified file: no line edge to cut at, so the head of line 1 and
+        where the next line starts."""
+        path = self._make("min.js", "z" * 20_000 + "\nsecond\nthird\n")
+        out = crow_core.tool_read_file(path)
+        self.assertEqual(out, "z" * 16_000 + "\n\n[cut at 16000 bytes -- line 1 of 3 "
+                              "alone is longer than that; continue with start_line=2]")
+        self.assertEqual(crow_core.tool_read_file(path, start_line=2), "2: second\n3: third")
+
+    def test_one_line_alone_past_the_cap_has_nowhere_to_continue(self):
+        path = self._make("one.txt", "z" * 20_000)
+        self.assertTrue(crow_core.tool_read_file(path).endswith(
+            "[cut at 16000 bytes -- line 1 of 1 alone is longer than that; "
+            "narrow the query and ask again]"))
+
+    def test_a_licence_line_before_a_long_line_keeps_the_long_lines_head(self):
+        """Review of #361: cutting at the last whole line left 34 characters
+        of a minified bundle under its licence line, where the blind cut had
+        shown 16,000. Below half the cap the head of the long line is kept."""
+        head = "/*! three.js r170 | MIT license */\n"
+        path = self._make("bundle.min.js", head + "x" * 50_000 + "\n")
+        out = crow_core.tool_read_file(path)
+        self.assertEqual(out, (head + "x" * 50_000)[:16_000] + (
+            "\n\n[cut at 16000 bytes -- showing lines 1-1 and the head of line 2 "
+            "of 2; continue with start_line=2]"))
+
+    def test_more_than_never_names_fewer_lines_than_shown(self):
+        """Review of #361: past the count bound a deep range said `of more
+        than 1,176` while showing lines 1500 and up."""
+        path = self._probe_file()
+        with mock.patch.object(crow_core, "SEARCH_MAX_FILE_BYTES", 40_000):
+            out = crow_core.tool_read_file(path, start_line=1500, end_line=1999)
+        note = out[out.rindex("[cut at"):]
+        last = int(note.split("showing lines 1500-")[1].split(" ")[0])
+        more = int(note.split("of more than ")[1].split(";")[0].replace(",", ""))
+        self.assertGreater(more, last, note)
+
+    def test_a_crlf_file_counts_the_lines_the_ranges_number(self):
+        """Text mode reads `\\r\\n` as one newline; the count does the same."""
+        path = self._path("crlf.txt")
+        with open(path, "wb") as fh:
+            fh.write(b"".join(b"%s\r\n" % (self.PROBE_LINE % n).encode() for n in range(1, 2001)))
+        out = crow_core.tool_read_file(path)
+        self.assertTrue(out.endswith("showing lines 1-470 of 2,000; "
+                                     "continue with start_line=471]"), out[-120:])
+
+    # -- run_command's two streams --------------------------------------------
+
+    def test_ends_keep_the_start_and_the_end_and_count_the_rest(self):
+        out = crow_core._clip("a" * 100 + "b" * 100, limit=50, ends=True)
+        self.assertEqual(out, "a" * 15 + "\n\n[cut at 50 bytes -- 150 chars elided here; "
+                              "the start and the end are kept]\n\n" + "b" * 35)
+
+    def test_ends_change_nothing_at_the_limit(self):
+        self.assertEqual(crow_core._clip("x" * 50, limit=50, ends=True), "x" * 50)
+
+    def test_stderr_keeps_its_share_against_a_long_stdout(self):
+        limit = crow_core.MAX_TOOL_BYTES
+        out = crow_core._clip_output("[exit 1]\n" + "o" * 50_000, "e" * 49_999 + "E")
+        self.assertTrue(out.startswith("[exit 1]\no"))
+        stdout, stderr = out.split("\n[stderr]\n")
+        self.assertTrue(stderr.endswith("eE"))
+        # A quarter of the cap for stderr, its marker inside it.
+        self.assertEqual(len("\n[stderr]\n" + stderr), limit // 4)
+        self.assertLessEqual(len(out), limit + self._one_marker_line(out))
+
+    def test_a_short_stdout_leaves_stderr_the_rest(self):
+        limit = crow_core.MAX_TOOL_BYTES
+        out = crow_core._clip_output("[exit 2]\nstarting", "e" * 49_999 + "E")
+        self.assertTrue(out.startswith("[exit 2]\nstarting\n[stderr]\neeee"))
+        self.assertTrue(out.endswith("eE"))
+        self.assertLessEqual(len(out), limit)
+
+    def test_a_short_stderr_is_kept_whole(self):
+        limit = crow_core.MAX_TOOL_BYTES
+        out = crow_core._clip_output("[exit 1]\n" + "o" * 50_000, "fatal: no such ref")
+        self.assertTrue(out.startswith("[exit 1]\nooo"))
+        self.assertTrue(out.endswith("o\n[stderr]\nfatal: no such ref"))
+        self.assertLessEqual(len(out), limit + self._one_marker_line(out))
+
+    # -- golden: below the cap, byte-identical --------------------------------
+
+    def test_golden_run_command_at_15999_and_16000_is_unchanged(self):
+        for size in (15_999, 16_000):
+            stdout = "x" * (size - len("[exit 0]\n"))
+            out = self._python("p%d.py" % size, "print('x' * %d)\n" % len(stdout))
+            self.assertEqual(out, "[exit 0]\n" + stdout, size)
+        # With stderr: 9 + 5,981 + 10 + 10,000 = 16,000.
+        out = self._python("both.py", "import sys\nprint('o' * 5981)\n"
+                                      "sys.stderr.write('e' * 10000)\n")
+        self.assertEqual(out, "[exit 0]\n" + "o" * 5981 + "\n[stderr]\n" + "e" * 10000)
+
+    def test_golden_run_command_at_16001_is_cut_at_both_ends(self):
+        stdout = "x" * (16_001 - len("[exit 0]\n") - 1) + "Z"
+        out = self._python("p16001.py", "print('%s')\n" % stdout)
+        self.assertTrue(out.startswith("[exit 0]\nxxx"))
+        self.assertTrue(out.endswith("xZ"))
+        self.assertIn("[cut at 16000 bytes -- 1 chars elided here", out)
+
+    def test_golden_multibyte_text_is_counted_in_characters(self):
+        """The cap is characters, not UTF-8 bytes: 16,000 two-, three- and
+        four-byte characters are under it, as they are today."""
+        for ch in (chr(0xE4), chr(0x20AC), chr(0x1F426)):    # 2, 3 and 4 UTF-8 bytes
+            text = "[exit 0]\n" + ch * (16_000 - 9)
+            self.assertEqual(crow_core._clip_output(text, ""), text)
+            self.assertEqual(crow_core._clip_output(text[:-14], ch * 4), text[:-14]
+                             + "\n[stderr]\n" + ch * 4)
+            path = self._make("mb.txt", ch * 15_999 + "\n")
+            self.assertEqual(crow_core.tool_read_file(path), ch * 15_999 + "\n")
+            over = self._make("mb2.txt", (ch * 99 + "\n") * 161)    # 16,100
+            self.assertTrue(crow_core.tool_read_file(over).endswith(
+                "showing lines 1-160 of 161; continue with start_line=161]"))
+
+    def test_golden_read_file_at_15999_and_16000_is_unchanged(self):
+        for size in (15_999, 16_000):
+            text = ("w" * 99 + "\n") * (size // 100) + "v" * (size % 100)
+            self.assertEqual(len(text), size)
+            self.assertEqual(crow_core.tool_read_file(self._make("g%d.txt" % size, text)),
+                             text)
+        # A range whose result is exactly 16,000: 128 lines of "N: " + body.
+        lines = ["%d: %s" % (n, "r" * 120) for n in range(1, 128)]
+        rest = 16_000 - len("\n".join(lines)) - 1 - len("128: ")
+        body = ["r" * 120] * 127 + ["r" * rest]
+        path = self._make("range.txt", "".join(b + "\n" for b in body) + "tail\n")
+        out = crow_core.tool_read_file(path, start_line=1, end_line=128)
+        self.assertEqual(len(out), 16_000)
+        self.assertEqual(out, "\n".join("%d: %s" % (n, b) for n, b in enumerate(body, 1)))
+        # A CRLF file reads as its LF text, under the cap as before.
+        crlf = self._path("crlf.txt")
+        with open(crlf, "wb") as fh:
+            fh.write(b"c" * 7_998 + b"\r\n" + b"d" * 7_998 + b"\r\n")
+        self.assertEqual(crow_core.tool_read_file(crlf), "c" * 7_998 + "\n" + "d" * 7_998 + "\n")
+
+    def test_golden_read_file_at_16001(self):
+        two = self._make("two.txt", "x" * 15_999 + "\ny")
+        self.assertEqual(crow_core.tool_read_file(two), "x" * 15_999 + "\n\n[cut at 16000 "
+                         "bytes -- showing lines 1-1 of 2; continue with start_line=2]")
+        # Only the last newline is past the cap: the whole file is shown.
+        one = self._make("one.txt", "A" * 16_000 + "\n")
+        self.assertEqual(crow_core.tool_read_file(one), "A" * 16_000 + "\n\n[cut at 16000 "
+                         "bytes -- showing lines 1-1 of 1]")
+
+    # -- golden: the stored chats ---------------------------------------------
+
+    @staticmethod
+    def _stored_results():
+        """(tool, result) for every run_command / read_file result in the chat
+        files named by CROW_TEST_STORED_CHATS (os.pathsep-separated). The suite
+        never reads the real session folder; a run that wants them says which."""
+        found = []
+        for path in filter(None, os.environ.get("CROW_TEST_STORED_CHATS", "").split(os.pathsep)):
+            with open(path, encoding="utf-8") as fh:
+                messages = json.load(fh).get("messages") or []
+            names = {}
+            for message in messages:
+                for call in message.get("tool_calls") or []:
+                    names[call.get("id")] = (call.get("name")
+                                             or (call.get("function") or {}).get("name"))
+            for message in messages:
+                tool = names.get(message.get("tool_call_id"))
+                if (message.get("role") == "tool" and tool in ("run_command", "read_file")
+                        and isinstance(message.get("content"), str)):
+                    found.append((tool, message["content"]))
+        return found
+
+    def test_golden_stored_results_under_the_cap_are_unchanged(self):
+        stored = [(tool, text) for tool, text in self._stored_results()
+                  if len(text) <= crow_core.MAX_TOOL_BYTES]
+        if not stored:
+            self.skipTest("no stored chats named in CROW_TEST_STORED_CHATS")
+        numbered = re.compile(r"(\d+): (.*)")
+        for i, (tool, text) in enumerate(stored):
+            if tool == "run_command":
+                head, mark, err = text.rpartition("\n[stderr]\n")
+                if not mark or not err.strip():
+                    head, err = text, ""
+                self.assertEqual(crow_core._clip_output(head, err), text, i)
+                continue
+            if "\x00" in text or "\r" in text:
+                continue                    # not a text file's read
+            self.assertEqual(crow_core.tool_read_file(self._make("s%d.txt" % i, text)),
+                             text, i)
+            rows = [numbered.fullmatch(line) for line in text.split("\n")]
+            if all(rows) and [int(r.group(1)) for r in rows] == list(
+                    range(int(rows[0].group(1)), int(rows[0].group(1)) + len(rows))):
+                lo, hi = int(rows[0].group(1)), int(rows[-1].group(1))
+                path = self._make("r%d.txt" % i, "\n" * (lo - 1) + "".join(
+                    r.group(2) + "\n" for r in rows))
+                self.assertEqual(crow_core.tool_read_file(path, start_line=lo, end_line=hi),
+                                 text, i)
 
 
 class RunToolCachedTests(ToolLayerCase):

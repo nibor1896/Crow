@@ -3707,7 +3707,8 @@ def should_roll(context_tokens: int, n_ctx: int, at: float = ROLLOVER_AT) -> boo
 # its target, the size and where the text is again (Anthropic's
 # `clear_tool_uses`, Claude Code's microcompact, "observation masking" in
 # arXiv 2508.21433). Every assistant message, its reasoning and its calls
-# stay byte for byte; the head is never touched.
+# stay byte for byte -- except the long bodies of the file-writing calls,
+# which #359 adds to the same batch (below); the head is never touched.
 #
 # IN BATCHES, NEVER PER ROUND. The server reuses the longest common prefix, so
 # an edit at message i re-reads everything behind i. Replayed on the same run:
@@ -3752,6 +3753,43 @@ CONTEXT_CLEAR_STUB = ("[cleared at {at:,} of {n_ctx:,} tokens to keep the window
                       "{name}{target} -- {chars:,} chars, ~{tokens:,} tokens. "
                       "{again} Original: {path}]")
 
+# #359. THE BODIES THE MODEL WROTE ITSELF, the half #263 left standing. A
+# batch kept every call byte for byte, so `write_file` / `append_file`
+# `content` and `edit_file` `old` / `new` stayed for the life of the context:
+# a second copy of text that is on disk, behind a result that names the path.
+# write_file and append_file arguments alone were 27.2 %, 7.5 % and 0 % of
+# the three full diorama windows (#263's table); Anthropic's
+# `clear_tool_inputs` is the same switch.
+#
+# THE SAME BATCH, NOT A SECOND ONE. The re-prefill from the first changed
+# message is paid anyway; the bodies only make it free more.
+#
+# ONLY THE VALUE MOVES. The argument NAMES stay and the arguments stay one
+# JSON object, and the keep window holds every tool's last calls whole: with
+# no `old` / `new` left in the window the model sent `old_string` in 22 of 22
+# calls (#214). Both templates of record render the PARSED object -- crow-nest
+# serve parses `arguments` before the render (`normalize_messages_as`, Qwen
+# and GLM alike), Qwen3.8 writes a string value raw into `<parameter=k>`,
+# GLM-5.3-Flash raw into `<arg_value>`, anything else via tojson -- so the
+# re-serialisation moves no token outside the stubbed value. Checked
+# 2026-10-14 by rendering both templates (tools/context_breakdown.py --replay).
+CONTEXT_CLEAR_ARG_KEYS = {"write_file": ("content",), "append_file": ("content",),
+                          "edit_file": ("old", "new")}
+# None: the default for the endpoint, as for `CONTEXT_CLEAR_AT` (on at home,
+# off remote). False is off.
+CONTEXT_CLEAR_INPUTS: "bool | None" = None
+# SHORTER THAN THE RESULT STUB: every result stub beside it already says why.
+# The first wording measured 100 tokens (GLM-5.3-Flash) and 118
+# (Qwen3.8-Flash-Next) a stub on session-0915 (13 stubs, real archive path);
+# the ticket asked for about 50. Same marker as the results, so one grep for
+# "[cleared at " finds both kinds.
+CONTEXT_CLEAR_ARG_STUB = ("[cleared at {at:,} of {n_ctx:,} tokens: {name} `{key}`"
+                          "{target}, {chars:,} chars. {again} Original: {path}]")
+CONTEXT_CLEAR_ARG_AGAIN = "Read the file if you need it; it may have changed since."
+# A call whose result is an error wrote nothing (refused unread, a missing
+# `old`, a full disk): only the originals file holds that text.
+CONTEXT_CLEAR_ARG_FAILED = "The call failed: this text never reached the file."
+
 
 def context_clear_set(at) -> None:
     """settings.json's `context_clear_at`, per turn like the digest cap.
@@ -3771,6 +3809,32 @@ def context_clear_share(remote: bool = False) -> float:
     if CONTEXT_CLEAR_AT is None:
         return 0.0 if remote else CONTEXT_CLEAR_DEFAULT
     return CONTEXT_CLEAR_AT if 0 < CONTEXT_CLEAR_AT < 1 else 0.0
+
+
+def context_clear_inputs_set(value) -> None:
+    """settings.json's `context_clear_inputs` (#359), per turn like `context_clear_at`.
+
+    None restores the endpoint default; 0, false, "0", "off", "false" switch it
+    off; any other number, true, "1", "on", "true" switch it on, a remote
+    endpoint included; nonsense reads as the default.
+    """
+    global CONTEXT_CLEAR_INPUTS
+    if isinstance(value, str):
+        value = {"0": False, "off": False, "false": False, "no": False,
+                 "1": True, "on": True, "true": True, "yes": True
+                 }.get(value.strip().lower())
+    elif isinstance(value, (int, float)):       # bool included
+        value = value != 0
+    else:
+        value = None
+    CONTEXT_CLEAR_INPUTS = value
+
+
+def context_clear_inputs_on(remote: bool = False) -> bool:
+    """Whether a batch takes the call bodies too, on this endpoint (#359)."""
+    if CONTEXT_CLEAR_INPUTS is None:
+        return not remote
+    return bool(CONTEXT_CLEAR_INPUTS)
 
 
 # TWO ENGINES, TWO GRIDS. crow-nest's serve resizes every image into a window
@@ -3913,6 +3977,120 @@ def clearable_results(messages: list, keep_rounds: int = CONTEXT_CLEAR_KEEP_ROUN
     return out
 
 
+def clearable_calls(messages: list, keep_rounds: int = CONTEXT_CLEAR_KEEP_ROUNDS
+                    ) -> "list[tuple[int, int, str, str, str, dict]]":
+    """(message index, call index, tool, key, text, arguments) of every call
+    body a batch may clear (#359).
+
+    The cut is `clearable_results`' own: only assistant messages BEHIND the
+    last `keep_rounds`, at least one round kept. Only the keys of
+    `CONTEXT_CLEAR_ARG_KEYS`, only string values of `CONTEXT_CLEAR_MIN_CHARS`
+    or more, never one that is a stub already, and never a call whose
+    arguments do not parse to an object -- the engine renders those as
+    `_raw`, verbatim, and a rewrite would change what it shows.
+    """
+    keep = max(1, int(keep_rounds))
+    rounds = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
+    if len(rounds) <= keep:
+        return []
+    out = []
+    for i in rounds[:-keep]:
+        for j, call in enumerate(messages[i].get("tool_calls") or []):
+            fn = call.get("function") or {}
+            name = fn.get("name") or ""
+            keys = CONTEXT_CLEAR_ARG_KEYS.get(name)
+            if not keys:
+                continue
+            try:
+                args = json.loads(fn.get("arguments") or "")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(args, dict):
+                continue
+            for key in keys:
+                text = args.get(key)
+                if (isinstance(text, str) and len(text) >= CONTEXT_CLEAR_MIN_CHARS
+                        and not text.startswith(CONTEXT_CLEAR_MARK)):
+                    out.append((i, j, name, key, text, args))
+    return out
+
+
+def call_body_cleared(call: dict) -> bool:
+    """#359: True when a stub stands in one of this call's body values."""
+    fn = call.get("function") or {}
+    keys = CONTEXT_CLEAR_ARG_KEYS.get(fn.get("name") or "")
+    if not keys:
+        return False
+    try:
+        args = json.loads(fn.get("arguments") or "")
+    except (TypeError, ValueError):
+        return False
+    return isinstance(args, dict) and any(
+        isinstance(args.get(k), str) and args[k].startswith(CONTEXT_CLEAR_MARK)
+        for k in keys)
+
+
+def _call_results(messages: list) -> "dict[tuple[int, int], str]":
+    """{(message index, call index): result text}, paired by POSITION behind
+    the assistant message, as `clearable_results` pairs them."""
+    out: "dict[tuple[int, int], str]" = {}
+    owner, n = -1, 0
+    for i, message in enumerate(messages):
+        role = message.get("role")
+        if role == "assistant":
+            owner, n = i, 0
+        elif role == "tool" and owner >= 0:
+            out[(owner, n)] = message_text(message.get("content"))
+            n += 1
+        else:
+            owner = -1
+    return out
+
+
+def call_args_restored(index: int, call_index: int, call: dict,
+                       loaded: "dict | None" = None) -> "dict | None":
+    """#359: a call's arguments with every stubbed body read back from the
+    originals file its stub names; None when they do not parse to an object.
+
+    `index` and `call_index` are the call's place in the conversation, which
+    is how the originals file keys it (call ids repeat across rounds). A body
+    whose file or entry is gone stays the stub. `loaded` caches the files
+    across calls: one batch's file holds every body it cleared.
+    """
+    fn = call.get("function") or {}
+    try:
+        args = json.loads(fn.get("arguments") or "")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(args, dict):
+        return None
+    loaded = {} if loaded is None else loaded
+    for key in CONTEXT_CLEAR_ARG_KEYS.get(fn.get("name") or "", ()):
+        text = args.get(key)
+        if not (isinstance(text, str) and text.startswith(CONTEXT_CLEAR_MARK)
+                and text.endswith("]") and " Original: " in text):
+            continue
+        path = text[:-1].rsplit(" Original: ", 1)[1]
+        if path not in loaded:
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    loaded[path] = json.load(fh)
+            except (OSError, ValueError):
+                loaded[path] = {}
+        doc = loaded[path] if isinstance(loaded[path], dict) else {}
+        for entry in doc.get("calls") or []:
+            if (isinstance(entry, dict) and entry.get("index") == index
+                    and entry.get("call") == call_index):
+                try:
+                    original = json.loads(entry.get("arguments") or "")
+                except (TypeError, ValueError):
+                    break
+                if isinstance(original, dict) and isinstance(original.get(key), str):
+                    args[key] = original[key]
+                break
+    return args
+
+
 def context_clear_path(stamp: "str | None" = None) -> str:
     """Where a batch's originals go. Beside the archives, in their own folder,
     so the rail (which lists `chat-*` and `rollover-*`) never shows them."""
@@ -3941,14 +4119,18 @@ def clear_old_results(conversation: "Conversation", context_tokens: int, n_ctx: 
                       keep_rounds: "int | None" = None,
                       at_least: "float | None" = None,
                       path: "str | None" = None,
-                      served: "str | None" = None) -> "dict | None":
+                      served: "str | None" = None,
+                      inputs: "bool | None" = None) -> "dict | None":
     """One batch of #263, or None when nothing was cleared.
 
     Fires at `at * n_ctx` (the endpoint default when None), clears every
-    result `clearable_results` names, and only if the estimate frees at least
-    `at_least * n_ctx` -- a batch that small would buy a re-prefill for almost
-    nothing. Returns {"freed" (the safe, low estimate), "typical" (the median
-    one), "results", "before", "after", "path", "reads"}. `served` is what
+    result `clearable_results` names and -- when `inputs` is on (#359; None:
+    `context_clear_inputs_on`) -- every call body `clearable_calls` names, and
+    only if the estimate frees at least `at_least * n_ctx` -- a batch that
+    small would buy a re-prefill for almost nothing. Returns {"freed" (the
+    safe, low estimate), "typical" (the median one), "results", "calls" (call
+    bodies), "typical_calls" (their share of "typical"), "before", "after",
+    "path", "reads" (the paths whose read-state goes)}. `served` is what
     /props says the server has open: it picks the image grid (`_image_tokens`).
     """
     share = context_clear_share(remote) if at is None else at
@@ -3956,9 +4138,12 @@ def clear_old_results(conversation: "Conversation", context_tokens: int, n_ctx: 
         return None
     keep = CONTEXT_CLEAR_KEEP_ROUNDS if keep_rounds is None else keep_rounds
     least = CONTEXT_CLEAR_AT_LEAST if at_least is None else at_least
+    if inputs is None:
+        inputs = context_clear_inputs_on(remote)
     messages = conversation.payload()
     picked = clearable_results(messages, keep)
-    if not picked:
+    bodies = clearable_calls(messages, keep) if inputs else []
+    if not picked and not bodies:
         return None
     path = path or context_clear_path()
     stubs, originals, freed, typical, reads = {}, [], 0, 0, []
@@ -3980,6 +4165,32 @@ def clear_old_results(conversation: "Conversation", context_tokens: int, n_ctx: 
                           "message": messages[i]})
         if name == "read_file" and isinstance(args.get("path"), str):
             reads.append(args["path"])
+    # #359: the call bodies, on the same accounting and into the same file.
+    # A cleared body is a file the model no longer holds, like a cleared
+    # read: its path joins `reads` (#215-H).
+    arg_stubs, calls, typical_calls = {}, {}, 0
+    answers = _call_results(messages) if bodies else {}
+    for i, j, name, key, text, args in bodies:
+        tokens = int(len(text) / CONTEXT_CLEAR_CHARS_PER_TOKEN_TYPICAL)
+        target = _clear_target(name, args)
+        failed = answers.get((i, j), "").startswith("error")
+        stub = CONTEXT_CLEAR_ARG_STUB.format(
+            at=int(context_tokens), n_ctx=int(n_ctx), name=name, key=key,
+            target=" for" + target if target else "", chars=len(text),
+            again=CONTEXT_CLEAR_ARG_FAILED if failed else CONTEXT_CLEAR_ARG_AGAIN,
+            path=path)
+        if (i, j) not in calls and isinstance(args.get("path"), str):
+            reads.append(args["path"])
+        freed += max(0, len(text) // CONTEXT_CLEAR_CHARS_PER_TOKEN
+                     - int(len(stub) / CONTEXT_CLEAR_CHARS_PER_TOKEN_TYPICAL))
+        gain = max(0, tokens - len(stub) // CONTEXT_CLEAR_CHARS_PER_TOKEN)
+        typical += gain
+        typical_calls += gain
+        arg_stubs[(i, j, key)] = stub
+        call = messages[i]["tool_calls"][j]
+        calls.setdefault((i, j), {
+            "index": i, "call": j, "tool": name, "id": call.get("id"), "keys": [],
+            "arguments": (call.get("function") or {}).get("arguments")})["keys"].append(key)
     if typical < n_ctx * least:
         return None
     # THE ORIGINALS FIRST. A batch whose originals could not be written is not
@@ -3988,11 +4199,14 @@ def clear_old_results(conversation: "Conversation", context_tokens: int, n_ctx: 
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
             json.dump({"context_tokens": int(context_tokens), "n_ctx": int(n_ctx),
-                       "results": originals}, fh)
+                       "results": originals, "calls": list(calls.values())}, fh)
     except OSError:
         return None
     conversation.clear_results(stubs)
+    if arg_stubs:
+        conversation.clear_call_args(arg_stubs)
     return {"freed": freed, "typical": typical, "results": len(stubs),
+            "calls": len(arg_stubs), "typical_calls": typical_calls,
             "before": int(context_tokens),
             "after": max(0, int(context_tokens) - freed), "path": path,
             "reads": reads}
@@ -4003,9 +4217,11 @@ def clear_before_roll(conversation: "Conversation", context_tokens: int, n_ctx: 
                       served: "str | None" = None) -> int:
     """The turn loop's call: one batch if due, the log line, the new estimate.
 
-    A cleared `read_file` is a file the model no longer holds, which is the
-    moment #215-H empties the read-state for; its path is forgotten here so a
-    write after the clear reads first. Only by the thread that owns `_READ`.
+    A cleared `read_file` -- or a cleared `write_file` / `append_file` /
+    `edit_file` body (#359) -- is a file the model no longer holds, which is
+    the moment #215-H empties the read-state for; its path is forgotten here
+    so a write after the clear reads first. Only by the thread that owns
+    `_READ`.
     """
     done = clear_old_results(conversation, context_tokens, n_ctx, remote=remote,
                              served=served)
@@ -4017,10 +4233,12 @@ def clear_before_roll(conversation: "Conversation", context_tokens: int, n_ctx: 
             for full in {p, os.path.join(root, p) if root else p}:
                 _READ.pop(_key(full), None)
     goal_tokens_rebase(done["after"])
-    crow_log("context-clear: %d tool results older than %d rounds cleared at "
-             "%d/%d tokens, ~%d tokens freed (estimate, at least %d), originals %s"
-             % (done["results"], CONTEXT_CLEAR_KEEP_ROUNDS, done["before"],
-                n_ctx, done["typical"], done["freed"], done["path"]))
+    crow_log("context-clear: %d tool results and %d call bodies older than %d "
+             "rounds cleared at %d/%d tokens, ~%d tokens freed (estimate, at "
+             "least %d; call bodies ~%d), originals %s"
+             % (done["results"], done["calls"], CONTEXT_CLEAR_KEEP_ROUNDS,
+                done["before"], n_ctx, done["typical"], done["freed"],
+                done["typical_calls"], done["path"]))
     return done["after"]
 
 
@@ -4680,6 +4898,8 @@ def _answered_rounds(messages: list) -> list:
             continue
         if not all(_carried_call_shaped(c) for c in calls):
             continue
+        if any(call_body_cleared(c) for c in calls):
+            continue              # #359: ein Stub ist kein Vorbild fuer den Inhalt
         # DAS DENKEN UND DIE PROSA BLEIBEN ZURUECK: die Prosa erzaehlt einen
         # Stand, den der Digest traegt, und vor der Zeile des Menschen gelesen
         # klaenge sie wie eine Antwort darauf.
@@ -5776,7 +5996,8 @@ class Conversation:
     """The message list. Append-only by construction -- see module docstring.
 
     There is deliberately no method to EDIT a turn -- `clear_results` (#263)
-    replaces the content of old TOOL results and nothing else -- and only one
+    replaces the content of old TOOL results, `clear_call_args` (#359) the long
+    body values of old file-writing calls, and nothing else -- and only one
     to remove any: `cut_to` drops a TAIL, whole turns at a time, for the one case #202
     describes -- a goal loop that has written its own degenerate answers into
     the history and would otherwise keep reading them back as examples. Nothing
@@ -6061,6 +6282,53 @@ class Conversation:
                 message["content"] = stub
                 self._messages[i] = message
                 done += 1
+        return done
+
+    def clear_call_args(self, stubs: "dict[tuple[int, int, str], str]") -> int:
+        """#359: replace argument VALUES of old calls. Returns how many.
+
+        `stubs` maps (message index, call index, key) to the text that stands
+        in. Only an assistant message's `tool_calls[j].function.arguments`
+        changes, and in it only the named keys whose value is a string: the
+        arguments are parsed, the values swapped, and the object written back
+        with its keys in their order -- the names the model copies stay (#214).
+        Arguments that do not parse to an object are left alone. The message,
+        its calls and their function are NEW dicts, so a payload handed out
+        before (a request on the wire) keeps what it held.
+
+        THE SAME BILL AS `clear_results`: a prefill from the first changed
+        message on, which is why only `clear_old_results` calls it, in the
+        batch it clears the results in.
+        """
+        by_call: "dict[tuple[int, int], dict[str, str]]" = {}
+        for (i, j, key), stub in stubs.items():
+            by_call.setdefault((i, j), {})[key] = stub
+        done = 0
+        for (i, j), values in by_call.items():
+            if not 0 <= i < len(self._messages):
+                continue
+            message = self._messages[i]
+            calls = message.get("tool_calls") or []
+            if message.get("role") != "assistant" or not 0 <= j < len(calls):
+                continue
+            fn = calls[j].get("function") or {}
+            try:
+                args = json.loads(fn.get("arguments") or "")
+            except (TypeError, ValueError):
+                continue
+            hit = [k for k in values if isinstance(args, dict)
+                   and isinstance(args.get(k), str)]
+            if not hit:
+                continue
+            for key in hit:
+                args[key] = values[key]
+            call = dict(calls[j])
+            call["function"] = dict(fn, arguments=json.dumps(
+                args, ensure_ascii=False, separators=(",", ":")))
+            message = dict(message)
+            message["tool_calls"] = [call if n == j else c for n, c in enumerate(calls)]
+            self._messages[i] = message
+            done += len(hit)
         return done
 
     def reset(self) -> None:
@@ -10304,7 +10572,13 @@ def format_tool_args(arguments: str | None, width: int = 78) -> str:
     return line[:width] + ("..." if len(line) > width else "")
 
 
-def _clip(text: str, limit: int = MAX_TOOL_BYTES) -> str:
+# The ceiling notice, written once (manifests/shared-core.json "every result
+# goes through _clip"): _clip and read_file's _read_cut both end on it.
+CLIP_ASK_AGAIN = "narrow the query and ask again"
+
+
+def _clip(text: str, limit: int = MAX_TOOL_BYTES, *, ends: bool = False,
+          more: Callable[[str, int], str] | None = None) -> str:
     """EVERY tool result goes through here. No exceptions, and that is the point.
 
     Each one was capped separately at first -- read_file by bytes, the searches
@@ -10313,10 +10587,70 @@ def _clip(text: str, limit: int = MAX_TOOL_BYTES) -> str:
     prefill at 38 tok/s. Same defect as the 100 KB read cap, different tool.
 
     One ceiling, measured in what it actually costs: bytes that become prefill.
+
+    #361. WHICH 16 KB ARE KEPT, AND WHERE THE CUT IS. The price stays; a
+    blind head cut lost a build's linker error and a test run's summary line
+    (they come last), and a read named neither the line it stopped at nor the
+    file's length. `ends` keeps the start and the end (`_elided`, for
+    run_command); `more(text, limit)` writes the cut result itself (read_file's
+    `_read_cut`). Below the limit every result is what it was.
     """
     if len(text) <= limit:
         return text
-    return text[:limit] + f"\n\n[cut at {limit} bytes -- narrow the query and ask again]"
+    if ends:
+        return _elided(text, limit, limit)
+    if more is not None:
+        return more(text, limit)
+    return text[:limit] + f"\n\n[cut at {limit} bytes -- {CLIP_ASK_AGAIN}]"
+
+
+# #361. THE START AND THE END, THE COUNT BETWEEN THEM. Codex CLI
+# (`truncate_middle_with_marker`), mini-swe-agent (`<output_head>` /
+# `<output_tail>`) and the OpenHands SDK (`maybe_truncate`) all keep both ends
+# of a long output; none of them publishes an A/B against a head cut, so the
+# share here is a choice, not a measurement: 30 % start (which target, which
+# command), 70 % end (the error, the summary, the exit).
+ELIDE_HEAD_SHARE = 0.3
+
+
+def _cut_note(cap: int, gone: int) -> str:
+    """#361: the one line `_elided` puts between the start and the end."""
+    return (f"\n\n[cut at {cap} bytes -- {gone:,} chars elided here; "
+            "the start and the end are kept]\n\n")
+
+
+def _elided(text: str, keep: int, cap: int) -> str:
+    """#361: `text` in `keep` characters plus one line: its start, its end, and
+    how much is not shown between them. `cap` is the ceiling the line names."""
+    if len(text) <= keep:
+        return text
+    head = int(keep * ELIDE_HEAD_SHARE)
+    return (text[:head] + _cut_note(cap, len(text) - keep)
+            + text[len(text) - (keep - head):])
+
+
+def _clip_output(head: str, err: str, limit: int = MAX_TOOL_BYTES) -> str:
+    """#361: run_command's result in `limit`: `head` (its first line, then
+    stdout) and `err` (stderr, behind `[stderr]`), as it always was below it.
+
+    STDERR HAS A SHARE OF ITS OWN. Clipped as one string, a long stdout pushed
+    every byte of stderr out (#361's probe 1: 3,000 lines of build, then
+    `error: linker failed`, and the error was the first thing lost). stderr
+    keeps up to a quarter of the limit against a long stdout, and all of what
+    a short stdout leaves; stdout gets the rest. Each side that is still over
+    its share is `_elided`, and stderr's cut line is paid out of stderr's share,
+    so the whole stays within the limit plus one cut line.
+    """
+    tail = f"\n[stderr]\n{err}" if err.strip() else ""
+    if len(head) + len(tail) <= limit:
+        return head + tail
+    if not tail:
+        return _clip(head, limit, ends=True)
+    share = max(limit // 4, limit - len(head))
+    if len(tail) > share:
+        room = share - len("\n[stderr]\n") - len(_cut_note(limit, len(err)))
+        tail = "\n[stderr]\n" + _elided(err, max(0, room), limit)
+    return _elided(head, limit - len(tail), limit) + tail
 
 
 # #170. DAS BILD REIST IM ERGEBNIS, und dafuer braucht es einen Platz zwischen
@@ -14483,6 +14817,67 @@ def _binary_refusal(path: str, head: bytes, size: int) -> "str | None":
     return said + "inspect it with run_command (file <file>; xxd <file> | head)"
 
 
+def _line_count(path: str) -> "tuple[int, bool] | None":
+    """#361: (lines, exact) of a file whose read was cut, or None.
+
+    Counted the way the reads number them -- text mode, universal newlines, so
+    `\\r\\n` and a lone `\\r` are one line end each -- over at most
+    SEARCH_MAX_FILE_BYTES characters: past that, `exact` is False and the file
+    has more than `lines` lines."""
+    lines, last, seen = 0, "\n", 0
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            while True:
+                chunk = fh.read(min(1 << 16, SEARCH_MAX_FILE_BYTES - seen))
+                if not chunk:
+                    return lines + (last != "\n"), True
+                lines += chunk.count("\n")
+                last, seen = chunk[-1], seen + len(chunk)
+                if seen >= SEARCH_MAX_FILE_BYTES:
+                    if fh.read(1):
+                        return lines, False
+                    return lines + (last != "\n"), True
+    except OSError:
+        return None
+
+
+def _read_cut(text: str, limit: int, first: int, path: str) -> str:
+    """#361: a read past the cap, cut after the last whole line inside it.
+
+    `text` is the read's lines from line `first` on, one per `\\n` (the whole
+    file, or a range's `N: line` rows). The note names the lines shown, the
+    file's length and the start_line that comes next -- a whole line, so
+    `read_file(start_line=<that>)` neither repeats nor skips one. A first line
+    longer than the cap has no edge to cut at: its head is shown and the note
+    says so. Whole-file reads stay unnumbered: `N: ` on every line would cost
+    prefill against the same 16 KB."""
+    edge = text.rfind("\n", 0, limit + 1)
+    # A short line before one longer than the cap (a minified bundle under its
+    # licence line) would leave the cap nearly empty: show that long line's
+    # head instead, as the blind cut did, and name it as a head.
+    whole_lines = edge >= limit // 2
+    kept = text[:edge] if whole_lines else text[:limit]
+    shown = kept.count("\n") + (1 if whole_lines else 0)
+    lines, exact = _line_count(path) or (None, False)
+    if lines is not None and not exact:
+        lines = max(lines, first + shown)     # never "more than" fewer than shown
+    total = "" if lines is None else " of %s%s" % ("" if exact else "more than ",
+                                                    f"{lines:,}")
+    after = first + shown if shown else first + 1
+    if whole_lines:
+        say = f"showing lines {first}-{first + shown - 1}{total}"
+    elif shown:
+        say = (f"showing lines {first}-{first + shown - 1} and the head of line "
+               f"{first + shown}{total}")
+    else:
+        say = f"line {first}{total} alone is longer than that"
+    if not exact or after <= lines:
+        say += f"; continue with start_line={after}"
+    elif not shown:
+        say += "; " + CLIP_ASK_AGAIN
+    return kept + f"\n\n[cut at {limit} bytes -- {say}]"
+
+
 def tool_read_file(path: str, start_line: int | None = None, end_line: int | None = None,
                    **_) -> str:
     """Read a file, or a range of its lines.
@@ -14532,7 +14927,8 @@ def tool_read_file(path: str, start_line: int | None = None, end_line: int | Non
             return f"error: {path} has no lines in {lo}-{hi}" + (
                 f" (the file has {total})" if total else "")
         _mark_read(path, stamp)
-        return _clip("\n".join(out))
+        return _clip("\n".join(out),                # #361: where it stopped
+                     more=lambda text, limit: _read_cut(text, limit, lo, path))
 
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
@@ -14567,7 +14963,7 @@ def tool_read_file(path: str, start_line: int | None = None, end_line: int | Non
     except OSError as exc:
         return f"error: could not read {path}: {exc}"
     _mark_read(path, stamp)
-    return _clip(data)
+    return _clip(data, more=lambda text, limit: _read_cut(text, limit, 1, path))   # #361
 
 
 # #244. A WRITE DOES NOT INVENT A PLACE IN SILENCE. Both writers ran
@@ -15714,11 +16110,10 @@ def tool_run_command(command: str = "", cwd: str | None = None, **_) -> str:
     note = _headless_browser_note(command, bool(prefix))
     if stopped == "user":
         # #310: the model hears WHY -- not an unexplained `[exit -15]`.
-        return _clip(
+        return _clip_output(
             "%s after %.0fs -- the command and everything it started in this "
             "call were ended: %s" % (STOPPED, time.monotonic() - began, command)
-            + (f"\n{out}".rstrip())
-            + (f"\n[stderr]\n{err}" if err.strip() else "")) + note
+            + (f"\n{out}".rstrip()), err) + note
     if stopped == "clock":
         return f"error: command exceeded {COMMAND_TIMEOUT}s and was killed: {command}" + note
     if stopped == "cap":
@@ -15743,12 +16138,11 @@ def tool_run_command(command: str = "", cwd: str | None = None, **_) -> str:
                 "killed, with everything it started: %s"
                 % ("MemoryMax=%s, " % cap if cap else "", command))
         _rebase_background_jobs()   # #309: this kill is this call's, not theirs
-        return _clip(head + (f"\n{out}".rstrip())
-                     + (f"\n[stderr]\n{err}" if err.strip() else "")) + note
+        return _clip_output(head + (f"\n{out}".rstrip()), err) + note
     if prefix and code is not None:
         _record_background_job(unit, command)   # #309: what outlived the call
-    return _clip(f"[exit {code}]\n{out}".rstrip()
-                 + (f"\n[stderr]\n{err}" if err.strip() else "")) + note
+    # #361: stdout and stderr each keep their start and their end (_clip_output).
+    return _clip_output(f"[exit {code}]\n{out}".rstrip(), err) + note
 
 
 # #309. A JOB THAT OUTLIVES ITS run_command CALL IS LOOKED AT AGAIN. It stays in
@@ -29092,14 +29486,17 @@ def verify_material(conversation: "Conversation") -> str:
     Built from the conversation's own tool calls, because that is the one
     record both surfaces share: `write_file` carries whole files, `edit_file`
     carries the replacement. Reads are deliberately absent -- the checker
-    reviews what CHANGED.
+    reviews what CHANGED. A body a #359 batch cleared is read back from the
+    originals file its stub names: the checker cannot read the file, and an
+    edit's `old` is on no disk at all.
     """
     blocks: dict[str, list[str]] = {}
     order: list[str] = []
-    for message in conversation.payload():
+    loaded: dict = {}
+    for i, message in enumerate(conversation.payload()):
         if message.get("role") != "assistant":
             continue
-        for call in message.get("tool_calls") or []:
+        for j, call in enumerate(message.get("tool_calls") or []):
             fn = (call.get("function") or {})
             name = fn.get("name")
             if name not in ("write_file", "edit_file"):
@@ -29110,6 +29507,8 @@ def verify_material(conversation: "Conversation") -> str:
                 continue
             if not isinstance(args, dict):
                 continue
+            if call_body_cleared(call):
+                args = call_args_restored(i, j, call, loaded) or args
             args = canonical_arguments(name, args)  # #215
             path = str(args.get("path") or "")
             if not path:

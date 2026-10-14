@@ -1,0 +1,43 @@
+session: <home>\dev\crow-nest\decode_out\meas-245\session-0915.json
+model: not recorded
+tokenizer: <home>\dev\crow-nest\models\Qwen3.8-Flash-Next-original\tokenizer.json
+mode: rendered template (<home>\dev\crow-nest\models\Qwen3.8-Flash-Next-original\chat_template.jinja)
+messages: 274; keep window: the last 5 assistant messages, from message 264
+recorded context_tokens: 180,263 (the server's count, tools block included)
+
+| category | tokens | behind keep window | values | values behind |
+|---|---|---|---|---|
+| head | 1,278 | 1,278 | 1 | 1 |
+| user | 1,609 | 1,609 | 14 | 14 |
+| reasoning | 85,850 | 82,487 | 132 | 127 |
+| assistant text | 6,023 | 5,812 | 71 | 67 |
+| args edit_file | 1,231 | 913 | 15 | 12 |
+| args list_dir | 13 | 13 | 1 | 1 |
+| args read_file | 394 | 355 | 41 | 35 |
+| args run_command | 6,171 | 6,025 | 80 | 79 |
+| args search_text | 196 | 196 | 12 | 12 |
+| args session_search | 9 | 9 | 2 | 2 |
+| args write_file | 10,162 | 9,092 | 38 | 36 |
+| results edit_file | 100 | 80 | 5 | 4 |
+| results list_dir | 1,348 | 1,348 | 1 | 1 |
+| results read_file | 17,062 | 16,383 | 17 | 15 |
+| results run_command | 35,582 | 35,291 | 78 | 77 |
+| results search_text | 48 | 48 | 5 | 5 |
+| results session_search | 175 | 175 | 1 | 1 |
+| results write_file | 513 | 491 | 19 | 18 |
+| markup (by difference) | 5,904 | | | |
+| total | 173,668 | 161,605 | | |
+
+walk: n_ctx 200,000, batch at 0.65 with at_least 0.1, keep 5, count + 6,595, rollover at 0.9
+
+| arm | batch at message | window count | results | call bodies | tokens freed | first changed message | re-prefill tokens |
+|---|---|---|---|---|---|---|---|
+| results | 176 | 134,855 | 28 | 0 | 43,094 | 3 | 83,216 |
+| results+calls | 176 | 134,855 | 28 | 4 | 45,814 | 3 | 80,496 |
+
+| arm | re-prefill events | re-prefill tokens | tokens freed | rolls over at | tokens at the end |
+|---|---|---|---|---|---|
+| results | 1 | 83,216 | 43,094 | no | 137,169 |
+| results+calls | 1 | 80,496 | 45,814 | no | 134,449 |
+
+re-prefill events equal: yes
