@@ -3778,10 +3778,17 @@ CONTEXT_CLEAR_ARG_KEYS = {"write_file": ("content",), "append_file": ("content",
 # None: the default for the endpoint, as for `CONTEXT_CLEAR_AT` (on at home,
 # off remote). False is off.
 CONTEXT_CLEAR_INPUTS: "bool | None" = None
-CONTEXT_CLEAR_ARG_STUB = ("[cleared at {at:,} of {n_ctx:,} tokens to keep the window: "
-                          "{name} `{key}`{target} -- {chars:,} chars, ~{tokens:,} "
-                          "tokens, replaced by this note. Read the file if you need "
-                          "the text; it may have changed since. Original: {path}]")
+# SHORTER THAN THE RESULT STUB: every result stub beside it already says why.
+# The first wording measured 100 tokens (GLM-5.3-Flash) and 118
+# (Qwen3.8-Flash-Next) a stub on session-0915 (13 stubs, real archive path);
+# the ticket asked for about 50. Same marker as the results, so one grep for
+# "[cleared at " finds both kinds.
+CONTEXT_CLEAR_ARG_STUB = ("[cleared at {at:,} of {n_ctx:,} tokens: {name} `{key}`"
+                          "{target}, {chars:,} chars. {again} Original: {path}]")
+CONTEXT_CLEAR_ARG_AGAIN = "Read the file if you need it; it may have changed since."
+# A call whose result is an error wrote nothing (refused unread, a missing
+# `old`, a full disk): only the originals file holds that text.
+CONTEXT_CLEAR_ARG_FAILED = "The call failed: this text never reached the file."
 
 
 def context_clear_set(at) -> None:
@@ -4023,6 +4030,67 @@ def call_body_cleared(call: dict) -> bool:
         for k in keys)
 
 
+def _call_results(messages: list) -> "dict[tuple[int, int], str]":
+    """{(message index, call index): result text}, paired by POSITION behind
+    the assistant message, as `clearable_results` pairs them."""
+    out: "dict[tuple[int, int], str]" = {}
+    owner, n = -1, 0
+    for i, message in enumerate(messages):
+        role = message.get("role")
+        if role == "assistant":
+            owner, n = i, 0
+        elif role == "tool" and owner >= 0:
+            out[(owner, n)] = message_text(message.get("content"))
+            n += 1
+        else:
+            owner = -1
+    return out
+
+
+def call_args_restored(index: int, call_index: int, call: dict,
+                       loaded: "dict | None" = None) -> "dict | None":
+    """#359: a call's arguments with every stubbed body read back from the
+    originals file its stub names; None when they do not parse to an object.
+
+    `index` and `call_index` are the call's place in the conversation, which
+    is how the originals file keys it (call ids repeat across rounds). A body
+    whose file or entry is gone stays the stub. `loaded` caches the files
+    across calls: one batch's file holds every body it cleared.
+    """
+    fn = call.get("function") or {}
+    try:
+        args = json.loads(fn.get("arguments") or "")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(args, dict):
+        return None
+    loaded = {} if loaded is None else loaded
+    for key in CONTEXT_CLEAR_ARG_KEYS.get(fn.get("name") or "", ()):
+        text = args.get(key)
+        if not (isinstance(text, str) and text.startswith(CONTEXT_CLEAR_MARK)
+                and text.endswith("]") and " Original: " in text):
+            continue
+        path = text[:-1].rsplit(" Original: ", 1)[1]
+        if path not in loaded:
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    loaded[path] = json.load(fh)
+            except (OSError, ValueError):
+                loaded[path] = {}
+        doc = loaded[path] if isinstance(loaded[path], dict) else {}
+        for entry in doc.get("calls") or []:
+            if (isinstance(entry, dict) and entry.get("index") == index
+                    and entry.get("call") == call_index):
+                try:
+                    original = json.loads(entry.get("arguments") or "")
+                except (TypeError, ValueError):
+                    break
+                if isinstance(original, dict) and isinstance(original.get(key), str):
+                    args[key] = original[key]
+                break
+    return args
+
+
 def context_clear_path(stamp: "str | None" = None) -> str:
     """Where a batch's originals go. Beside the archives, in their own folder,
     so the rail (which lists `chat-*` and `rollover-*`) never shows them."""
@@ -4062,8 +4130,8 @@ def clear_old_results(conversation: "Conversation", context_tokens: int, n_ctx: 
     small would buy a re-prefill for almost nothing. Returns {"freed" (the
     safe, low estimate), "typical" (the median one), "results", "calls" (call
     bodies), "typical_calls" (their share of "typical"), "before", "after",
-    "path", "reads"}. `served` is what /props says the server has open: it
-    picks the image grid (`_image_tokens`).
+    "path", "reads" (the paths whose read-state goes)}. `served` is what
+    /props says the server has open: it picks the image grid (`_image_tokens`).
     """
     share = context_clear_share(remote) if at is None else at
     if n_ctx <= 0 or not share or share <= 0 or context_tokens < n_ctx * share:
@@ -4098,14 +4166,21 @@ def clear_old_results(conversation: "Conversation", context_tokens: int, n_ctx: 
         if name == "read_file" and isinstance(args.get("path"), str):
             reads.append(args["path"])
     # #359: the call bodies, on the same accounting and into the same file.
+    # A cleared body is a file the model no longer holds, like a cleared
+    # read: its path joins `reads` (#215-H).
     arg_stubs, calls, typical_calls = {}, {}, 0
+    answers = _call_results(messages) if bodies else {}
     for i, j, name, key, text, args in bodies:
         tokens = int(len(text) / CONTEXT_CLEAR_CHARS_PER_TOKEN_TYPICAL)
         target = _clear_target(name, args)
+        failed = answers.get((i, j), "").startswith("error")
         stub = CONTEXT_CLEAR_ARG_STUB.format(
             at=int(context_tokens), n_ctx=int(n_ctx), name=name, key=key,
             target=" for" + target if target else "", chars=len(text),
-            tokens=tokens, path=path)
+            again=CONTEXT_CLEAR_ARG_FAILED if failed else CONTEXT_CLEAR_ARG_AGAIN,
+            path=path)
+        if (i, j) not in calls and isinstance(args.get("path"), str):
+            reads.append(args["path"])
         freed += max(0, len(text) // CONTEXT_CLEAR_CHARS_PER_TOKEN
                      - int(len(stub) / CONTEXT_CLEAR_CHARS_PER_TOKEN_TYPICAL))
         gain = max(0, tokens - len(stub) // CONTEXT_CLEAR_CHARS_PER_TOKEN)
@@ -4142,9 +4217,11 @@ def clear_before_roll(conversation: "Conversation", context_tokens: int, n_ctx: 
                       served: "str | None" = None) -> int:
     """The turn loop's call: one batch if due, the log line, the new estimate.
 
-    A cleared `read_file` is a file the model no longer holds, which is the
-    moment #215-H empties the read-state for; its path is forgotten here so a
-    write after the clear reads first. Only by the thread that owns `_READ`.
+    A cleared `read_file` -- or a cleared `write_file` / `append_file` /
+    `edit_file` body (#359) -- is a file the model no longer holds, which is
+    the moment #215-H empties the read-state for; its path is forgotten here
+    so a write after the clear reads first. Only by the thread that owns
+    `_READ`.
     """
     done = clear_old_results(conversation, context_tokens, n_ctx, remote=remote,
                              served=served)
@@ -29283,14 +29360,17 @@ def verify_material(conversation: "Conversation") -> str:
     Built from the conversation's own tool calls, because that is the one
     record both surfaces share: `write_file` carries whole files, `edit_file`
     carries the replacement. Reads are deliberately absent -- the checker
-    reviews what CHANGED.
+    reviews what CHANGED. A body a #359 batch cleared is read back from the
+    originals file its stub names: the checker cannot read the file, and an
+    edit's `old` is on no disk at all.
     """
     blocks: dict[str, list[str]] = {}
     order: list[str] = []
-    for message in conversation.payload():
+    loaded: dict = {}
+    for i, message in enumerate(conversation.payload()):
         if message.get("role") != "assistant":
             continue
-        for call in message.get("tool_calls") or []:
+        for j, call in enumerate(message.get("tool_calls") or []):
             fn = (call.get("function") or {})
             name = fn.get("name")
             if name not in ("write_file", "edit_file"):
@@ -29301,6 +29381,8 @@ def verify_material(conversation: "Conversation") -> str:
                 continue
             if not isinstance(args, dict):
                 continue
+            if call_body_cleared(call):
+                args = call_args_restored(i, j, call, loaded) or args
             args = canonical_arguments(name, args)  # #215
             path = str(args.get("path") or "")
             if not path:

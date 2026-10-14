@@ -23315,6 +23315,95 @@ class CallBodyClearingTests(unittest.TestCase):
         stub = crow_core.CONTEXT_CLEAR_MARK + "1 of 2 tokens to keep the window: edit_file]"
         self.assertNotIn("edit_file", carried_names(talk_with(stub)))
 
+    def test_a_cleared_body_forgets_the_files_read_state(self):
+        """#215-H: a file whose whole body is now a stub is a file the model no
+        longer holds, so the next write over it reads first -- as after a
+        cleared read_file. A write in the keep window keeps its stamp."""
+        self.addCleanup(setattr, crow_core, "LOG_FILE", crow_core.LOG_FILE)
+        crow_core.LOG_FILE = os.path.join(self.dir, "log", "crow.log")
+        read_before = dict(crow_core._READ)
+        self.addCleanup(crow_core._READ.update, read_before)
+        self.addCleanup(crow_core._READ.clear)
+        files = {}
+        for name in ("old.js", "kept.js"):
+            files[name] = os.path.join(self.dir, name)
+            with open(files[name], "w", encoding="utf-8") as fh:
+                fh.write("x")
+            crow_core._mark_read(files[name])
+        talk = crow_core.Conversation("SYS")
+        talk.append("user", "go")
+        talk.append("assistant", "", tool_calls=[
+            {"id": "c0", "name": "write_file",
+             "arguments": json.dumps({"path": files["old.js"], "content": "a" * 1300})}])
+        talk.append("tool", "wrote 1300 bytes", tool_call_id="c0")
+        for _ in range(5):
+            talk.append("assistant", "", tool_calls=[
+                {"id": "c0", "name": "write_file",
+                 "arguments": json.dumps({"path": files["kept.js"], "content": "b" * 1300})}])
+            talk.append("tool", "wrote 1300 bytes", tool_call_id="c0")
+        self.assertEqual(crow_core._read_state(files["old.js"])[0], "fresh")
+        crow_core.clear_before_roll(talk, 700, 1000)
+        self.assertTrue(self._args(talk.payload()[2])["content"].startswith(
+            crow_core.CONTEXT_CLEAR_MARK), "nothing was cleared")
+        self.assertEqual(crow_core._read_state(files["old.js"])[0], "unread")
+        self.assertEqual(crow_core._read_state(files["kept.js"])[0], "fresh",
+                         "a write in the keep window was forgotten")
+
+    def test_verify_reads_a_cleared_body_back_from_the_originals(self):
+        """#149: /verify sends the checker what was WRITTEN, and the checker
+        cannot read the file -- an edit's `old` is on no disk at all. A batch
+        changes nothing about that material; without the originals file the
+        stub goes, not an error."""
+        talk = _writes_talk(8)
+        before = crow_core.verify_material(talk)
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        self.assertEqual(done["calls"], 4)
+        after = crow_core.verify_material(talk)
+        self.assertFalse(crow_core.CONTEXT_CLEAR_MARK in after, "the checker got a stub")
+        self.assertTrue(after == before, "the material changed")
+        os.remove(done["path"])
+        self.assertTrue(crow_core.CONTEXT_CLEAR_MARK in crow_core.verify_material(talk),
+                        "no originals file: the stub goes as it is")
+
+    def test_a_refused_write_is_not_called_readable_on_disk(self):
+        """A write whose result is an error never reached the file: its stub
+        says so instead of 'read the file'. Paired by position, as results are."""
+        talk = crow_core.Conversation("SYS")
+        talk.append("user", "go")
+        talk.append("assistant", "", tool_calls=[
+            {"id": "c0", "name": "write_file",
+             "arguments": json.dumps({"path": "src/app.js", "content": "a" * 1140})},
+            {"id": "c0", "name": "write_file",
+             "arguments": json.dumps({"path": "src/ok.js", "content": "b" * 1140})}])
+        talk.append("tool", "error: refusing to overwrite src/app.js without reading "
+                    "it first in this conversation", tool_call_id="c0")
+        talk.append("tool", "wrote 1140 bytes to src/ok.js", tool_call_id="c0")
+        for _ in range(5):
+            talk.append("assistant", "next")
+            talk.append("user", "go on")
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        self.assertEqual(done["calls"], 2)
+        calls = talk.payload()[2]["tool_calls"]
+        refused = json.loads(calls[0]["function"]["arguments"])["content"]
+        written = json.loads(calls[1]["function"]["arguments"])["content"]
+        self.assertIn("never reached the file", refused)
+        self.assertNotIn("Read the file", refused)
+        self.assertIn("Read the file", written)
+        self.assertNotIn("never reached", written)
+
+    def test_the_stub_is_short(self):
+        """The ticket's stub was about 50 tokens; the first one measured 100
+        (GLM-5.3-Flash) and 118 (Qwen3.8-Flash-Next) on session-0915. Its
+        words outside the path and the archive name stay under 140 chars."""
+        talk = _writes_talk(8)
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        stub = self._args(talk.payload()[2])["content"]
+        words = stub.replace(done["path"], "").replace(" for `src/f0.js`", "")
+        self.assertLessEqual(len(words), 140, words)
+
 
 class ImageTokensByEngineTests(unittest.TestCase):
     """An image costs what the SERVING engine makes of it: crow-nest resizes
