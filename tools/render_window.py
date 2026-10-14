@@ -8,6 +8,7 @@ the phone's.
 
     python tools/render_window.py --fixture tools/fixtures/goal-run-2026-09-16.json \\
         --size 1440x960 --theme dark [--remote] [--click SEL]... [--focus SEL] \\
+        [--type SEL=TEXT]... [--press KEY]... \\
         [--rects "#main,#bar,..."] --out runs/render/goal.png
 
 HOW. `crow_gui.stamped_page(remote)` is the page, the same chain the window and
@@ -19,7 +20,10 @@ the phone get. It is written to a temp .html with two scripts added:
          `EventSource` are stubbed there instead.
   tail   after the page's script: the fixture's messages go through
          `window.crow.on(...)` one by one, the way Python pushes them, then the
-         --click and --focus steps, then the --rects are measured.
+         --click and --focus steps, then --type (focus SEL, set its value, an
+         `input` event) and --press (a keydown and keyup of KEY, e.g. ArrowDown,
+         Enter, Escape, on whatever has the focus), then the --rects are
+         measured.
 
 The page sits in an iframe of exactly the requested size inside a second file.
 Chrome's headless window is not the viewport -- on Windows 1440x960 gives a
@@ -144,6 +148,25 @@ def split_selectors(text: str) -> list:
     return out
 
 
+def split_type(text: str) -> tuple:
+    """`"#searchin=count"` -> ("#searchin", "count"). The split is at the first
+    `=` outside (), [] and quotes, so `input[type=text]=x` keeps its selector."""
+    depth, quote = 0, ""
+    for i, ch in enumerate(text):
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "\"'":
+            quote = ch
+        elif ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth = max(0, depth - 1)
+        elif ch == "=" and depth == 0 and text[:i].strip():
+            return text[:i].strip(), text[i + 1:]
+    raise ValueError("--type wants SEL=TEXT, not %r" % text)
+
+
 def load_fixture(path) -> dict:
     with open(path, encoding="utf-8") as fh:
         doc = json.load(fh)
@@ -215,7 +238,7 @@ BRIDGE_JS = r"""
 REPLAY_JS = r"""
 (function(){
   const MESSAGES = __MESSAGES__, CLICKS = __CLICKS__, FOCUS = __FOCUS__,
-        RECTS = __RECTS__, SETTLE = __SETTLE__;
+        TYPES = __TYPES__, PRESSES = __PRESSES__, RECTS = __RECTS__, SETTLE = __SETTLE__;
   const out = {rects: {}, errors: []};
   const say = window.__renderNote;
   const wait = ms => new Promise(r => setTimeout(r, ms));
@@ -240,6 +263,14 @@ REPLAY_JS = r"""
         await settle(); }
       if (FOCUS) { const el = pick("focus", FOCUS);
         if (el) { window.focus(); el.focus(); } await settle(); }
+      for (const [sel, text] of TYPES) { const el = pick("type", sel);
+        if (el) { window.focus(); el.focus(); el.value = text;
+          el.dispatchEvent(new Event("input", {bubbles: true})); }
+        await settle(); }
+      for (const key of PRESSES) { const el = document.activeElement || document.body;
+        for (const type of ["keydown", "keyup"])
+          el.dispatchEvent(new KeyboardEvent(type, {key: key, bubbles: true, cancelable: true}));
+        await settle(); }
       for (const sel of RECTS) { out.rects[sel] = null;
         try { const el = document.querySelector(sel);
           if (el) { const b = el.getBoundingClientRect();
@@ -265,7 +296,8 @@ window.addEventListener("message", ev => {
 """
 
 
-def build_page(fixture: dict, remote: bool, theme: str, clicks=(), focus="", rects=()) -> str:
+def build_page(fixture: dict, remote: bool, theme: str, clicks=(), focus="", rects=(),
+               types=(), presses=()) -> str:
     """The stamped page with the bridge in its head and the replay at its end."""
     page = stamp_page(remote, theme, fixture.get("settings") or {})
     bridge = (BRIDGE_JS.replace("__ANSWERS__", js_json(fixture.get("api") or {}))
@@ -273,6 +305,8 @@ def build_page(fixture: dict, remote: bool, theme: str, clicks=(), focus="", rec
     replay = (REPLAY_JS.replace("__MESSAGES__", js_json(fixture["messages"]))
                        .replace("__CLICKS__", js_json(list(clicks)))
                        .replace("__FOCUS__", js_json(focus or ""))
+                       .replace("__TYPES__", js_json([list(t) for t in types]))
+                       .replace("__PRESSES__", js_json(list(presses)))
                        .replace("__RECTS__", js_json(list(rects)))
                        .replace("__SETTLE__", str(SETTLE_MS)))
     if "<head>" not in page or "</body>" not in page:
@@ -291,8 +325,9 @@ def build_frame(size: tuple, theme: str) -> str:
 
 # -- the browser run ------------------------------------------------------------
 
-def virtual_budget(clicks=(), focus: str = "") -> int:
-    return VIRTUAL_BASE_MS + VIRTUAL_STEP_MS * (len(clicks) + (1 if focus else 0))
+def virtual_budget(clicks=(), focus: str = "", types=(), presses=()) -> int:
+    return VIRTUAL_BASE_MS + VIRTUAL_STEP_MS * (len(clicks) + (1 if focus else 0)
+                                                + len(types) + len(presses))
 
 
 def browser_args(browser: str, profile: str, size: tuple, url: str, budget: int,
@@ -345,18 +380,18 @@ def remove_tree(path: str) -> None:
 
 
 def render(fixture: dict, size: tuple, theme: str, remote: bool, clicks, focus: str,
-           rects, out: str, browser: str) -> dict:
+           rects, out: str, browser: str, types=(), presses=()) -> dict:
     """Write `out` and return {"rects": {...}, "errors": [...]}."""
     work = tempfile.mkdtemp(prefix="crow-render-")
     try:
         with open(os.path.join(work, "page.html"), "w", encoding="utf-8") as fh:
-            fh.write(build_page(fixture, remote, theme, clicks, focus, rects))
+            fh.write(build_page(fixture, remote, theme, clicks, focus, rects, types, presses))
         with open(os.path.join(work, "frame.html"), "w", encoding="utf-8") as fh:
             fh.write(build_frame(size, theme))
         url = Path(work, "frame.html").as_uri()
         profile = os.path.join(work, "profile")
         os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-        budget = virtual_budget(clicks, focus)
+        budget = virtual_budget(clicks, focus, types, presses)
         shot = run_browser(browser_args(browser, profile, size, url, budget,
                                         "--screenshot=" + os.path.abspath(out)))
         if png_size(out) is None:
@@ -391,6 +426,10 @@ def main(argv=None) -> int:
     ap.add_argument("--click", action="append", default=[], metavar="SEL",
                     help="click the first element matching SEL (repeatable, in order)")
     ap.add_argument("--focus", default="", metavar="SEL", help="focus the first element matching SEL")
+    ap.add_argument("--type", action="append", default=[], metavar="SEL=TEXT", dest="types",
+                    help="focus the first element matching SEL and type TEXT into it (repeatable, in order)")
+    ap.add_argument("--press", action="append", default=[], metavar="KEY", dest="presses",
+                    help="press KEY (ArrowDown, Enter, Escape, ...) on the focused element (repeatable, in order)")
     ap.add_argument("--rects", default="", metavar="SEL,SEL",
                     help="print getBoundingClientRect of each as JSON {sel: {x,y,w,h} | null}")
     ap.add_argument("--out", default="", metavar="PNG",
@@ -400,6 +439,7 @@ def main(argv=None) -> int:
     try:
         size = parse_size(args.size)
         fixture = load_fixture(args.fixture)
+        types = [split_type(t) for t in args.types]
     except (ValueError, OSError) as err:
         print("render_window: %s" % err, file=sys.stderr)
         return 2
@@ -413,7 +453,7 @@ def main(argv=None) -> int:
     started = time.monotonic()
     try:
         result = render(fixture, size, args.theme, args.remote, args.click, args.focus,
-                        split_selectors(args.rects), out, browser)
+                        split_selectors(args.rects), out, browser, types, args.presses)
     except (RuntimeError, subprocess.TimeoutExpired) as err:
         print("render_window: %s" % err, file=sys.stderr)
         return 1
