@@ -3498,6 +3498,25 @@ class TheThemeAndTheSettingsSheetTests(unittest.TestCase):
                 crow_gui.SETTINGS_FILE = before
                 crow_core.bundler_set(None)
 
+    def test_the_context_clear_inputs_setting_is_read_every_turn(self):
+        """#359: `context_clear_inputs` reaches the batch through the same
+        per-turn door as `context_clear_at`: 0 keeps the bodies at home, 1
+        clears them remote too, a key that is gone is the endpoint default."""
+        self.addCleanup(crow_core.context_clear_inputs_set, None)
+        before = crow_gui.SETTINGS_FILE
+        self.addCleanup(setattr, crow_gui, "SETTINGS_FILE", before)
+        with tempfile.TemporaryDirectory() as tmp:
+            crow_gui.SETTINGS_FILE = os.path.join(tmp, "settings.json")
+            api = crow_gui.Api.__new__(crow_gui.Api)
+            for doc, home, remote in (({"context_clear_inputs": 0}, False, False),
+                                      ({"context_clear_inputs": 1}, True, True),
+                                      ({}, True, False)):
+                with io.open(crow_gui.SETTINGS_FILE, "w", encoding="utf-8") as fh:
+                    json.dump(doc, fh)
+                api._token_budget()
+                self.assertIs(crow_core.context_clear_inputs_on(remote=False), home, doc)
+                self.assertIs(crow_core.context_clear_inputs_on(remote=True), remote, doc)
+
     def test_hilfe_sits_in_the_title_bar_and_leaves_the_drag_region(self):
         """The bar moves the window. Anything clickable in it has to opt out, or
         the click becomes a drag and the menu never opens."""

@@ -23027,6 +23027,384 @@ class ToolResultClearingTests(unittest.TestCase):
         self.assertTrue(os.path.exists(first["path"]))
 
 
+def _write_round(talk: "crow_core.Conversation", r: int, size: int = 3000,
+                 result_size: int = 0) -> None:
+    """#359: one round that writes -- write_file, edit_file, append_file in
+    turn by `r`, every body `size` chars, the result short unless asked."""
+    kind = ("write_file", "edit_file", "append_file")[r % 3]
+    path = "src/f%d.js" % r
+    if kind == "edit_file":
+        args = {"path": path, "old": ("o%d\n" % r) * (size // 3),
+                "new": ("n%d\n" % r) * (size // 3)}
+    else:
+        args = {"path": path, "content": ("c%d\n" % r) * (size // 3)}
+    talk.append("assistant", "", reasoning="thinking %d" % r, tool_calls=[
+        {"id": "c0", "name": kind, "arguments": json.dumps(args)}])
+    talk.append("tool", "wrote %s (%d bytes, sha256 abc)" % (path, size)
+                + "." * result_size, tool_call_id="c0")
+
+
+def _writes_talk(n_rounds: int, size: int = 3000,
+                 result_size: int = 0) -> "crow_core.Conversation":
+    """A goal-run shape whose every round writes a file (#359)."""
+    talk = crow_core.Conversation("SYS")
+    talk.append("user", "build the thing")
+    for r in range(n_rounds):
+        _write_round(talk, r, size, result_size)
+    return talk
+
+
+class CallBodyClearingTests(unittest.TestCase):
+    """#359. The bodies the model wrote itself join #263's batch.
+
+    write_file / append_file `content` and edit_file `old` / `new` behind the
+    last five rounds become a stub. What must hold: the argument NAMES stay
+    and the JSON stays an object (#214: with no example left the model sent
+    `old_string` in 22 of 22 calls), the keep window and the head never move,
+    the originals are on disk before any stub points at them, and it is one
+    batch -- the same re-prefill, not a second one.
+    """
+
+    BODY = {"write_file": ("content",), "append_file": ("content",),
+            "edit_file": ("old", "new")}
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="crow-clear-calls-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, crow_core, "SESSION_DIR", crow_core.SESSION_DIR)
+        crow_core.SESSION_DIR = os.path.join(self.dir, "session")
+        self.addCleanup(crow_core.context_clear_set, crow_core.CONTEXT_CLEAR_AT)
+        crow_core.context_clear_set(None)
+        self.addCleanup(setattr, crow_core, "CONTEXT_CLEAR_INPUTS",
+                        getattr(crow_core, "CONTEXT_CLEAR_INPUTS", None))
+        crow_core.CONTEXT_CLEAR_INPUTS = None
+        self.addCleanup(setattr, crow_core, "_GOAL_REBASE", crow_core._GOAL_REBASE)
+        self.addCleanup(setattr, crow_core, "GOAL_TOKENS_NOW", crow_core.GOAL_TOKENS_NOW)
+
+    @staticmethod
+    def _args(message: dict) -> dict:
+        return json.loads(message["tool_calls"][0]["function"]["arguments"])
+
+    def test_only_bodies_behind_the_last_k_rounds_are_clearable(self):
+        talk = _writes_talk(8)
+        picked = crow_core.clearable_calls(talk.payload(), keep_rounds=5)
+        # rounds 0..2 are behind the last five (3..7): messages 2, 4, 6
+        self.assertEqual([(i, j, name, key) for i, j, name, key, _, _ in picked],
+                         [(2, 0, "write_file", "content"), (4, 0, "edit_file", "old"),
+                          (4, 0, "edit_file", "new"), (6, 0, "append_file", "content")])
+        for _, _, _, key, text, args in picked:
+            self.assertEqual(text, args[key])
+        # keep 0 is read as 1, as for the results
+        last = crow_core.clearable_calls(talk.payload(), keep_rounds=0)
+        self.assertNotIn(len(talk) - 2, [i for i, _, _, _, _, _ in last])
+
+    def test_small_bodies_stubs_other_tools_and_broken_json_are_left_alone(self):
+        talk = crow_core.Conversation("SYS")
+        talk.append("user", "go")
+        for name, arguments in (
+                ("write_file", json.dumps({"path": "a.js", "content": "x" * 100})),
+                ("run_command", json.dumps({"command": "echo " + "y" * 2000})),
+                ("write_file", '{"path": "b.js", "content": "' + "z" * 2000),
+                ("write_file", json.dumps({"path": "c.js", "content":
+                                           crow_core.CONTEXT_CLEAR_MARK + "1 of 2]" + "w" * 900})),
+                ("edit_file", json.dumps({"path": "d.js", "old_string": "v" * 2000,
+                                          "new_string": "u" * 2000}))):
+            talk.append("assistant", "", tool_calls=[
+                {"id": "c0", "name": name, "arguments": arguments}])
+            talk.append("tool", "ok", tool_call_id="c0")
+        for _ in range(6):
+            talk.append("assistant", "next")
+            talk.append("user", "go on")
+        self.assertEqual(crow_core.clearable_calls(talk.payload(), 5), [])
+
+    def test_a_stub_keeps_the_key_names_and_valid_json(self):
+        talk = _writes_talk(8)
+        before = talk.payload()
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        self.assertIsNotNone(done)
+        self.assertEqual((done["results"], done["calls"]), (0, 4))
+        after = talk.payload()
+        for i in (2, 4, 6):
+            old, new = self._args(before[i]), self._args(after[i])
+            name = before[i]["tool_calls"][0]["function"]["name"]
+            self.assertEqual(list(new), list(old), "the argument names or their order moved")
+            self.assertEqual(new["path"], old["path"])
+            for key in self.BODY[name]:
+                stub = new[key]
+                self.assertNotEqual(stub, old[key])
+                self.assertTrue(stub.startswith(crow_core.CONTEXT_CLEAR_MARK), stub)
+                for part in (name, "`%s`" % key, "`%s`" % old["path"], done["path"],
+                             "700 of 1,000 tokens", "{:,} chars".format(len(old[key]))):
+                    self.assertIn(part, stub)
+            # the turn around the call is the turn it was
+            for field in ("role", "content", "reasoning_content"):
+                self.assertEqual(after[i][field], before[i][field])
+            self.assertEqual(after[i]["tool_calls"][0]["id"], before[i]["tool_calls"][0]["id"])
+            self.assertEqual(after[i]["tool_calls"][0]["function"]["name"], name)
+        # tool results this short are not part of the batch
+        for old, new in zip(before, after):
+            if old["role"] != "assistant":
+                self.assertEqual(old, new)
+
+    def test_the_rewrite_moves_only_the_value(self):
+        """Non-ASCII, a number, a nested object and spaced JSON survive the
+        re-serialisation as the same parsed object -- the form both chat
+        templates render (crow-nest serve parses `arguments` first)."""
+        talk = crow_core.Conversation("SYS")
+        talk.append("user", "go")
+        original = {"path": "src/größe.js", "content": "ü" * 900, "n": 5,
+                    "opts": {"b": [1, 2.5, None], "a": True}}
+        talk.append("assistant", "", tool_calls=[
+            {"id": "c0", "name": "write_file",
+             "arguments": json.dumps(original, indent=2)}])
+        talk.append("tool", "ok", tool_call_id="c0")
+        for _ in range(5):
+            talk.append("assistant", "next")
+            talk.append("user", "go on")
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        self.assertIsNotNone(done)
+        new = self._args(talk.payload()[2])
+        self.assertEqual(list(new), list(original))
+        self.assertEqual({k: v for k, v in new.items() if k != "content"},
+                         {k: v for k, v in original.items() if k != "content"})
+        self.assertIn("`src/größe.js`", new["content"])
+
+    def test_the_keep_window_and_the_head_are_untouched(self):
+        talk = _writes_talk(10)
+        before = talk.payload()
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        self.assertIsNotNone(done)
+        after = talk.payload()
+        self.assertEqual(after[:2], before[:2], "the head moved")
+        self.assertEqual(after[-10:], before[-10:], "a kept round moved")
+        changed = [i for i, (old, new) in enumerate(zip(before, after)) if old != new]
+        self.assertEqual(changed, [2, 4, 6, 8, 10])
+
+    def test_originals_are_on_disk_before_a_stub_is_applied(self):
+        talk = _writes_talk(8)
+        before = talk.payload()
+        seen = []
+        real = talk.clear_call_args
+
+        def spy(stubs):
+            path = next(iter(stubs.values())).rsplit("Original: ", 1)[1].rstrip("]")
+            with open(path, encoding="utf-8") as fh:
+                seen.append(json.load(fh))
+            return real(stubs)
+
+        talk.clear_call_args = spy
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        self.assertIsNotNone(done)
+        self.assertEqual(len(seen), 1, "the stubs went in before the originals were written")
+        calls = seen[0]["calls"]
+        self.assertEqual([(c["index"], c["call"], c["tool"], c["keys"]) for c in calls],
+                         [(2, 0, "write_file", ["content"]), (4, 0, "edit_file", ["old", "new"]),
+                          (6, 0, "append_file", ["content"])])
+        for c in calls:
+            self.assertEqual(c["arguments"],
+                             before[c["index"]]["tool_calls"][0]["function"]["arguments"])
+        # an archive that cannot be written: no batch, nothing changed
+        talk = _writes_talk(8)
+        before = talk.payload()
+        blocker = os.path.join(self.dir, "a-file")
+        with open(blocker, "w", encoding="utf-8") as fh:
+            fh.write("x")
+        self.assertIsNone(crow_core.clear_old_results(
+            talk, 700, 1000, at=0.65, at_least=0.0, inputs=True,
+            path=os.path.join(blocker, "cleared.json")))
+        self.assertEqual(talk.payload(), before)
+
+    def test_on_at_home_off_remote_zero_is_off_and_results_go_alone(self):
+        crow_core.context_clear_inputs_set(None)
+        self.assertTrue(crow_core.context_clear_inputs_on(remote=False))
+        self.assertFalse(crow_core.context_clear_inputs_on(remote=True))
+        for off in (0, "0", False, "off", "false"):
+            crow_core.context_clear_inputs_set(off)
+            self.assertFalse(crow_core.context_clear_inputs_on(remote=False), off)
+        for on in (1, "1", True, "on", "true"):
+            crow_core.context_clear_inputs_set(on)
+            self.assertTrue(crow_core.context_clear_inputs_on(remote=True), on)
+        crow_core.context_clear_inputs_set("nonsense")
+        self.assertTrue(crow_core.context_clear_inputs_on(remote=False))
+        self.assertFalse(crow_core.context_clear_inputs_on(remote=True))
+        # off: the results still go, the bodies stay
+        crow_core.context_clear_inputs_set(0)
+        talk = _writes_talk(8, result_size=2000)
+        before = talk.payload()
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0)
+        self.assertEqual((done["results"], done["calls"]), (3, 0))
+        after = talk.payload()
+        self.assertEqual([m for m in after if m["role"] == "assistant"],
+                         [m for m in before if m["role"] == "assistant"])
+        # the default on a remote endpoint: the same
+        crow_core.context_clear_inputs_set(None)
+        talk = _writes_talk(8, result_size=2000)
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           remote=True)
+        self.assertEqual((done["results"], done["calls"]), (3, 0))
+        # and at home both go in ONE batch: one originals file
+        talk = _writes_talk(8, result_size=2000)
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0)
+        self.assertEqual((done["results"], done["calls"]), (3, 4))
+        with open(done["path"], encoding="utf-8") as fh:
+            saved = json.load(fh)
+        self.assertEqual((len(saved["results"]), len(saved["calls"])), (3, 3))
+
+    def test_the_turn_loop_call_logs_both_counts_in_one_line(self):
+        self.addCleanup(setattr, crow_core, "LOG_FILE", crow_core.LOG_FILE)
+        crow_core.LOG_FILE = os.path.join(self.dir, "log", "crow.log")
+        talk = _writes_talk(10, size=30_000)
+        after = crow_core.clear_before_roll(talk, 150_000, 200_000)
+        self.assertLess(after, 150_000)
+        with open(crow_core.LOG_FILE, encoding="utf-8") as fh:
+            lines = [ln for ln in fh.read().splitlines() if "context-clear" in ln]
+        self.assertEqual(len(lines), 1, lines)
+        # rounds 0..4: write, edit (old, new), append, write, edit (old, new)
+        self.assertIn("context-clear: 0 tool results and 7 call bodies", lines[0])
+        self.assertRegex(lines[0], r"call bodies ~\d+")
+
+    def test_a_payload_taken_before_the_batch_keeps_its_calls(self):
+        """The request already sent holds the old dicts; the batch builds new ones."""
+        talk = _writes_talk(8)
+        before = talk.payload()
+        snapshot = copy.deepcopy(before)
+        crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0, inputs=True)
+        self.assertNotEqual(talk.payload()[2], before[2], "nothing was cleared")
+        self.assertEqual(before, snapshot, "the batch edited a list someone else holds")
+
+    def test_a_second_batch_does_not_clear_a_stub_again(self):
+        talk = _writes_talk(8)
+        first = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                            inputs=True)
+        stub = self._args(talk.payload()[2])["content"]
+        for r in range(8, 11):
+            _write_round(talk, r)
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        # rounds 3..5 now: write, edit (old, new), append
+        self.assertEqual(done["calls"], 4)
+        self.assertEqual(self._args(talk.payload()[2])["content"], stub)
+        self.assertNotEqual(done["path"], first["path"])
+
+    def test_a_stubbed_round_is_never_carried_across_a_rollover(self):
+        """#214 carries the youngest edit_file round when the last three show
+        none. A stub there would be an EXAMPLE of writing a stub into a file."""
+        def talk_with(old):
+            talk = crow_core.Conversation("SYS")
+            talk.append("user", "go")
+            talk.append("assistant", "", tool_calls=[
+                {"id": "c0", "name": "edit_file",
+                 "arguments": json.dumps({"path": "src/app.js", "old": old, "new": "b"})}])
+            talk.append("tool", "edited src/app.js", tool_call_id="c0")
+            for n in range(3):
+                talk.append("assistant", "", tool_calls=[
+                    {"id": "c0", "name": "list_dir",
+                     "arguments": json.dumps({"path": "d%d" % n})}])
+                talk.append("tool", "a\nb", tool_call_id="c0")
+            return talk
+
+        def carried_names(talk):
+            return [c["function"]["name"] for m in crow_core.carry_rounds(talk.payload())
+                    for c in m.get("tool_calls") or []]
+
+        self.assertIn("edit_file", carried_names(talk_with("a")), "the control round")
+        stub = crow_core.CONTEXT_CLEAR_MARK + "1 of 2 tokens to keep the window: edit_file]"
+        self.assertNotIn("edit_file", carried_names(talk_with(stub)))
+
+    def test_a_cleared_body_forgets_the_files_read_state(self):
+        """#215-H: a file whose whole body is now a stub is a file the model no
+        longer holds, so the next write over it reads first -- as after a
+        cleared read_file. A write in the keep window keeps its stamp."""
+        self.addCleanup(setattr, crow_core, "LOG_FILE", crow_core.LOG_FILE)
+        crow_core.LOG_FILE = os.path.join(self.dir, "log", "crow.log")
+        read_before = dict(crow_core._READ)
+        self.addCleanup(crow_core._READ.update, read_before)
+        self.addCleanup(crow_core._READ.clear)
+        files = {}
+        for name in ("old.js", "kept.js"):
+            files[name] = os.path.join(self.dir, name)
+            with open(files[name], "w", encoding="utf-8") as fh:
+                fh.write("x")
+            crow_core._mark_read(files[name])
+        talk = crow_core.Conversation("SYS")
+        talk.append("user", "go")
+        talk.append("assistant", "", tool_calls=[
+            {"id": "c0", "name": "write_file",
+             "arguments": json.dumps({"path": files["old.js"], "content": "a" * 1300})}])
+        talk.append("tool", "wrote 1300 bytes", tool_call_id="c0")
+        for _ in range(5):
+            talk.append("assistant", "", tool_calls=[
+                {"id": "c0", "name": "write_file",
+                 "arguments": json.dumps({"path": files["kept.js"], "content": "b" * 1300})}])
+            talk.append("tool", "wrote 1300 bytes", tool_call_id="c0")
+        self.assertEqual(crow_core._read_state(files["old.js"])[0], "fresh")
+        crow_core.clear_before_roll(talk, 700, 1000)
+        self.assertTrue(self._args(talk.payload()[2])["content"].startswith(
+            crow_core.CONTEXT_CLEAR_MARK), "nothing was cleared")
+        self.assertEqual(crow_core._read_state(files["old.js"])[0], "unread")
+        self.assertEqual(crow_core._read_state(files["kept.js"])[0], "fresh",
+                         "a write in the keep window was forgotten")
+
+    def test_verify_reads_a_cleared_body_back_from_the_originals(self):
+        """#149: /verify sends the checker what was WRITTEN, and the checker
+        cannot read the file -- an edit's `old` is on no disk at all. A batch
+        changes nothing about that material; without the originals file the
+        stub goes, not an error."""
+        talk = _writes_talk(8)
+        before = crow_core.verify_material(talk)
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        self.assertEqual(done["calls"], 4)
+        after = crow_core.verify_material(talk)
+        self.assertFalse(crow_core.CONTEXT_CLEAR_MARK in after, "the checker got a stub")
+        self.assertTrue(after == before, "the material changed")
+        os.remove(done["path"])
+        self.assertTrue(crow_core.CONTEXT_CLEAR_MARK in crow_core.verify_material(talk),
+                        "no originals file: the stub goes as it is")
+
+    def test_a_refused_write_is_not_called_readable_on_disk(self):
+        """A write whose result is an error never reached the file: its stub
+        says so instead of 'read the file'. Paired by position, as results are."""
+        talk = crow_core.Conversation("SYS")
+        talk.append("user", "go")
+        talk.append("assistant", "", tool_calls=[
+            {"id": "c0", "name": "write_file",
+             "arguments": json.dumps({"path": "src/app.js", "content": "a" * 1140})},
+            {"id": "c0", "name": "write_file",
+             "arguments": json.dumps({"path": "src/ok.js", "content": "b" * 1140})}])
+        talk.append("tool", "error: refusing to overwrite src/app.js without reading "
+                    "it first in this conversation", tool_call_id="c0")
+        talk.append("tool", "wrote 1140 bytes to src/ok.js", tool_call_id="c0")
+        for _ in range(5):
+            talk.append("assistant", "next")
+            talk.append("user", "go on")
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        self.assertEqual(done["calls"], 2)
+        calls = talk.payload()[2]["tool_calls"]
+        refused = json.loads(calls[0]["function"]["arguments"])["content"]
+        written = json.loads(calls[1]["function"]["arguments"])["content"]
+        self.assertIn("never reached the file", refused)
+        self.assertNotIn("Read the file", refused)
+        self.assertIn("Read the file", written)
+        self.assertNotIn("never reached", written)
+
+    def test_the_stub_is_short(self):
+        """The ticket's stub was about 50 tokens; the first one measured 100
+        (GLM-5.3-Flash) and 118 (Qwen3.8-Flash-Next) on session-0915. Its
+        words outside the path and the archive name stay under 140 chars."""
+        talk = _writes_talk(8)
+        done = crow_core.clear_old_results(talk, 700, 1000, at=0.65, at_least=0.0,
+                                           inputs=True)
+        stub = self._args(talk.payload()[2])["content"]
+        words = stub.replace(done["path"], "").replace(" for `src/f0.js`", "")
+        self.assertLessEqual(len(words), 140, words)
+
+
 class ImageTokensByEngineTests(unittest.TestCase):
     """An image costs what the SERVING engine makes of it: crow-nest resizes
     into [1024, 1280] visual tokens (vit.rs `VitBudget`), other servers get

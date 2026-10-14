@@ -18301,6 +18301,9 @@ class Api:
         # #263: tool-result clearing, same door. Missing key: the endpoint
         # default (on at home, off remote); 0 switches it off.
         crow_core.context_clear_set(doc.get("context_clear_at"))
+        # #359: the call bodies in that batch, same door; 0 keeps them, 1
+        # clears them on a remote provider too.
+        crow_core.context_clear_inputs_set(doc.get("context_clear_inputs"))
         # #269: the file tools' check table, same door.
         crow_core.syntax_checks_set(doc.get("syntax_checks"))
         # #279: the browser panel as the card's second client, same door --
