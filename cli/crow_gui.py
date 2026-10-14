@@ -1056,7 +1056,6 @@ MEMORY_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvm
 PAGE = r"""<!doctype html>
 <html lang="de" data-theme="__THEME__"><head><meta charset="utf-8"><!--__REMOTE_HEAD__-->
 <style>
-/* __MONOFACE__ */
 :root{
   --accent:__ACCENT__; --bevel:__BEVEL__; --model:__TEXT__;
 
@@ -1100,11 +1099,11 @@ PAGE = r"""<!doctype html>
   /* #382. THE SHIPPED FACE FOR CODE, THE SYSTEM'S FOR PROSE. Until #382 the
      page named no typeface of its own (a window that looked different depending
      on an installed font had two appearances). robin approved the mockup set in
-     Google Sans Code on 2026-10-14, and the face now travels INSIDE the page:
-     `stamped_page()` writes cli/fonts/GoogleSansCode[MONO,wght].ttf as a
-     `data:` @font-face at the top of this sheet, so every window has it and
-     nothing depends on what the machine installed. The names after it are
-     only the fallback for the moment before it loads (`font-display:swap`).
+     Google Sans Code on 2026-10-14, and the face now comes WITH Crow: the page
+     asks the bridge for cli/fonts/GoogleSansCode[MONO,wght].ttf after load
+     (`crow.monoFace`, `Api.mono_font`) and adds it as a FontFace, so every
+     window has it and nothing depends on what the machine installed. The
+     names after it set the first paint and stand in if the face never comes.
      Prose keeps the system's interface face, Segoe UI Variable first, as the
      mockup sets it. */
   --ui:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
@@ -1121,8 +1120,11 @@ PAGE = r"""<!doctype html>
      writes its value onto the two readers (#236: never onto <html> or <body>,
      where every node of a long chat would be restyled per mouse step).
      --railshut is the left zone's width while the rail is folded away: the
-     panel then starts there, so the search keeps standing on its edge. */
-  --railw:242px; --codew:__CODEW__px; --railshut:128px;
+     toggle alone (10 px + 32 px + 8 px, the zone's own padding around it),
+     the wordmark hidden. The panel then starts there, so a narrow strip of
+     rail colour stays under the toggle and the search keeps standing on the
+     panel's edge. */
+  --railw:242px; --codew:__CODEW__px; --railshut:50px;
   /* The scrollbar's width, ONCE. #flow reserves it, the composer stops short of
      it, and .turn centres inside it -- three rules that have to agree or the
      input box sits 5 px off the text above it. */
@@ -1281,9 +1283,11 @@ body{background:var(--bg);color:var(--dim);font:13px/1.55 var(--ui);
 .hz{display:flex;align-items:center;gap:6px;min-width:0}
 #barl{flex:none;width:calc(var(--railw) + 1px);padding:6px 8px 6px 10px;
   overflow:hidden;transition:width .16s ease}
-/* THE RAIL FOLDED AWAY leaves the zone its own content's room, and the panel
-   starts where the zone ends (`#main` below) -- the search stays on the edge. */
+/* THE RAIL FOLDED AWAY leaves the zone the toggle alone -- the wordmark goes
+   with the rail -- and the panel starts where the zone ends (`#main` below),
+   so the search stays on its edge. */
 body[data-rail="shut"] #barl{width:var(--railshut)}
+body[data-rail="shut"] #mark{display:none}
 #barm{flex:1 1 0;margin-right:8px;padding:6px 0;justify-content:space-between}
 /* THE SIDE COLUMN'S WIDTH WHILE IT IS OPEN, the buttons' own room when it is
    not. Four toggles, a separator and three window buttons are 233 px plus
@@ -7455,6 +7459,25 @@ const crow = {
     part(".eword", !none ? "" : st==="up" ? "ready"
                      : st==="down" ? (this.downWhy||"no server") : "connecting"); },
 
+  // #382. THE MONO FACE, ASKED FOR ONCE THE BRIDGE IS THERE. The bytes come as
+  // base64 (`Api.mono_font`; on a phone through `/api`), become an ArrayBuffer
+  // and a FontFace for the family `--mono` names first (CSS Font Loading:
+  // `new FontFace(family, buffer, descriptors)`, `load()`,
+  // `document.fonts.add()`). Until then, and if it never comes, the stack's
+  // system monospace sets the code -- the first paint never waits for it.
+  monoFace(){
+    if(this.monoAsked || !window.FontFace || !document.fonts) return;
+    this.monoAsked = true;
+    return Promise.resolve(pywebview.api.mono_font()).then(b64 => {
+      if(!b64) return;
+      const bin = atob(b64), bytes = new Uint8Array(bin.length);
+      for(let i=0; i<bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      // A VARIABLE FONT: one face covers 300 to 800.
+      const face = new FontFace("Google Sans Code", bytes.buffer,
+                                {weight:"300 800", style:"normal", display:"swap"});
+      return face.load().then(f => { document.fonts.add(f); });
+    }).catch(() => {}); },
+
   // A DISCLOSURE (WAI-ARIA APG): a button that says whether its details are
   // out. `aria-expanded` is the state, `.open` only what CSS draws from it.
   engineToggle(){ const b=$("#engine"), open=b.getAttribute("aria-expanded")!=="true";
@@ -9304,6 +9327,8 @@ new ResizeObserver(() => crow.brPlace()).observe($("#brbody"));
 // (min-width:0), #main traegt die Mindestbreite der Maske.
 
 window.addEventListener("pywebviewready",()=>{ pywebview.api.ready(); input.focus(); });
+// #382: the mono face, once per page, after the first paint (see `monoFace`).
+window.addEventListener("pywebviewready",()=>crow.monoFace());
 // #249: kein pywebview auf dem Telefon, also kein `pywebviewready` von aussen --
 // die Bruecke oben koppelt, oeffnet den Strom und feuert es selbst.
 /* __REMOTE_JS__ */
@@ -9410,6 +9435,8 @@ REMOTE_PROXIED = frozenset({
     "tools_cleared", "unstage_image", "update_check", "update_start",
     "engine_check", "engine_update_start",  # #367, as update_check/_start
     "view_live",
+    # #382: the mono face's bytes; the phone builds its FontFace from them too.
+    "mono_font",
     # #311: the phone sees the previews, the lightbox and its (i) panel --
     # `image_full` answers a phone with the bytes, never a `file://` URL.
     "image_thumb", "image_full", "image_info",
@@ -9584,6 +9611,9 @@ body{padding:var(--safe-t) var(--safe-r) 0 var(--safe-l);
 #railtoggle svg,#codetoggle svg,#gittoggle svg,#browsertoggle svg{
   width:19px;height:19px}
 #mark{font-size:12.5px;margin:0 4px}
+/* #382: the desktop hides the wordmark while the rail is folded; here the
+   rail is a drawer and "shut" is its resting state, so the name stays. */
+body[data-rail="shut"] #mark{display:inline}
 #bar #codetoggle{margin-left:auto}
 /* The toggles light when their drawer is open (page rule), not per setting. */
 
@@ -10400,15 +10430,17 @@ REMOTE_JS = r"""
 """
 
 
-# #382. THE MONO FACE TRAVELS INSIDE THE PAGE, as a `data:` URL. The page is
-# handed over as a string (WebView2: NavigateToString, origin about:blank), so
-# a relative URL has nothing to resolve against, and a `file:///` one stayed
-# `unloaded` on WebKitGTK (measured 2026-09-16, see the note in `main`). A
-# `data:` URL needs neither a base nor a server and reaches the phone through
-# the same page. Read once per process; ~358 kB of base64 for 268 kB of font.
-# The upright file only: italic code is rare enough for the engine's slant.
+# #382. THE MONO FACE COMES THROUGH THE BRIDGE, NOT IN THE PAGE. The page is
+# handed over as a string (WebView2: NavigateToString, origin about:blank, at
+# most 2 MB), so a relative URL has nothing to resolve against, a `file:///`
+# one stayed `unloaded` on WebKitGTK (measured 2026-09-16, see the note in
+# `main`), and the font inlined as a `data:` URL took 358 kB of the 2 MB the
+# page may have. So the page asks for the bytes after load (`Api.mono_font`)
+# and builds a FontFace from them -- on the phone through the same `/api`
+# call. Read once per process. The upright file only: italic code is rare
+# enough for the engine's slant.
 MONO_FONT_FILE = os.path.join(HERE, "fonts", "GoogleSansCode[MONO,wght].ttf")
-_MONO_FACE: "str | None" = None
+_MONO_FONT: "str | None" = None
 
 
 # #382. WHAT THE PAGE GETS OF A TURN'S BALANCE (`TurnCost.record()`), as
@@ -10429,24 +10461,18 @@ def turn_stats(record: "dict | None") -> "dict | None":
     return {key: record[key] for key in TURN_STATS if key in record}
 
 
-def mono_face() -> str:
-    """The `@font-face` for `--mono`, the TTF inlined as base64. Empty when the
-    file is missing: the stack's next names (ui-monospace, Cascadia Mono,
-    Consolas) then set the code, which is what the page did before #382."""
-    global _MONO_FACE
-    if _MONO_FACE is None:
+def mono_font_data() -> str:
+    """The TTF behind `--mono` as base64, read once. Empty when the file is
+    missing: the stack's next names (ui-monospace, Cascadia Mono, Consolas)
+    then set the code, which is what the page did before #382."""
+    global _MONO_FONT
+    if _MONO_FONT is None:
         try:
             with open(MONO_FONT_FILE, "rb") as fh:
-                data = base64.b64encode(fh.read()).decode("ascii")
+                _MONO_FONT = base64.b64encode(fh.read()).decode("ascii")
         except OSError:
-            data = ""
-        # A VARIABLE FONT, so one face covers 300 to 800; `swap` draws the
-        # fallback at once and the face when it has decoded.
-        _MONO_FACE = ('@font-face{font-family:"Google Sans Code";'
-                      'src:url(data:font/ttf;base64,%s) format("truetype");'
-                      'font-weight:300 800;font-style:normal;font-display:swap}'
-                      % data) if data else ""
-    return _MONO_FACE
+            _MONO_FONT = ""
+    return _MONO_FONT
 
 
 def stamped_page(remote: bool = False) -> str:
@@ -10483,10 +10509,7 @@ def stamped_page(remote: bool = False) -> str:
                 # out after load would be one frame late on every start.
                 .replace("__NATIVEDRAG__",
                          "false" if crow_platform.IS_WINDOWS else "true")
-                .replace("__MARKLIGHT__", mark_svg("light"))
-                # #382. LAST OF THE PAGE'S OWN, so no placeholder replace above
-                # ever has to walk the font's base64.
-                .replace("/* __MONOFACE__ */", mono_face()))
+                .replace("__MARKLIGHT__", mark_svg("light")))
     # #249. DIE HAKEN ZULETZT, damit kein Ersatz oben in einem Haken landet.
     head = REMOTE_HEAD.replace("__THEMEBG__",
                                THEME_BG.get(current_theme(), THEME_BG["dark"]))
@@ -12595,6 +12618,11 @@ class Api:
             for m in self._conversation.payload()
             if m.get("role") == "assistant")
         return self._tools_cleared
+
+    def mono_font(self) -> str:
+        """#382: the mono face's bytes as base64, for the page's FontFace.
+        The same answer for the window and a phone; "" when the file is gone."""
+        return mono_font_data()
 
     def ready(self) -> None:
         # #249. EIN TELEFON, DAS SEINE SEITE GELADEN HAT, bekommt den Stand --

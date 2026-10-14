@@ -3546,8 +3546,8 @@ class TheThemeAndTheSettingsSheetTests(unittest.TestCase):
     def test_code_is_set_in_the_shipped_face_and_prose_in_the_systems(self):
         """#382 CHANGES THIS REQUIREMENT. It used to forbid naming the shipped
         face, because a face the user had to install gave the window two
-        appearances. The face now travels inside the page (`mono_face`, its own
-        case), so there is one appearance again -- the mockup's: Google Sans
+        appearances. The face now comes with Crow (`Api.mono_font`, its own
+        cases), so there is one appearance again -- the mockup's: Google Sans
         Code for code, Segoe UI Variable first for prose."""
         self.assertIn('--mono:"Google Sans Code",ui-monospace,"Cascadia Mono",'
                       'Consolas,monospace;', self.css)
@@ -14404,7 +14404,7 @@ class RemoteApiParityTests(RemoteCase):
     to the desktop with a stated replacement -- and a call from one client
     produces the push the other one needs."""
 
-    PAGE_METHODS = 108         # 88 at fb31ca2 + the six pairing controls (#249 stage 5) + stage_image_data, drop_seen (#312) + the eight image_* (#311) + video_src, video_reveal (#340) + engine_check, engine_update_start (#367)
+    PAGE_METHODS = 109         # 88 at fb31ca2 + the six pairing controls (#249 stage 5) + stage_image_data, drop_seen (#312) + the eight image_* (#311) + video_src, video_reveal (#340) + engine_check, engine_update_start (#367) + mono_font (#382)
 
     def page_methods(self) -> set:
         page = crow_gui.PAGE
@@ -17468,41 +17468,95 @@ console.log(JSON.stringify(out));
 
     # -- the mono face -----------------------------------------------------------
 
-    def test_the_mono_face_is_stamped_into_the_page(self):
-        page = crow_gui.stamped_page()
-        head = ('@font-face{font-family:"Google Sans Code";'
-                'src:url(data:font/ttf;base64,')
-        self.assertIn(head, page)
-        data = page[page.index(head) + len(head):]
-        data = data[:data.index(")")]
-        with open(os.path.join(HERE, "fonts", "GoogleSansCode[MONO,wght].ttf"), "rb") as fh:
+    FONT = os.path.join(HERE, "fonts", "GoogleSansCode[MONO,wght].ttf")
+
+    def test_the_mono_face_stays_out_of_the_page(self):
+        """The font took 358 kB of WebView2's 2 MB as a `data:` URL; it comes
+        through the bridge now, so neither page carries it."""
+        with open(self.FONT, "rb") as fh:
+            head = base64.b64encode(fh.read(48)).decode("ascii")
+        for page in (crow_gui.stamped_page(), crow_gui.stamped_page(remote=True)):
+            self.assertNotIn("data:font/ttf;base64", page)
+            self.assertNotIn("@font-face{", page)
+            self.assertNotIn(head, page)
+        self.assertIn('window.addEventListener("pywebviewready",()=>crow.monoFace());',
+                      crow_gui.PAGE)
+
+    def test_the_bridge_hands_over_the_font(self):
+        api = crow_gui.Api.__new__(crow_gui.Api)
+        data = api.mono_font()
+        with open(self.FONT, "rb") as fh:
             self.assertEqual(base64.b64decode(data), fh.read())
-        face = page[page.index(head):]
-        face = face[:face.index("}") + 1]
-        self.assertIn('format("truetype")', face)
-        self.assertIn("font-weight:300 800", face)
-        self.assertIn("font-display:swap", face)
-        self.assertNotIn("__MONOFACE__", page)
-        # Stamped, not written: the source carries the placeholder only.
-        self.assertIn("/* __MONOFACE__ */", crow_gui.PAGE)
-        self.assertNotIn("data:font/ttf", crow_gui.PAGE)
-        self.assertIn(head, crow_gui.stamped_page(remote=True))
+        self.assertIs(api.mono_font(), data, "read again instead of once")
+        # The phone asks the same method through /api, proxied 1:1.
+        self.assertIn("mono_font", crow_gui.REMOTE_PROXIED)
+        self.assertIn("mono_font", crow_gui.REMOTE_ALLOWED)
+        self.assertIs(api._remote_call("mono_font", []), data)
+
+    def _face_run(self, answer: str) -> dict:
+        node = _node()
+        if not node:
+            self.skipTest("no node on this machine")
+        page = crow_gui.PAGE
+        start = page.index("\n  monoFace(){") + 1
+        end = ".catch(() => {}); },"
+        method = page[start:page.index(end, start) + len(end)]
+        js = r"""
+const calls = [], faces = [], added = [];
+globalThis.window = globalThis;
+globalThis.pywebview = {api: {mono_font(){ calls.push(1); return Promise.resolve(ANSWER); }}};
+globalThis.document = {fonts: {add: f => added.push(f.family)}};
+globalThis.FontFace = class { constructor(family, source, desc){ this.family = family;
+    faces.push({family, bytes: Array.from(new Uint8Array(source)), desc}); }
+  load(){ return Promise.resolve(this); } };
+const crow = {
+""".replace("ANSWER", json.dumps(answer)) + method + r"""
+};
+(async () => { await crow.monoFace(); await crow.monoFace();
+  console.log(JSON.stringify({calls: calls.length, faces, added})); })();
+"""
+        done = subprocess.run([node, "-e", js], capture_output=True, text=True,
+                              encoding="utf-8", timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_the_page_builds_a_font_face_from_the_bytes(self):
+        out = self._face_run(base64.b64encode(bytes([0, 1, 2, 255])).decode("ascii"))
+        self.assertEqual(out["calls"], 1, "asked twice")
+        self.assertEqual(out["faces"], [{"family": "Google Sans Code",
+                                         "bytes": [0, 1, 2, 255],
+                                         "desc": {"weight": "300 800", "style": "normal",
+                                                  "display": "swap"}}])
+        self.assertEqual(out["added"], ["Google Sans Code"])
+        # NEGATIVE: no bytes, no face -- the stack's fallback stays.
+        none = self._face_run("")
+        self.assertEqual((none["faces"], none["added"]), ([], []))
 
     def test_the_stamped_page_fits_what_webview2_takes(self):
         """WebView2's NavigateToString takes at most 2 MB (Microsoft Learn,
         ICoreWebView2::NavigateToString: "may not be larger than 2 MB (2 * 1024
-        * 1024 bytes)", LPCWSTR, so UTF-16). The font is ~358 kB of it."""
+        * 1024 bytes)", LPCWSTR, so UTF-16). The font is not part of it."""
         self.assertLess(len(crow_gui.stamped_page().encode("utf-16-le")), 2 * 1024 * 1024)
 
     def test_a_missing_font_file_leaves_the_fallback_stack(self):
-        before = (crow_gui.MONO_FONT_FILE, crow_gui._MONO_FACE)
+        before = (crow_gui.MONO_FONT_FILE, crow_gui._MONO_FONT)
         self.addCleanup(lambda: (setattr(crow_gui, "MONO_FONT_FILE", before[0]),
-                                 setattr(crow_gui, "_MONO_FACE", before[1])))
+                                 setattr(crow_gui, "_MONO_FONT", before[1])))
         crow_gui.MONO_FONT_FILE = os.path.join(HERE, "fonts", "no-such-face.ttf")
-        crow_gui._MONO_FACE = None
-        self.assertEqual(crow_gui.mono_face(), "")
-        self.assertNotIn("data:font/ttf", crow_gui.stamped_page())
-        self.assertNotIn("/* __MONOFACE__ */", crow_gui.stamped_page())
+        crow_gui._MONO_FONT = None
+        self.assertEqual(crow_gui.Api.__new__(crow_gui.Api).mono_font(), "")
+
+    def test_a_folded_rail_leaves_only_the_toggle(self):
+        """With the rail shut the left zone is the toggle alone and the panel
+        starts right after it: no empty strip the width of the wordmark."""
+        root = self._block(":root{")
+        self.assertIn("--railshut:50px", root)
+        self.assertIn('body[data-rail="shut"] #mark{display:none}', self.css)
+        self.assertIn("padding:6px 8px 6px 10px", self._rule("#barl{"))
+        # 10 + 32 + 8: the zone's padding around the one 32 px button.
+        self.assertIn("width:32px", self._rule(".ib{"))
+        # The phone's rail is a drawer whose resting state is "shut": the name stays.
+        self.assertIn('body[data-rail="shut"] #mark{display:inline}', crow_gui.REMOTE_CSS)
 
 
 class TheTurnStatsReachThePageTests(ApiCase):
