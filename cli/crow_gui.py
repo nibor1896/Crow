@@ -9626,11 +9626,11 @@ const crow = {
     // Fassung desselben Textes, und die beiden koennten sich widersprechen.
     // Der Stempel kommt aus `push`, nicht aus dem Nachrichtentyp.
     if(e.bg) return;
+    this.headOn(e);                        // #385: chat head, rows, clock
     if(e.k==="rail") finder.seen(e);   // #386: the search reads the chats from it
     // #383: the delegate cards in the flow follow every subtask push, beside
     // the inspector's own cards (`subs`).
     if(e.k==="subs") this.refSubs(e.items);
-    this.headOn(e);                        // #385: chat head, rows, clock
     switch(e.k){
       case "up": $("#dot").className="up"; $("#state").textContent="connected";
         $("#engine").dataset.state="up";
