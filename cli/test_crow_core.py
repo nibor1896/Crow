@@ -26067,6 +26067,296 @@ class ToolResultCeilingTests(ToolLayerCase):
         self.assertLess(len(crow_core.tool_edit_file(path, old="x" * 50_000, new="y")), 200)
 
 
+class CutResultPositionTests(ToolLayerCase):
+    """#361. A cut result keeps the part that matters and says where it stopped.
+
+    `_clip` kept the first 16,000 characters and one generic line. A
+    `run_command` whose stdout ran long lost the end of stdout and ALL of
+    stderr; a whole-file `read_file` named neither the line it stopped at nor
+    the file's length. The four probes are the ticket's Evidence table
+    (2026-10-08, d2a7d0b), called on the tools directly: no model, no GPU.
+
+    Below the cap nothing changes; the golden cases pin today's bytes.
+    """
+
+    # The ticket's bound: the cap plus one marker line.
+    SLACK = 200
+    # One line of the 2,000-line probe file: 33 characters, 34 with its newline.
+    PROBE_LINE = "line %05d: some source text here"
+
+    def _python(self, name, source):
+        """A python child run through run_command, as the probes ran it."""
+        script = self._make(name, source)
+        return crow_core.tool_run_command('"%s" "%s"' % (sys.executable, script),
+                                          cwd=self.dir)
+
+    def _probe_file(self):
+        return self._make("probe.txt", "".join(
+            self.PROBE_LINE % n + "\n" for n in range(1, 2001)))
+
+    def _one_marker_line(self, out):
+        """What the result may carry past the cap: its longest cut line."""
+        marks = [line for line in out.split("\n") if line.startswith("[cut at")]
+        self.assertTrue(marks, out[-300:])
+        return max(len(line) for line in marks) + 4      # its blank lines
+
+    # -- the four probes ------------------------------------------------------
+
+    def test_probe_1_the_linker_error_survives_a_long_stdout(self):
+        out = self._python("build.py", (
+            "import sys\n"
+            "for i in range(3000):\n"
+            "    print('compiling unit %05d ... ok' % i)\n"
+            "sys.stdout.flush()\n"
+            "sys.stderr.write('error: linker failed\\n')\n"
+            "sys.exit(1)\n"))
+        self.assertTrue(out.startswith("[exit 1]\ncompiling unit 00000 ... ok\n"), out[:80])
+        # stderr travels unstripped, as it always did.
+        self.assertTrue(out.endswith("\n[stderr]\nerror: linker failed\n"), out[-200:])
+        self.assertIn("compiling unit 02999 ... ok\n[stderr]", out)
+        self.assertLessEqual(len(out), crow_core.MAX_TOOL_BYTES + self._one_marker_line(out))
+        self.assertLessEqual(len(out), crow_core.MAX_TOOL_BYTES + self.SLACK)
+
+    def test_probe_2_the_test_summary_at_the_end_survives(self):
+        out = self._python("suite.py", (
+            "import sys\n"
+            "for i in range(1500):\n"
+            "    print('PASS test_%04d' % i)\n"
+            "print('FAILED test_x: assert 1 == 2')\n"
+            "print('1 failed, 1500 passed')\n"
+            "sys.exit(1)\n"))
+        self.assertTrue(out.startswith("[exit 1]\nPASS test_0000\n"), out[:80])
+        self.assertTrue(out.endswith(
+            "PASS test_1499\nFAILED test_x: assert 1 == 2\n1 failed, 1500 passed"), out[-200:])
+        self.assertLessEqual(len(out), crow_core.MAX_TOOL_BYTES + self.SLACK)
+        # The count in the middle is what is not shown: "[exit 1]\n" (9) and
+        # 22,551 chars of stdout, its last newline stripped, less the 16,000 kept.
+        self.assertIn("[cut at 16000 bytes -- 6,559 chars elided here", out)
+
+    def test_probe_3_a_whole_read_names_its_last_line_and_the_length(self):
+        """16,001 characters are read; the last newline at or before 16,000
+        ends line 470 (34 x 470 - 1 = 15,979), so 470 whole lines are shown."""
+        path = self._probe_file()
+        out = crow_core.tool_read_file(path)
+        body, note = out.rsplit("\n\n", 1)
+        self.assertEqual(
+            note, "[cut at 16000 bytes -- showing lines 1-470 of 2,000; "
+                  "continue with start_line=471]")
+        self.assertTrue(body.endswith("\n" + self.PROBE_LINE % 470), body[-80:])
+        self.assertEqual(body.count("\n") + 1, 470)
+        self.assertLessEqual(len(out), crow_core.MAX_TOOL_BYTES + self.SLACK)
+        # The round trip: the line the note names comes next, nothing skipped.
+        more = crow_core.tool_read_file(path, start_line=471)
+        self.assertTrue(more.startswith("471: " + self.PROBE_LINE % 471 + "\n"), more[:80])
+
+    def test_probe_4_a_short_range_is_unchanged(self):
+        """Under the cap, so byte-identical to today: no total is added."""
+        out = crow_core.tool_read_file(self._probe_file(), start_line=10, end_line=12)
+        self.assertEqual(out, "\n".join("%d: %s" % (n, self.PROBE_LINE % n)
+                                        for n in (10, 11, 12)))
+
+    # -- read_file past the cap -----------------------------------------------
+
+    def test_a_range_past_the_cap_names_its_lines_and_round_trips(self):
+        """`N: ` plus 120 characters: lines 1-9 are 124 wide with the newline,
+        10-99 are 125, 100-127 are 126; 9*124 + 90*125 + 28*126 - 1 = 15,893."""
+        path = self._make("wide.txt", "".join(f"{'y' * 120}\n" for _ in range(400)))
+        out = crow_core.tool_read_file(path, start_line=1, end_line=400)
+        body, note = out.rsplit("\n\n", 1)
+        self.assertEqual(note, "[cut at 16000 bytes -- showing lines 1-127 of 400; "
+                               "continue with start_line=128]")
+        self.assertTrue(body.endswith("\n127: " + "y" * 120))
+        more = crow_core.tool_read_file(path, start_line=128, end_line=400)
+        self.assertTrue(more.startswith("128: " + "y" * 120 + "\n"))
+
+    def test_a_range_that_starts_late_counts_from_its_start(self):
+        path = self._make("wide.txt", "".join(f"{'y' * 120}\n" for _ in range(400)))
+        out = crow_core.tool_read_file(path, start_line=200, end_line=400)
+        shown = out.rsplit("\n\n", 1)[0].count("\n") + 1
+        self.assertTrue(out.endswith(
+            "showing lines 200-%d of 400; continue with start_line=%d]"
+            % (199 + shown, 200 + shown)), out[-120:])
+
+    def test_a_file_past_the_count_bound_says_more_than(self):
+        """The count reads at most SEARCH_MAX_FILE_BYTES characters (2 MiB);
+        lowered here to 40,000, which hold 40,000 // 34 = 1,176 newlines."""
+        path = self._probe_file()
+        with mock.patch.object(crow_core, "SEARCH_MAX_FILE_BYTES", 40_000):
+            out = crow_core.tool_read_file(path)
+        self.assertTrue(out.endswith(
+            "showing lines 1-470 of more than 1,176; continue with start_line=471]"),
+            out[-120:])
+
+    def test_a_first_line_longer_than_the_cap(self):
+        """A minified file: no line edge to cut at, so the head of line 1 and
+        where the next line starts."""
+        path = self._make("min.js", "z" * 20_000 + "\nsecond\nthird\n")
+        out = crow_core.tool_read_file(path)
+        self.assertEqual(out, "z" * 16_000 + "\n\n[cut at 16000 bytes -- line 1 of 3 "
+                              "alone is longer than that; continue with start_line=2]")
+        self.assertEqual(crow_core.tool_read_file(path, start_line=2), "2: second\n3: third")
+
+    def test_one_line_alone_past_the_cap_has_nowhere_to_continue(self):
+        path = self._make("one.txt", "z" * 20_000)
+        self.assertTrue(crow_core.tool_read_file(path).endswith(
+            "[cut at 16000 bytes -- line 1 of 1 alone is longer than that; "
+            "narrow the query and ask again]"))
+
+    def test_a_crlf_file_counts_the_lines_the_ranges_number(self):
+        """Text mode reads `\\r\\n` as one newline; the count does the same."""
+        path = self._path("crlf.txt")
+        with open(path, "wb") as fh:
+            fh.write(b"".join(b"%s\r\n" % (self.PROBE_LINE % n).encode() for n in range(1, 2001)))
+        out = crow_core.tool_read_file(path)
+        self.assertTrue(out.endswith("showing lines 1-470 of 2,000; "
+                                     "continue with start_line=471]"), out[-120:])
+
+    # -- run_command's two streams --------------------------------------------
+
+    def test_ends_keep_the_start_and_the_end_and_count_the_rest(self):
+        out = crow_core._clip("a" * 100 + "b" * 100, limit=50, ends=True)
+        self.assertEqual(out, "a" * 15 + "\n\n[cut at 50 bytes -- 150 chars elided here; "
+                              "the start and the end are kept]\n\n" + "b" * 35)
+
+    def test_ends_change_nothing_at_the_limit(self):
+        self.assertEqual(crow_core._clip("x" * 50, limit=50, ends=True), "x" * 50)
+
+    def test_stderr_keeps_its_share_against_a_long_stdout(self):
+        limit = crow_core.MAX_TOOL_BYTES
+        out = crow_core._clip_output("[exit 1]\n" + "o" * 50_000, "e" * 49_999 + "E")
+        self.assertTrue(out.startswith("[exit 1]\no"))
+        stdout, stderr = out.split("\n[stderr]\n")
+        self.assertTrue(stderr.endswith("eE"))
+        # A quarter of the cap for stderr, its marker inside it.
+        self.assertEqual(len("\n[stderr]\n" + stderr), limit // 4)
+        self.assertLessEqual(len(out), limit + self._one_marker_line(out))
+
+    def test_a_short_stdout_leaves_stderr_the_rest(self):
+        limit = crow_core.MAX_TOOL_BYTES
+        out = crow_core._clip_output("[exit 2]\nstarting", "e" * 49_999 + "E")
+        self.assertTrue(out.startswith("[exit 2]\nstarting\n[stderr]\neeee"))
+        self.assertTrue(out.endswith("eE"))
+        self.assertLessEqual(len(out), limit)
+
+    def test_a_short_stderr_is_kept_whole(self):
+        limit = crow_core.MAX_TOOL_BYTES
+        out = crow_core._clip_output("[exit 1]\n" + "o" * 50_000, "fatal: no such ref")
+        self.assertTrue(out.startswith("[exit 1]\nooo"))
+        self.assertTrue(out.endswith("o\n[stderr]\nfatal: no such ref"))
+        self.assertLessEqual(len(out), limit + self._one_marker_line(out))
+
+    # -- golden: below the cap, byte-identical --------------------------------
+
+    def test_golden_run_command_at_15999_and_16000_is_unchanged(self):
+        for size in (15_999, 16_000):
+            stdout = "x" * (size - len("[exit 0]\n"))
+            out = self._python("p%d.py" % size, "print('x' * %d)\n" % len(stdout))
+            self.assertEqual(out, "[exit 0]\n" + stdout, size)
+        # With stderr: 9 + 5,981 + 10 + 10,000 = 16,000.
+        out = self._python("both.py", "import sys\nprint('o' * 5981)\n"
+                                      "sys.stderr.write('e' * 10000)\n")
+        self.assertEqual(out, "[exit 0]\n" + "o" * 5981 + "\n[stderr]\n" + "e" * 10000)
+
+    def test_golden_run_command_at_16001_is_cut_at_both_ends(self):
+        stdout = "x" * (16_001 - len("[exit 0]\n") - 1) + "Z"
+        out = self._python("p16001.py", "print('%s')\n" % stdout)
+        self.assertTrue(out.startswith("[exit 0]\nxxx"))
+        self.assertTrue(out.endswith("xZ"))
+        self.assertIn("[cut at 16000 bytes -- 1 chars elided here", out)
+
+    def test_golden_multibyte_text_is_counted_in_characters(self):
+        """The cap is characters, not UTF-8 bytes: 16,000 two-, three- and
+        four-byte characters are under it, as they are today."""
+        for ch in (chr(0xE4), chr(0x20AC), chr(0x1F426)):    # 2, 3 and 4 UTF-8 bytes
+            text = "[exit 0]\n" + ch * (16_000 - 9)
+            self.assertEqual(crow_core._clip_output(text, ""), text)
+            self.assertEqual(crow_core._clip_output(text[:-14], ch * 4), text[:-14]
+                             + "\n[stderr]\n" + ch * 4)
+            path = self._make("mb.txt", ch * 15_999 + "\n")
+            self.assertEqual(crow_core.tool_read_file(path), ch * 15_999 + "\n")
+            over = self._make("mb2.txt", (ch * 99 + "\n") * 161)    # 16,100
+            self.assertTrue(crow_core.tool_read_file(over).endswith(
+                "showing lines 1-160 of 161; continue with start_line=161]"))
+
+    def test_golden_read_file_at_15999_and_16000_is_unchanged(self):
+        for size in (15_999, 16_000):
+            text = ("w" * 99 + "\n") * (size // 100) + "v" * (size % 100)
+            self.assertEqual(len(text), size)
+            self.assertEqual(crow_core.tool_read_file(self._make("g%d.txt" % size, text)),
+                             text)
+        # A range whose result is exactly 16,000: 128 lines of "N: " + body.
+        lines = ["%d: %s" % (n, "r" * 120) for n in range(1, 128)]
+        rest = 16_000 - len("\n".join(lines)) - 1 - len("128: ")
+        body = ["r" * 120] * 127 + ["r" * rest]
+        path = self._make("range.txt", "".join(b + "\n" for b in body) + "tail\n")
+        out = crow_core.tool_read_file(path, start_line=1, end_line=128)
+        self.assertEqual(len(out), 16_000)
+        self.assertEqual(out, "\n".join("%d: %s" % (n, b) for n, b in enumerate(body, 1)))
+        # A CRLF file reads as its LF text, under the cap as before.
+        crlf = self._path("crlf.txt")
+        with open(crlf, "wb") as fh:
+            fh.write(b"c" * 7_998 + b"\r\n" + b"d" * 7_998 + b"\r\n")
+        self.assertEqual(crow_core.tool_read_file(crlf), "c" * 7_998 + "\n" + "d" * 7_998 + "\n")
+
+    def test_golden_read_file_at_16001(self):
+        two = self._make("two.txt", "x" * 15_999 + "\ny")
+        self.assertEqual(crow_core.tool_read_file(two), "x" * 15_999 + "\n\n[cut at 16000 "
+                         "bytes -- showing lines 1-1 of 2; continue with start_line=2]")
+        # Only the last newline is past the cap: the whole file is shown.
+        one = self._make("one.txt", "A" * 16_000 + "\n")
+        self.assertEqual(crow_core.tool_read_file(one), "A" * 16_000 + "\n\n[cut at 16000 "
+                         "bytes -- showing lines 1-1 of 1]")
+
+    # -- golden: the stored chats ---------------------------------------------
+
+    @staticmethod
+    def _stored_results():
+        """(tool, result) for every run_command / read_file result in the chat
+        files named by CROW_TEST_STORED_CHATS (os.pathsep-separated). The suite
+        never reads the real session folder; a run that wants them says which."""
+        found = []
+        for path in filter(None, os.environ.get("CROW_TEST_STORED_CHATS", "").split(os.pathsep)):
+            with open(path, encoding="utf-8") as fh:
+                messages = json.load(fh).get("messages") or []
+            names = {}
+            for message in messages:
+                for call in message.get("tool_calls") or []:
+                    names[call.get("id")] = (call.get("name")
+                                             or (call.get("function") or {}).get("name"))
+            for message in messages:
+                tool = names.get(message.get("tool_call_id"))
+                if (message.get("role") == "tool" and tool in ("run_command", "read_file")
+                        and isinstance(message.get("content"), str)):
+                    found.append((tool, message["content"]))
+        return found
+
+    def test_golden_stored_results_under_the_cap_are_unchanged(self):
+        stored = [(tool, text) for tool, text in self._stored_results()
+                  if len(text) <= crow_core.MAX_TOOL_BYTES]
+        if not stored:
+            self.skipTest("no stored chats named in CROW_TEST_STORED_CHATS")
+        numbered = re.compile(r"(\d+): (.*)")
+        for i, (tool, text) in enumerate(stored):
+            if tool == "run_command":
+                head, mark, err = text.rpartition("\n[stderr]\n")
+                if not mark or not err.strip():
+                    head, err = text, ""
+                self.assertEqual(crow_core._clip_output(head, err), text, i)
+                continue
+            if "\x00" in text or "\r" in text:
+                continue                    # not a text file's read
+            self.assertEqual(crow_core.tool_read_file(self._make("s%d.txt" % i, text)),
+                             text, i)
+            rows = [numbered.fullmatch(line) for line in text.split("\n")]
+            if all(rows) and [int(r.group(1)) for r in rows] == list(
+                    range(int(rows[0].group(1)), int(rows[0].group(1)) + len(rows))):
+                lo, hi = int(rows[0].group(1)), int(rows[-1].group(1))
+                path = self._make("r%d.txt" % i, "\n" * (lo - 1) + "".join(
+                    r.group(2) + "\n" for r in rows))
+                self.assertEqual(crow_core.tool_read_file(path, start_line=lo, end_line=hi),
+                                 text, i)
+
+
 class RunToolCachedTests(ToolLayerCase):
     """The loop this prevents, observed 2026-08-09 (crow_core.py:1938-1950): the model
     asked for a file that does not exist, got an error, and asked for the same
