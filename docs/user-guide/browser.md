@@ -1,10 +1,17 @@
 [← README](../../README.md) · [Docs index](../README.md)
 
-# Browser panel (#175)
+# Browser tab (#175, #384)
 
-A globe in the title bar, beside the code and git buttons. That button is also the only way to
-close it, as it is for its two neighbours. The open state survives a restart (`browser_open` in
-`settings.json`).
+The globe in the title bar adds a **Browser** tab to the [inspector](window.md) beside the chat and
+selects it, opening the inspector when it is shut; switching the globe off removes the tab, and the
+inspector returns to the tab before (#384). That button is the only way to close it, as the branch
+icon is for the Git tab. The open state survives a restart (`browser_open` in `settings.json`).
+
+The page is a native view over the window, so it shows only while the Browser tab is selected and
+the inspector is open. On any other tab it is hidden with `pane_hide` and kept, and `pane_show`
+brings it back; a page sent to it meanwhile loads when the tab shows again. A link that opens in
+the browser (see [Links](#links)) adds a tab here and shows the Browser tab (#384). `pane_cover` is
+not used for hiding: it does nothing on Windows.
 
 ## What it is
 
@@ -27,7 +34,7 @@ A **second web view with its own top-level browsing context**, not an iframe.
 | sandbox (#226) | the panel's web process runs under `bwrap` when bwrap is installed (`CROW_PANE_SANDBOX=0` turns it off). `file://` pages still load |
 | no bridge | foreign pages get no `window.pywebview` |
 | geometry | the page reports the CSS rect of `#brbody`. On Linux that rect *is* the overlay position; on Windows Python adds the main window's corner |
-| follows | a `ResizeObserver` on the rect (window size, grip, code panel). Measured under Broadway: the view matched `#brbody` exactly after a window resize and after the code panel took half the column |
+| follows | a `ResizeObserver` on the rect (window size, grip, inspector width). Measured under Broadway before #384: the view matched `#brbody` exactly after a window resize and after the code panel took half the column |
 | Crow's own sheets | when Settings or the context menu opens over the panel, the page is hidden until the sheet closes; a native view would otherwise cover them (Linux only) |
 | one view for all tabs | switching tabs reloads the page |
 | folded away | hidden, not destroyed, and **no page kept** (#279): the view goes to `about:blank`, so no WebGL keeps the card. Unfolding or restoring the window loads the tab's entry again (a render tab: its capture). A render while folded fills the render tab and does not unfold the panel |
@@ -61,10 +68,11 @@ On Windows, links still open in the system browser (not verified there, #247).
 
 ## Width
 
-The column's 612 px cap is lifted while the browser is open — a page at 612 is a mobile layout.
+The inspector's 612 px cap is lifted while the browser is open — a page at 612 is a mobile layout.
 The bound is then `innerWidth − 560 − rail`: `#main` keeps its `min-width: 560px`, so the
-composer still never overflows. With the browser folded away the cap is back at 612 for the code
-panel.
+composer still never overflows. With the browser folded away the cap is back at 612. A dragged
+width is stored and read back up to 4,096 px, so a wide one survives a restart (#388); a fresh
+install starts at 340 px.
 
 ## render_page
 
@@ -85,7 +93,7 @@ esbuild already on the machine; render that file, not the module source. See
 
 ## Windows (#247)
 
-Windows keeps the old second frameless WebView2 window for the panel. Checked on robin's Windows
+Windows keeps the old second frameless WebView2 window for the panel. Checked on the owner's Windows
 machine on 2026-09-30 (#247); the rows marked *fixed* were fixed after that check and are not yet
 run live:
 

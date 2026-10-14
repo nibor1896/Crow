@@ -193,7 +193,7 @@ DEFAULT_THEME = "dark"
 # CROW_BG IS A VALUE HERE, NOT A FALLBACK. `crow` is the theme the window shipped
 # with, so the brand ground is what that theme paints; the dict's default only
 # catches a name no build has.
-THEME_BG = {"dark": "#181818", "light": "#ffffff", "crow": CROW_BG}
+THEME_BG = {"dark": "#171717", "light": "#ffffff", "crow": CROW_BG}
 
 # PASTED PICTURES LAND OUTSIDE THE WORKING DIRECTORY, ON PURPOSE. A screenshot
 # is not part of the project it is about, and writing one into whatever folder
@@ -560,6 +560,68 @@ def greeting(now: float | None = None, name: str | None = None) -> str:
     return line % who
 
 
+def chat_goal(messages: "list | None") -> "list | None":
+    """#385. The goal a chat last reported, as `[done, total]`, or None.
+
+    FROM THE CHAT'S OWN TOOL RESULTS, not from goal.json: that file belongs to
+    the folder (`crow_core.goal_path`), and every chat bound there would carry
+    the goal of the one that set it. A rail row says "goal 3/3" only for a chat
+    in which `goal_set` / `goal_step` answered, with the last numbers they
+    answered. A result the core cleared (#263) is not JSON any more and is
+    skipped, as is every refusal.
+    """
+    names, goal = {}, None
+    for message in messages or []:
+        role = message.get("role")
+        if role == "assistant":
+            for call in message.get("tool_calls") or []:
+                names[call.get("id")] = (call.get("function") or {}).get("name")
+            continue
+        if role != "tool":
+            continue
+        name = names.get(message.get("tool_call_id"))
+        if name not in ("goal_set", "goal_step"):
+            continue
+        try:
+            said = json.loads(crow_core.message_text(message.get("content") or ""))
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(said, dict) or not said.get("ok"):
+            continue
+        try:
+            if "done" in said and "total" in said:
+                goal = [int(said["done"]), int(said["total"])]
+            elif name == "goal_set" and "steps" in said:
+                goal = [0, int(said["steps"])]
+        except (TypeError, ValueError):
+            continue
+    return goal
+
+
+def clock_of(path: str) -> str:
+    """#385. When a chat's file was last written, as `HH:MM`, or "" without one."""
+    try:
+        return time.strftime("%H:%M", time.localtime(os.path.getmtime(path)))
+    except (OSError, TypeError, ValueError, OverflowError):
+        return ""
+
+
+def tilde_path(path: str) -> str:
+    """#385. A path with the home folder written `~`, for the folder chip. The
+    chip's title keeps the whole path; this is only what fits beside the title."""
+    if not path:
+        return ""
+    home = os.path.expanduser("~")
+    if home and home != "~":
+        norm, top = os.path.normcase(os.path.normpath(path)), os.path.normcase(
+            os.path.normpath(home))
+        if norm == top:
+            return "~"
+        if norm.startswith(top.rstrip("\\/") + os.sep):
+            return "~" + os.path.normpath(path)[len(os.path.normpath(home).rstrip("\\/")):]
+    return path
+
+
 def rail_open() -> bool:
     """Is the chat rail unfolded? True for anything this build does not have.
 
@@ -642,15 +704,19 @@ def rail_width_setting() -> int:
 # DIE GRENZEN DES CODE-PANELS, gespiegelt zur Rail und aus demselben Grund in
 # Python geklemmt: der Wert kommt aus einer Maus.
 #
-# DIE VORGABE IST DAS MINIMUM, der Owner am 2026-08-27: "der codepanel ist viel zu
+# DIE VORGABE WAR DAS MINIMUM, der Owner am 2026-08-27: "der codepanel ist viel zu
 # breit. Default werte bitte wie in Screenshot 2" -- und sein gespeicherter
 # Zug stand auf exakt 260. Der Vorgaenger (380, dann #138c "halbe Flaeche")
 # entschied die Startbreite fuer ihn und lag zweimal daneben; wer mehr Panel
 # will, zieht den Griff, und DIESE Entscheidung bleibt gespeichert.
+# #384, the owner 2026-10-14: "340 px" -- the inspector starts at 340 px on a fresh
+# install, as in the approved mockup. CODE_MIN stays 260 (the narrowest the grip
+# goes), and a width somebody saved is read back as it is, so nobody's panel
+# moves.
 # CODE_MAX war 720; der Owner am 2026-08-27: "Codepanel maximale Breite -15%" --
 # 720 * 0,85 = 612. Die Seite klemmt dieselbe Geste ein zweites Mal, siehe
 # codeDrag; beide Kopien tragen denselben Wert.
-CODE_MIN, CODE_MAX, CODE_DEFAULT = 260, 612, 260
+CODE_MIN, CODE_MAX, CODE_DEFAULT = 260, 612, 340
 # #175. UND EINE ZWEITE DECKE, SOBALD DER BROWSER IN DER SPALTE STEHT. Die 612
 # sind die Decke fuer ein CODE-Panel -- eine Aufrufliste und ein Quelltext
 # brauchen nicht mehr, und der Owner hat sie 2026-08-27 selbst auf diesen Wert
@@ -683,11 +749,17 @@ def code_width_setting() -> int:
 
     Dieselbe Regel wie bei der Rail: ein Wert ausserhalb der Grenzen wird zur
     Vorgabe und nicht zur Grenze, weil er dann nicht aus dieser Geste stammt.
+
+    #388. READ BACK UP TO THE CEILING `Api.code_width` WRITES. #175 let the
+    grip go past 612 with the browser open and widened the write clamp to
+    CODE_MAX_WIDE; this read clamp stayed at CODE_MAX, so a dragged 700 came
+    back as 260 on the next start. The layout still limits the live width
+    (#main keeps its 560 px, #side gives way).
     """
     value = read_settings().get("code_width")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return CODE_DEFAULT
-    return int(value) if CODE_MIN <= value <= CODE_MAX else CODE_DEFAULT
+    return int(value) if CODE_MIN <= value <= CODE_MAX_WIDE else CODE_DEFAULT
 
 
 def client_version() -> str:
@@ -1069,9 +1141,17 @@ PAGE = r"""<!doctype html>
      all: a rule can only be switched if what it points at can be redefined.
      Before this, 52 lines of CSS carried a literal and no palette could reach
      any of them. A test holds that: no rule may name a colour of its own. */
-  --bg:#181818; --rail:#141414; --panel:#1f1f1f; --raised:#2a2a2b;
-  --line:#2e2e30; --line-soft:#242426;
-  --dim:#a3a3a6; --dimmer:#6f6f73;
+  /* #382. THE MOCKUP'S VALUES (the owner approved it on 2026-10-14, vault
+     Crow/02_docs/mockup-crow-gui-redesign-2026-10-14/Main.dc.html): a touch
+     darker rail under a lighter panel, so the rounded chat sheet reads as lying
+     on it. The five `-soft` names and `--on-accent` are new in all three
+     palettes; `--on-accent` is the brand ground, so it is stamped, not written. */
+  --bg:#171717; --rail:#121212; --panel:#1d1d1f; --raised:#252527;
+  --line:#2d2d30; --line-soft:#222225;
+  --dim:#a3a3a8; --dimmer:#6f6f73;
+  --accent-soft:rgba(126,176,248,.13); --sub-soft:rgba(57,198,216,.09);
+  --ok-soft:rgba(78,201,143,.13); --warn-soft:rgba(227,179,65,.12);
+  --on-accent:__BG__;
   --ok:#4ec98f; --warn:#e3b341; --bad:#f0655a;
   /* #296: SKIPPED IS NOT RUNNING. Both were --warn and the owner read one as the
      other (2026-09-25); skipped gets its own hue, plus shape and a label. */
@@ -1082,29 +1162,41 @@ PAGE = r"""<!doctype html>
      base palette: the themed roots inherit it, so every theme carries it. */
   --sub:#39c6d8;
   --mark:var(--text-hi); --mark-o:var(--text-hi);
-  --text:#ffffff; --text-strong:#ffffff; --text-soft:#c9c9cc;
+  --text:#ededef; --text-strong:#ffffff; --text-soft:#c9c9cd;
   --text-faint:#9a9a9e; --text-hi:#ffffff; --text-hover:#ffffff;
   --think:#8e8e93; --think-bg:rgba(255,255,255,.045);
-  --code:#d4d4d8; --code-bg:#111111;
-  --hover:#2a2a2b; --close-bg:#c0362b; --on-solid:#ffffff;
-  --shadow:rgba(0,0,0,.5); --shadow-strong:rgba(0,0,0,.7);
-  /* THE SYSTEM'S OWN, NOT OURS. The page used to name a shipped typeface first
-     and fall back; it still ships in cli/fonts for anyone who wants it, but a
-     window that looks different depending on whether the user installed a font
-     has two appearances and no way to say which is the real one. system-ui IS
-     whatever this machine calls its interface font.
-     TWO STACKS, because "system default" means different things for prose and
-     for code: Windows' interface font is proportional, and a diff or a code
-     fence set in it stops lining up. The monospace stack is the system's as
-     well -- Cascadia and Consolas ship with Windows, neither is ours. */
-  --ui:system-ui,"Segoe UI",-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;
-  --mono:ui-monospace,"Cascadia Mono",Consolas,"Courier New",monospace;
-  /* The height of the two bars across the top, ONCE. The rail's head and the status bar sit side
-     by side and were 3 px apart: 11+9 padding against 8+8, plus a button that builds 0.8 px taller
-     than a chip. Matching them by arithmetic works until a font changes; matching them against one
-     number cannot drift. Both take it as min-height, so the status bar may still grow when its
-     chips wrap -- and then the rail head is SUPPOSED to stay put. */
-  --barh:41px;
+  --code:#d4d4d8; --code-bg:#0f0f10;
+  --hover:#2a2a2d; --close-bg:#c0362b; --on-solid:#ffffff;
+  --shadow:rgba(0,0,0,.45); --shadow-strong:rgba(0,0,0,.7);
+  /* #382. THE SHIPPED FACE FOR CODE, THE SYSTEM'S FOR PROSE. Until #382 the
+     page named no typeface of its own (a window that looked different depending
+     on an installed font had two appearances). the owner approved the mockup set in
+     Google Sans Code on 2026-10-14, and the face now comes WITH Crow: the page
+     asks the bridge for cli/fonts/GoogleSansCode[MONO,wght].ttf after load
+     (`crow.monoFace`, `Api.mono_font`) and adds it as a FontFace, so every
+     window has it and nothing depends on what the machine installed. The
+     names after it set the first paint and stand in if the face never comes.
+     Prose keeps the system's interface face, Segoe UI Variable first, as the
+     mockup sets it. */
+  --ui:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+  --mono:"Google Sans Code",ui-monospace,"Cascadia Mono",Consolas,monospace;
+  /* The height of the title bar and of the heads beside it (rail, code, browser), ONCE: 46 px
+     since #382, the mockup's. Matching them by arithmetic works until a font changes; matching
+     them against one number cannot drift. The heads take it as min-height, the bar as its
+     height, and the settings sheet and the phone dialog start below it. */
+  --barh:46px;
+  /* #382. THE COLUMNS' WIDTHS, READ BY THE TITLE BAR TOO. The bar has three
+     zones over the three columns: rail, chat panel, side column. Each zone and
+     its column read the SAME name, so the search sits on the panel's left edge
+     and the engine chip on its right one. These are the start values; a drag
+     writes its value onto the two readers (#236: never onto <html> or <body>,
+     where every node of a long chat would be restyled per mouse step).
+     --railshut is the left zone's width while the rail is folded away: the
+     toggle alone (10 px + 32 px + 8 px, the zone's own padding around it),
+     the wordmark hidden. The panel then starts there, so a narrow strip of
+     rail colour stays under the toggle and the search keeps standing on the
+     panel's edge. */
+  --railw:242px; --codew:__CODEW__px; --railshut:50px;
   /* The scrollbar's width, ONCE. #flow reserves it, the composer stops short of
      it, and .turn centres inside it -- three rules that have to agree or the
      input box sits 5 px off the text above it. */
@@ -1116,14 +1208,12 @@ PAGE = r"""<!doctype html>
      nowhere else:
        --colw     the text width, #box's width and .turn's content width;
        --colpad   the inset from #flow's/#composer's inner edge to that text
-                  (was 30 + 10 on one side, 40 on the other -- equal by luck);
-       --reserve  the room the #233/#256 cards take on EACH side of #main,
-                  0 until the container query below sets it on both at once.
-     Both come out as min(--colw, #main - 2*--sbw - 2*--reserve - 2*--colpad),
-     centred. */
+                  (was 30 + 10 on one side, 40 on the other -- equal by luck).
+     Both come out as min(--colw, #main - 2*--sbw - 2*--colpad), centred.
+     #384: --reserve, the room the #233/#256 cards took on each side of #main,
+     went with the cards: they are tabs of the inspector beside the chat. */
   --colw:900px;
   --colpad:40px;
-  --reserve:0px;
 }
 
 /* -- light ------------------------------------------------------------- */
@@ -1133,16 +1223,23 @@ PAGE = r"""<!doctype html>
    --bg, --accent, --bevel and --model arrive from the core as the brand values
    and are REDEFINED here rather than written twice: the model's own text colour
    is a dark-on-dark choice, and on white it would be a paragraph nobody can
-   read. The accent survives both grounds and stays what the core says. */
+   read.
+   #382: THE ACCENT IS REDEFINED HERE TOO. The core's blue on white is about
+   2.2:1 (WCAG formula), under the 3:1 a control needs (WCAG 2.2 SC 1.4.11);
+   the mockup the owner approved darkens it for this ground only. */
 :root[data-theme="light"]{
   --bevel:#d3d7dd; --model:#1a1c1f;
+  --accent:#2b67c9;
   /* THE RAIL IS NOT THE PAGE. On the first build both were #ffffff and the chat
      list dissolved into the conversation beside it -- the reference the owner gave
      sets its sidebar off against the content, and one border was not enough to
      do that on white. */
-  --bg:#ffffff; --rail:#f7f7f8; --panel:#ffffff; --raised:#eeeef0;
-  --line:#e4e4e7; --line-soft:#ededf0;
+  --bg:#ffffff; --rail:#f6f6f7; --panel:#ffffff; --raised:#efeff1;
+  --line:#dedee3; --line-soft:#ebebee;
   --dim:#5b6472; --dimmer:#8b93a1;
+  --accent-soft:rgba(43,103,201,.10); --sub-soft:rgba(14,122,138,.07);
+  --ok-soft:rgba(18,133,90,.10); --warn-soft:rgba(138,100,0,.09);
+  --on-accent:#ffffff;
   --ok:#12855a; --warn:#8a6400; --bad:#c0362b;
   --skip:#6f42c1;
   --gold:#8a6400; --bad-text:#8c241b;
@@ -1150,12 +1247,12 @@ PAGE = r"""<!doctype html>
      the logo cyan reads as haze on white. */
   --sub:#0e7a8a;
   --mark:var(--text-hi); --mark-o:var(--text-hi);
-  --text:#1a1c1f; --text-strong:#0f1114; --text-soft:#3f4550;
+  --text:#16181b; --text-strong:#0f1114; --text-soft:#3a404a;
   --text-faint:#6b7280; --text-hi:#0f1114; --text-hover:#1a1c1f;
   --think:#5b6472; --think-bg:rgba(26,28,31,.05);
   --code:#24292f; --code-bg:#f6f8fa;
-  --hover:#ececed; --close-bg:#c0362b; --on-solid:#ffffff;
-  --shadow:rgba(15,17,20,.14); --shadow-strong:rgba(15,17,20,.30);
+  --hover:#ececee; --close-bg:#c0362b; --on-solid:#ffffff;
+  --shadow:rgba(15,17,20,.10); --shadow-strong:rgba(15,17,20,.30);
 }
 
 /* -- crow ---------------------------------------------------------------- */
@@ -1164,11 +1261,17 @@ PAGE = r"""<!doctype html>
    this theme is not a new design -- it is the old one, given a name.
    --bg is the ONLY colour here that is not written down: it is the wordmark's
    ground and it comes from the core, because the manifest counts every place a
-   brand value is spelled out. */
+   brand value is spelled out.
+   #382: THE SURFACES ABOVE THE GROUND MOVED, the ground did not. The chat
+   panel, the raised rows, the lines and the text took the mockup's values
+   (the owner, 2026-10-14) so the panel stands off the rail in this theme too. */
 :root[data-theme="crow"]{
-  --bg:__BG__; --rail:#0e1220; --panel:#0e1220; --raised:#131829;
-  --line:#1c2438; --line-soft:#161d2e;
-  --dim:#6d7b95; --dimmer:#4a566d;
+  --bg:__BG__; --rail:#0e1220; --panel:#111628; --raised:#161c30;
+  --line:#222b42; --line-soft:#171e30;
+  --dim:#8a99b3; --dimmer:#4a566d;
+  --accent-soft:rgba(126,176,248,.14); --sub-soft:rgba(57,198,216,.09);
+  --ok-soft:rgba(78,201,143,.13); --warn-soft:rgba(227,179,65,.12);
+  --on-accent:__BG__;
   --ok:#4ec98f; --warn:#e3b341; --bad:#f0655a;
   /* #296: SKIPPED IS NOT RUNNING. Both were --warn and the owner read one as the
      other (2026-09-25); skipped gets its own hue, plus shape and a label. */
@@ -1177,12 +1280,12 @@ PAGE = r"""<!doctype html>
   /* #143. The logo cyan at home: this theme is the wordmark's own ground. */
   --sub:#39c6d8;
   --mark:var(--accent); --mark-o:var(--bevel);
-  --text:#cfdaea; --text-strong:#e8eef8; --text-soft:#a9bad3;
+  --text:#e3eaf5; --text-strong:#e8eef8; --text-soft:#b8c6dc;
   --text-faint:#9fb0c9; --text-hi:#ffffff; --text-hover:#c8d4e8;
   --think:#7b89a3; --think-bg:rgba(19,24,41,.4);
   --code:#c3d0e4; --code-bg:#080b13;
-  --hover:#161d2e; --close-bg:#8b2b26; --on-solid:#ffffff;
-  --shadow:rgba(0,0,0,.45); --shadow-strong:rgba(0,0,0,.75);
+  --hover:#1a2136; --close-bg:#8b2b26; --on-solid:#ffffff;
+  --shadow:rgba(0,0,0,.55); --shadow-strong:rgba(0,0,0,.75);
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden}
@@ -1221,9 +1324,9 @@ body{background:var(--bg);color:var(--dim);font:13px/1.55 var(--ui);
    Ecke; gerendert in WebKitGTK 2.52 lief der Daumen der Zielkarte in deren
    10-px-Rundung und der von #flow in die 12-px-Ecke von #main, sichtbar
    angeschnitten. Der Spurrand in Hoehe des Radius haelt sie gerade.
+   #382: #main ist seither an allen vier Ecken 14 px rund, also oben UND unten.
    (Headless-Chromium blendet Leisten aus -- dort war davon nichts zu sehen.) */
-#flow::-webkit-scrollbar-track{margin-top:12px}
-#goalpanel::-webkit-scrollbar-track{margin:10px 0}
+#flow::-webkit-scrollbar-track{margin-top:14px;margin-bottom:14px}
 #gitbody::-webkit-scrollbar-track{margin-bottom:10px}
 #spane::-webkit-scrollbar-track{margin-bottom:12px}
 .code pre::-webkit-scrollbar-track{margin:0 8px}
@@ -1235,60 +1338,156 @@ body{background:var(--bg);color:var(--dim);font:13px/1.55 var(--ui);
 /* #125. ONE SURFACE WITH THE RAIL, and therefore its colour and no rule under
    it. The ribbon, the rail head and the chat list are the same panel; the chat
    is the thing that sits ON it, which is what the rounded corner below says. */
-#bar{display:flex;align-items:center;gap:10px;height:34px;flex:none;
-  padding:0 0 0 13px;background:var(--rail)}
+/* #382. THREE ZONES OVER THE THREE COLUMNS, as in the mockup the owner approved
+   on 2026-10-14 (vault Crow/02_docs/mockup-crow-gui-redesign-2026-10-14/
+   Main.dc.html). #barl stands over the rail, #barm over the chat panel (its
+   8 px right margin is the panel's), #barr over the side column while that is
+   open. Each zone reads the SAME variable as its column -- --railw, --codew,
+   --railshut, all defined once in :root -- so the search sits on the panel's
+   left edge and the engine chip on its right one without any script measuring
+   anything. "+ 1px": a grip is 5 px wide with -2 px either side, so it nets
+   one pixel of the row, between the column and the panel. */
+#bar{display:flex;align-items:center;height:var(--barh);flex:none;
+  background:var(--rail)}
+.hz{display:flex;align-items:center;gap:6px;min-width:0}
+#barl{flex:none;width:calc(var(--railw) + 1px);padding:6px 8px 6px 10px;
+  overflow:hidden;transition:width .16s ease}
+/* THE RAIL FOLDED AWAY leaves the zone the toggle alone -- the wordmark goes
+   with the rail -- and the panel starts where the zone ends (`#main` below),
+   so the search stays on its edge. */
+body[data-rail="shut"] #barl{width:var(--railshut)}
+body[data-rail="shut"] #mark{display:none}
+#barm{flex:1 1 0;margin-right:8px;padding:6px 0;justify-content:space-between}
+/* THE SIDE COLUMN'S WIDTH WHILE IT IS OPEN, the buttons' own room when it is
+   not. Four toggles, a separator and three window buttons are 233 px plus
+   seven gaps; at the mockup's 6 px they need 275, and the column's narrowest
+   width (CODE_MIN 260, + 1 for the grip) is 261 -- so the gap gives way
+   first, down to 4 px there, and the chip keeps its edge. `max-content` is
+   the floor that keeps the close button on screen whatever happens. */
+#barr{flex:none;width:calc(var(--codew) + 1px);min-width:max-content;
+  padding:6px 8px 6px 0;justify-content:flex-end;
+  gap:clamp(2px,calc((var(--codew) - 232px) / 7),6px)}
+/* #384: the column is open while #codetoggle is on; Git and Browser are tabs
+   in it now, not panels that hold it open. */
+body[data-code="shut"] #barr{width:auto;gap:6px}
+#bar.dragging #barl{transition:none}
 /* #119. THE WORDMARK IS A PALETTE ENTRY NOW. It was the accent in all three
    themes, which is Crow's own blue -- right on the dark blue ground it was
    drawn for, and a coloured word floating on a neutral or a white one.
    The owner: white on dark, dark on light, unchanged in `crow`.
    TWO NAMES, because only `crow` splits the O off. Setting both to the same
    value in the other two is what makes them one solid word there rather than
-   a word with a hole in it. */
-#mark{font-weight:700;letter-spacing:.22em;font-size:11.5px;color:var(--mark);pointer-events:none}
+   a word with a hole in it. #382: the mockup's size and spacing. */
+#mark{font-weight:700;letter-spacing:.24em;font-size:12px;color:var(--mark);
+  padding:0 8px 0 4px;white-space:nowrap;pointer-events:none}
 #mark span{color:var(--mark-o)}
-/* #138. DER FREIE PLATZ WIRD EINEN PLATZ FRUEHER VERTEILT. Der Code-Knopf
-   gehoert nach der Vorgabe des Owners links neben die Fensterknoepfe, also traegt ER
-   das `auto` und `#wbtns` folgt ihm dicht. Zweimal `auto` nebeneinander waere
-   falsch: Flex teilt den Rest dann gleichmaessig und schoebe den Knopf in die
-   Mitte der Leiste. */
-#codetoggle{margin-left:auto}
-/* #249. DAS TELEFON STEHT DAVOR und nimmt das `auto` mit; der Code-Knopf rueckt
-   dann dicht an seine zwei Nachbarn, die Luecke gehoert dem Telefon. */
-#remotetoggle{margin-left:auto;position:relative}
-#remotetoggle + #codetoggle{margin-left:0}
-#wbtns{display:flex;-webkit-app-region:no-drag}
+/* #382. THE MOCKUP'S SMALL PARTS, defined once for every surface that uses
+   them: the 32 px icon button, the separator, the key cap, the
+   screen-reader-only label and the mono run. */
+.ib{display:inline-flex;align-items:center;justify-content:center;width:32px;
+  height:32px;flex:none;border:0;border-radius:8px;background:transparent;
+  color:var(--dim);cursor:pointer;padding:0;font:inherit}
+.ib:hover{background:var(--hover);color:var(--text)}
+.ib.on{color:var(--accent);background:var(--accent-soft)}
+.ib svg{width:16px;height:16px}
+.vsep{width:1px;height:20px;background:var(--line);flex:none}
+.kbd{font-family:var(--mono);font-size:10.5px;color:var(--dim);
+  border:1px solid var(--line);border-radius:5px;padding:0 5px;line-height:17px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);
+  white-space:nowrap}
+.mono{font-family:var(--mono)}
+/* THE WINDOW BUTTONS ARE ICON BUTTONS like the toggles beside them, one gap
+   apart (`gap:inherit` takes #barr's); only close keeps its red. */
+#wbtns{display:flex;gap:inherit;-webkit-app-region:no-drag}
+#wbtns .close:hover{background:var(--close-bg);color:var(--on-solid)}
 /* #325: the close saves the chat and the cache first, which can take seconds;
    said, so nobody interrupts it. */
 body.closing::after{content:"saving the chat and the cache...";position:fixed;
   left:50%;top:50%;transform:translate(-50%,-50%);z-index:99999;
   padding:12px 18px;border-radius:8px;background:var(--raised);
   border:1px solid var(--line)}
-/* The buttons sit inside the drag region, so they opt out of it again --
-   without this a click on 'close' starts a drag instead of closing. */
-.wb{width:42px;height:33px;display:grid;place-items:center;color:var(--dimmer);
-  font-size:11px;cursor:default}
-.wb:hover{background:var(--hover);color:var(--text-hover)}
-.wb.close:hover{background:var(--close-bg);color:var(--on-solid)}
 
-/* -- Hilfe, and the sheet it opens -------------------------------------- */
-/* INSIDE THE DRAG REGION AND OPTED OUT OF IT, the same way #wbtns is: the title
-   bar moves the window, so anything clickable in it has to say it is not that.
-   Without the opt-out a click on Hilfe starts a drag and the menu never opens. */
-#helpwrap{position:relative;-webkit-app-region:no-drag}
-#help{font:inherit;font-size:11px;cursor:pointer;border:1px solid transparent;
-  border-radius:6px;padding:2px 9px;background:transparent;color:var(--dim)}
-#help:hover{border-color:var(--line);color:var(--text-hover)}
-/* DOWNWARDS, unlike the four menus at the bottom of the window: this one hangs
-   off the title bar, and a menu that opened upwards from there would be drawn
-   outside the window. */
-#helpmenu{position:absolute;top:calc(100% + 5px);left:0;min-width:150px;
-  background:var(--panel);border:1px solid var(--bevel);border-radius:8px;
-  padding:5px;box-shadow:0 8px 26px var(--shadow);z-index:60}
-#helpmenu[hidden]{display:none}
-#helpmenu button{display:block;width:100%;text-align:left;font:inherit;
-  font-size:11.5px;cursor:pointer;background:transparent;border:0;
-  border-radius:6px;padding:7px 9px;color:var(--dim)}
-#helpmenu button:hover{background:var(--hover);color:var(--text-hover)}
+/* -- #382: the search field over the panel's left edge -------------------- */
+/* A MAGNIFIER UNTIL ASKED. 32 px at rest; the field grows to 210 px while it
+   has the focus (a click on the magnifier label, Tab, Ctrl+K) and stays open
+   while it holds text. The results under it are #386. The mockup's rules, as
+   written there. */
+.search{display:flex;align-items:center;height:32px;border:1px solid var(--line-soft);
+  border-radius:9px;background:var(--bg);color:var(--dim);overflow:hidden;
+  transition:border-color .2s,color .2s}
+.search:hover{border-color:var(--line);color:var(--text)}
+.search:focus-within{border-color:var(--accent);color:var(--text)}
+.s-ico{display:inline-flex;align-items:center;justify-content:center;width:30px;
+  height:30px;flex:none;cursor:pointer}
+.s-ico svg{width:15px;height:15px}
+.search input{width:0;min-width:0;height:30px;padding:0;border:0;outline:none;
+  background:transparent;color:var(--text);font:inherit;font-size:12.5px;
+  transition:width .25s ease}
+.search input::placeholder{color:var(--dim)}
+.s-kbd{max-width:0;opacity:0;overflow:hidden;padding:0;border-width:0;margin:0;
+  transition:max-width .25s ease,opacity .2s ease,margin .25s ease}
+/* TWO RULES, NOT ONE LIST. An engine that does not know `:has()` drops the
+   WHOLE selector list it stands in (Selectors 4, "invalid selector list"), and
+   the field would then not open on focus either. Apart, `:focus-within`
+   (Baseline since 2020) always works and `:has()` adds "stays open with
+   text" where it is known. */
+.search:focus-within input{width:210px}
+.search:has(input:not(:placeholder-shown)) input{width:210px}
+.search:focus-within .s-kbd{max-width:64px;opacity:1;padding:0 5px;border-width:1px;
+  margin:0 6px 0 4px}
+.search:has(input:not(:placeholder-shown)) .s-kbd{max-width:64px;opacity:1;
+  padding:0 5px;border-width:1px;margin:0 6px 0 4px}
+
+/* -- #386: the results under the field ------------------------------------ */
+/* THE BOX IS AS WIDE AS THE FIELD (it shrink-wraps `.search`, which grows from
+   32 px to ~300 px), and the popup takes that width with `left:0;right:0`, so
+   nothing measures anything. `z-index:60` puts it over the panel, the inspector
+   and the composer (all lower, most of them in stacking contexts of their own)
+   and under the dialogs (80) and the context menu (200). At most 8 rows, as
+   the ticket says; the group label is the mockup's `.lbl`, scoped here because
+   the label class itself is not defined by this ticket. */
+.searchbox{position:relative;display:flex;flex:none}
+#searchpop{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:60;
+  padding:5px;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;box-shadow:0 10px 26px var(--shadow);
+  max-height:calc(100vh - 80px);overflow-y:auto}
+#searchpop[hidden]{display:none}
+#searchlist[hidden]{display:none}
+#searchpop .lbl{padding:7px 9px 3px;font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--dim);font-weight:600}
+.sopt{display:flex;align-items:baseline;gap:10px;padding:6px 9px;border-radius:7px;
+  font-size:12.5px;color:var(--text-soft);cursor:pointer}
+.sopt.on{background:var(--hover);color:var(--text)}
+.sopt .st{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;
+  text-overflow:ellipsis}
+.sopt .ss{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;
+  text-overflow:ellipsis;font-size:11.5px;color:var(--dim)}
+.sopt.cmd .st{flex:none;font-family:var(--mono);font-size:12px;color:var(--text)}
+.sopt.cmd .ss{flex:1 1 auto}
+#searchnone:not(:empty){padding:9px;font-size:12px;color:var(--dim)}
+
+/* -- #382: the engine chip over the panel's right edge --------------------- */
+/* NARROW UNTIL CLICKED: a status dot and the model's name. A click (or Enter /
+   Space, it is a button) flips `aria-expanded` and slides out the level, the
+   last turn's decode rate and the context in use. The dot is the server's
+   state: amber until the first answer, green while up, red when it is gone. */
+.engine{display:inline-flex;align-items:center;height:32px;padding:0 13px;
+  border:1px solid var(--line-soft);border-radius:999px;background:var(--bg);
+  color:var(--text);font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap}
+.engine:hover{border-color:var(--line)}
+.engine.open{border-color:var(--line);background:var(--panel)}
+.engine .more{display:inline-flex;align-items:center;gap:10px;max-width:0;opacity:0;
+  overflow:hidden;padding-left:0;font-size:11.5px;color:var(--dim);
+  transition:max-width .3s ease,opacity .2s ease,padding .3s ease}
+.engine.open .more{max-width:280px;opacity:1;padding-left:10px}
+.engine .more .vsep{height:14px}
+.engine .more>[hidden]{display:none}
+.engine .erate{color:var(--text)}
+#engine .edot{width:7px;height:7px;border-radius:50%;flex:none;margin-right:9px;
+  background:var(--warn);box-shadow:0 0 0 3px var(--warn-soft)}
+#engine[data-state="up"] .edot{background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
+#engine[data-state="down"] .edot{background:var(--bad);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--bad) 13%,transparent)}
 
 /* A LAYER IN THIS WINDOW, NOT A SECOND WINDOW. A second pywebview window would
    need its own bridge, its own theme attribute and its own close path, for a
@@ -1297,12 +1496,14 @@ body.closing::after{content:"saving the chat and the cache...";position:fixed;
    Bei 1130x520 war das Blatt 468 px hoch (90vh) und begann bei y=26 -- die
    34 px hohe #bar lag mit ihren Fensterknoepfen 8 px darunter. `padding-top`
    in #bar-Hoehe verschiebt die Mitte, die dritte Grenze im `min()` haelt
-   darunter 12 px Luft; der Schleier dimmt die Leiste weiterhin. */
+   darunter 12 px Luft; der Schleier dimmt die Leiste weiterhin.
+   #382: die Leiste ist seither 46 px hoch, also steht hier ihr Name statt
+   einer Zahl -- --barh, dieselbe, die #bar als Hoehe traegt. */
 #settings{position:fixed;inset:0;z-index:80;display:grid;place-items:center;
-  background:var(--shadow-strong);padding-top:34px}
+  background:var(--shadow-strong);padding-top:var(--barh)}
 #settings[hidden]{display:none}
 #settings .sheet{width:min(1040px,94vw);
-  height:min(780px,90vh,calc(100vh - 58px));display:flex;
+  height:min(780px,90vh,calc(100vh - var(--barh) - 24px));display:flex;
   flex-direction:column;background:var(--panel);border:1px solid var(--bevel);
   border-radius:12px;box-shadow:0 24px 60px var(--shadow-strong);overflow:hidden}
 #settings .shead{display:flex;align-items:center;gap:10px;padding:13px 16px;
@@ -1375,7 +1576,7 @@ body.closing::after{content:"saving the chat and the cache...";position:fixed;
 #flow > .turn > :last-child{margin-bottom:0}
 
 /* -- rail --------------------------------------------------------------- */
-#rail{width:var(--railw,242px);flex:none;
+#rail{width:var(--railw);flex:none;
   background:var(--rail);display:flex;flex-direction:column;min-height:0}
 /* ZIEHBAR, UND DER GRIFF IST BREITER ALS DIE LINIE, DIE ER BEWEGT. Fuenf Pixel
    trifft man mit der Maus, einen nicht -- und die negativen Raender legen ihn
@@ -1405,7 +1606,7 @@ body.closing::after{content:"saving the chat and the cache...";position:fixed;
    Die Panels darin teilen sich die Hoehe zu gleichen Teilen (`flex:1 1 0`) --
    nicht nach Inhalt, denn sonst schoebe eine wachsende Werkzeugliste das
    Git-Panel aus dem Bild, waehrend man hineinsieht. */
-#side{width:var(--codew,__CODEW__px);flex:0 1 auto;min-width:0;
+#side{width:var(--codew);flex:0 1 auto;min-width:0;
   display:flex;flex-direction:column;min-height:0;background:var(--rail);
   transition:width .16s ease}
 #side.dragging{transition:none}
@@ -1425,18 +1626,16 @@ body.closing::after{content:"saving the chat and the cache...";position:fixed;
    daran nichts -- die Spalte traegt dieselbe Regel eine Ebene hoeher. */
 #code{width:auto;flex:0 1 auto;min-width:0;min-height:0;background:var(--rail);
   display:flex;flex-direction:column;overflow:hidden}
-/* DAS GIT-PANEL IST AUS DIESER SPALTE AUSGEZOGEN und liegt jetzt im
-   Chatfenster unter dem Zielpanel -- seine Regeln stehen dort, bei `#panels`.
-   An seiner Stelle steht seit #175 der Browser: die Spalte traegt weiter
-   Breite, Griff und Falte, und die Panels darin teilen sich die Hoehe zu
-   gleichen Teilen. Nicht nach Inhalt -- eine wachsende Aufrufliste schoebe den
-   Browser sonst aus dem Bild, waehrend jemand hineinsieht. */
 #browser{width:auto;flex:0 1 auto;min-width:0;min-height:0;background:var(--rail);
   display:flex;flex-direction:column;overflow:hidden}
-#side > aside{flex:1 1 0}
-/* Die Fuge zwischen beiden, und NUR wenn beide da sind: eine Linie ueber einem
-   Panel, das allein steht, waere ein Rand zum Fensterhintergrund. */
-body:not([data-code="shut"]) #browser{border-top:1px solid var(--line)}
+/* #384. ONE PANEL AT A TIME, the selected tab's; `#side[data-tab]` is the
+   state (`inspectorSelect`). They no longer share the column's height (#156,
+   #175): the others leave the layout, and with it the accessibility tree, as
+   the APG tabs pattern wants. */
+#side>[role="tabpanel"]{display:none;flex:1 1 0;min-height:0;flex-direction:column}
+#side[data-tab="goal"]>#igoal,#side[data-tab="tools"]>#code,
+#side[data-tab="subs"]>#isubs,#side[data-tab="git"]>#git,
+#side[data-tab="browser"]>#browser{display:flex}
 #codegrip{flex:none;width:5px;margin:0 -2px;z-index:3;cursor:col-resize;
   background:transparent;transition:background .12s ease}
 #codegrip:hover,#codegrip.on{background:var(--bevel)}
@@ -1447,28 +1646,67 @@ body:not([data-code="shut"]) #browser{border-top:1px solid var(--line)}
    verloren. Also beides. */
 body[data-code="shut"] #code{width:0;overflow:hidden;display:none}
 body[data-browser="shut"] #browser{width:0;overflow:hidden;display:none}
-/* Erst wenn BEIDE zu sind, faellt die Spalte selbst zusammen. */
-body[data-code="shut"][data-browser="shut"] #side{width:0;overflow:hidden}
+/* #384: #codetoggle alone opens and shuts the column; Git and Browser are
+   tabs in it. */
+body[data-code="shut"] #side{width:0;overflow:hidden}
 /* DER GRIFF GEHT MIT. Ein Anfasser an einer Flaeche von null Pixeln ist ein
    Streifen, der nichts bewegt -- und er saesse genau auf der Kante, die das
    geschlossene Panel gerade sauber macht. */
-body[data-code="shut"][data-browser="shut"] #codegrip{display:none}
-#codehead{display:flex;align-items:center;gap:8px;padding:0 12px;
-  min-height:var(--barh);flex:none}
-#codehead h2{margin:0;font-size:10.5px;font-weight:600;letter-spacing:.13em;
-  text-transform:uppercase;color:var(--dimmer)}
-#codehead .n{color:var(--dimmer);font-size:11px;font-variant-numeric:tabular-nums}
+body[data-code="shut"] #codegrip{display:none}
+/* #384. THE TOOLS TAB'S HEAD, the mockup's: the label, what is being
+   written right now (`.n`), and `clear`. */
+#codehead{display:flex;align-items:center;gap:8px;padding:10px 18px 8px;flex:none}
+#codehead .n{color:var(--dim);font-family:var(--mono);font-size:11px}
 /* #156. `copy` IM KOPF IST WEG, ersatzlos -- des Owners Ansage vom 2026-08-29:
    "die copy funktion aus dem Header zaehlt global fuer alles (das ist doof)".
-   Sie kopierte den sichtbaren Text des ganzen Panels, also Aufrufliste und
-   Quelltext in einem Block, und wer einen Codeblock wollte, bekam alles. Der
-   Knopf sitzt jetzt an jedem Block (`.cwcopy`), wo er weiss, was er meint.
-   `clear all` bleibt allein im Kopf: es MEINT alles, das ist sein Zweck. */
-#codewipe{margin-left:auto;font:inherit;font-size:11px;color:var(--dimmer);
-  background:transparent;border:1px solid var(--line);border-radius:6px;
-  padding:2px 9px;cursor:pointer}
-#codewipe:hover{border-color:var(--bevel);color:var(--text-hover)}
-#codebody{overflow-y:auto;padding:0 8px 10px;flex:1;min-height:0}
+   Der Knopf sitzt jetzt an jedem Block (`.cwcopy`), wo er weiss, was er
+   meint. `clear` bleibt allein im Kopf: es MEINT alles, das ist sein Zweck. */
+#codewipe{margin-left:auto;display:inline-flex;align-items:center;height:24px;
+  padding:0 10px;font:inherit;font-size:11.5px;color:var(--text-soft);
+  background:transparent;border:1px solid var(--line);border-radius:999px;
+  cursor:pointer;white-space:nowrap}
+#codewipe:hover{background:var(--hover)}
+#codebody{overflow-y:auto;padding:0 10px 20px;flex:1;min-height:0}
+/* -- #384: the inspector's tab strip -------------------------------------- */
+/* THE MOCKUP'S SEGMENTED STRIP: a --bg track, 3 px of padding, a 10 px
+   radius, the selected tab raised. The tabs share the width and never shrink
+   below their label; with Git and Browser in a narrow column the strip
+   scrolls rather than cutting a label short. */
+#itabs{display:flex;gap:3px;margin:12px 12px 6px;padding:3px;flex:none;
+  background:var(--bg);border:1px solid var(--line-soft);border-radius:10px;
+  overflow-x:auto;scrollbar-width:none}
+#itabs::-webkit-scrollbar{display:none}
+#itabs .tab{flex:1;display:inline-flex;align-items:center;justify-content:center;
+  gap:6px;height:30px;padding:0 6px;border:0;border-radius:7px;
+  background:transparent;color:var(--dim);font:inherit;font-size:12.5px;
+  font-weight:600;cursor:pointer;white-space:nowrap}
+#itabs .tab:hover{color:var(--text)}
+#itabs .tab.on{background:var(--raised);color:var(--text);
+  box-shadow:0 1px 2px var(--shadow)}
+#itabs .tab:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
+#itabs .cnt{font-family:var(--mono);font-size:10.5px;font-weight:500;color:var(--dim);
+  background:var(--line-soft);border-radius:999px;padding:0 6px;line-height:16px}
+/* GIT AND BROWSER HAVE A TAB WHILE THEIR TOGGLE IS ON, from the first paint:
+   Python stamps the attributes before the page is handed over. */
+body[data-git="shut"] #itab-git,body[data-browser="shut"] #itab-browser{display:none}
+/* The mockup's section label and status pill -- inside the inspector only;
+   the chat's own pills are #383's and #385's. */
+#side .lbl{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--dim);font-weight:600}
+#side .pill{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;
+  border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
+#side .pill svg{width:12px;height:12px}
+#side .pill.ok{background:var(--ok-soft);color:var(--ok)}
+#side .pill.warn{background:var(--warn-soft);color:var(--warn)}
+#side .pill.acc{background:var(--accent-soft);color:var(--accent)}
+#side .pill.sub{background:var(--sub-soft);color:var(--sub)}
+#side .pill.sk{background:color-mix(in srgb,var(--skip) 13%,transparent);color:var(--skip)}
+#side .pill.bad{background:color-mix(in srgb,var(--bad) 13%,transparent);color:var(--bad)}
+/* A TAB WITH NOTHING IN IT SAYS SO in one quiet line, not an empty frame. */
+#side .inone{margin:0;padding:10px 20px;font-size:12px;color:var(--dim)}
+#goalpanel:not([hidden])+.inone,#subpanel:not([hidden])+.inone{display:none}
+#igoal:focus-visible,#isubs:focus-visible{outline:1px solid var(--accent);
+  outline-offset:-1px}
 /* #138b. DER QUELLTEXT UNTER EIGENEM NAMEN, damit der Abschnitt beantwortet,
    wofuer er da ist. Versteckt, solange nichts geschrieben wurde -- eine
    Ueberschrift ueber einer leeren Flaeche behauptet einen Inhalt. */
@@ -1569,16 +1807,12 @@ body[data-code="shut"][data-browser="shut"] #codegrip{display:none}
   color:var(--dimmer);background:var(--rail)}
 
 /* -- #156: das Git-Panel ------------------------------------------------- */
-/* ES BORGT SICH NICHTS, ES IST DASSELBE -- nur ist das "Dasselbe" jetzt das
-   ZIELPANEL und nicht mehr das Code-Panel. Das Git-Panel steht im Chatfenster,
-   also traegt es dort dessen Form: Karte, Rundung, Schatten, Kopf in
-   Normalschrift. Was nur IHM gehoert, steht weiter hier -- Dateizeilen, +/-,
-   die Historie -- und die Klappgruppen bleiben `.tchd`, dieselben wie drueben.
-   ORT UND BREITE KOMMEN VON `#panels`: das Panel sagt, wie es aussieht, die
-   Spalte sagt, wo es steht. */
+/* #384: A TAB OF THE INSPECTOR, flat on the column like every other tab --
+   the card's frame, radius and shadow belonged to a card over the chat
+   (#panels), which is gone. Was nur IHM gehoert, steht weiter hier --
+   Dateizeilen, +/-, die Historie -- und die Klappgruppen bleiben `.tchd`. */
 #git{flex:0 1 auto;min-height:0;overflow:hidden;display:flex;
-  flex-direction:column;background:var(--panel);border:1px solid var(--line);
-  border-radius:10px;box-shadow:0 6px 24px var(--shadow);font-size:11.5px}
+  flex-direction:column;font-size:11.5px}
 /* Wegklicken geht weiter NUR ueber den Knopf in der Titelleiste (#156). */
 body[data-git="shut"] #git{display:none}
 #githead{display:flex;align-items:center;gap:8px;padding:13px 15px 9px;
@@ -1665,142 +1899,106 @@ body[data-git="shut"] #git{display:none}
 .gcommit button:hover:not([disabled]){border-color:var(--bevel);color:var(--accent)}
 .gcommit button[disabled]{color:var(--dimmer);cursor:default}
 
-#railhead{display:flex;align-items:center;padding:0 12px;min-height:var(--barh)}
-#railhead h2{margin:0;font-size:10.5px;font-weight:600;letter-spacing:.13em;
-  text-transform:uppercase;color:var(--dimmer)}
-#new{margin-left:auto;font:inherit;font-size:11px;color:var(--dim);
-  background:transparent;border:1px solid var(--line);border-radius:6px;
-  padding:2px 9px;cursor:pointer}
-#new:hover{border-color:var(--bevel);color:var(--accent)}
-#sessions{overflow-y:auto;padding:6px 6px 10px;flex:1;min-height:0}
-.sess{position:relative;display:block;width:100%;text-align:left;border:0;
-  background:transparent;font:inherit;color:inherit;padding:7px 9px 8px 12px;
-  border-radius:6px}
-.sess.on{background:var(--raised)}
-.sess.on .t{color:var(--model)}
-.sess.on::before{content:"";position:absolute;left:2px;top:8px;bottom:8px;
-  width:2px;background:var(--accent);border-radius:2px}
-/* -- die Panelspalte im Chatfenster -------------------------------------- */
-/* ZWEI KARTEN, EINE SPALTE, UND KEINE ZEILE JAVASCRIPT DAFUER. Das Git-Panel
-   steht unter dem Zielpanel, und ein Ziel faengt an und hoert auf -- es muss
-   also wandern. Als Rechnung hiesse das, die Hoehe des Zielpanels bei jedem
-   Zeichnen und bei jeder Fenstergroesse nachzumessen; eine Flexspalte tut es
-   von selbst, weil ein verstecktes Zielpanel keinen Platz belegt. Ohne Ziel
-   sitzt das Git-Panel oben, mit Ziel darunter, und niemand rechnet.
-   DIE SPALTE FAENGT KEINE KLICKS. Sie ist hoeher als ihr Inhalt, damit ein
-   langes Ziel und eine lange Dateiliste sich die Hoehe teilen koennen statt
-   sich gegenseitig abzuschneiden -- ohne `pointer-events` waere der leere Rest
-   ein unsichtbarer Deckel ueber dem Gespraech. Die Karten nehmen ihre Klicks
-   selbst wieder an.
-   DIE HOEHE IST DIE ALTE, EINMAL: 60 % gehoerten dem Ziel allein, jetzt teilen
-   sich zwei Karten 70 % minus dem Rand -- der Abstand zur Eingabemaske bleibt
-   damit derselbe, den das Zielpanel seit #164 haelt. */
-/* #233. UND NIE UEBER DIE EINGABEMASKE. 70 % setzte voraus, dass der
-   Composer nie mehr als 30 % von #main belegt; mit Speicherleiste und zwei
-   Bildchips waren es bei 1130x520 190 von 486 px, und die Git-Karte lag ueber
-   Textfeld, Ordner-, Stufen- und Mikrofonknopf. `--comph` ist die Hoehe, die
-   `fitFlow` ohnehin misst (inklusive der 26-px-Blende, die so den Abstand
-   stellt); ohne sie gilt die alte Rechnung. */
-#panels{position:absolute;top:14px;right:16px;z-index:5;width:290px;
-  height:min(calc(70% - 14px),calc(100% - var(--comph,0px) - 14px));
-  display:flex;flex-direction:column;gap:10px;
-  pointer-events:none}
-#panels>*{pointer-events:auto}
+/* #385. THE RAIL OF THE MOCKUP the owner approved on 2026-10-14 (vault
+   Crow/02_docs/mockup-crow-gui-redesign-2026-10-14/Main.dc.html), its
+   `.newchat`, `.grp`, `.ri`, `.ri-t`, `.ri-s`, `.ri.child` and `.foot` on the
+   elements the rail already had: #new, .proj / #railsep, .sess, .subchat,
+   #archbar. A column with 2 px between rows, 8 px in from the rail's edges. */
+#railhead{display:flex;align-items:center;padding:12px 8px 2px}
+#new{display:flex;align-items:center;gap:8px;width:100%;height:34px;
+  padding:0 8px 0 10px;border:1px solid var(--line);border-radius:9px;
+  background:var(--panel);color:var(--text);font:inherit;font-size:13px;
+  font-weight:600;cursor:pointer;white-space:nowrap}
+#new:hover{background:var(--hover)}
+#new svg{width:15px;height:15px;flex:none}
+#new .nl{flex:1;text-align:left}
+#sessions{overflow-y:auto;padding:0 8px 24px;flex:1;min-height:0;
+  display:flex;flex-direction:column;gap:2px}
+#sessions>*{flex:none}
+/* A CHAT ROW: the title over its second line, the open one on --raised and
+   nothing else -- no accent bar beside it (#385, the mockup's `.ri.on`). */
+.sess{position:relative;display:flex;flex-direction:column;gap:1px;width:100%;
+  text-align:left;border:0;background:transparent;font:inherit;
+  color:var(--text-soft);padding:7px 10px;border-radius:8px;cursor:pointer}
+.sess:hover{background:var(--hover)}
+.sess.on{background:var(--raised);color:var(--text)}
 
 
 /* -- #164: das Zielpanel ------------------------------------------------- */
-/* ORT UND BREITE GEHOEREN `#panels`. Was hier steht, ist die Karte selbst --
-   und `min-height:0` neben `overflow:auto` ist das, was aus dem Deckel der
-   Spalte eine eigene Scrollflaeche macht statt eines abgeschnittenen Endes. */
-#goalpanel{flex:0 1 auto;min-height:0;
-  overflow:auto;background:var(--panel);border:1px solid var(--line);
-  border-radius:10px;box-shadow:0 6px 24px var(--shadow);font-size:11.5px}
+/* #384. AS THE MOCKUP DRAWS IT, in the inspector's Goal tab: GOAL and the
+   status pill, the title at 16/650, a 5 px progress bar, the numbers in one
+   mono line, then STEPS as a timeline -- a 20 px mark per step on a line that
+   joins them, the text at 13 px, its time and tokens at 11 px under it.
+   `min-height:0` beside `overflow:auto` makes the panel its own scroller. */
+#goalpanel{flex:1 1 auto;min-height:0;overflow:auto;display:flex;
+  flex-direction:column;gap:12px;padding:10px 20px 22px;font-size:13px}
 #goalpanel[hidden]{display:none}
-/* DREI ZONEN MIT LUFT DAZWISCHEN, nach der Vorlage des Owners: Kopfzeile mit Status,
-   dann das Ziel selbst mit Zeichen und Kennzahlen, dann die Liste. Die alte
-   Fassung presste alles in eine Zeile -- Zeichen, Wort, Uhr, Zaehler -- und war
-   damit eine Statusleiste, keine Anzeige. */
-#goalpanel .gh{display:flex;align-items:center;gap:8px;padding:13px 15px 11px;
-  cursor:pointer}
-#goalpanel .gh b{color:var(--text-faint);font-weight:600;letter-spacing:.2px}
-#goalpanel .gh .st{margin-left:auto;color:var(--dimmer)}
-#goalpanel .gh .st.ok{color:var(--ok)}
+#goalpanel .gh{display:flex;align-items:center;gap:8px}
+#goalpanel .gh .st{margin-left:auto}
 /* #281: dasselbe `×` schliesst die Subtasks-Karte -- eine Regel, zwei Karten. */
 #goalpanel .gx,#subpanel .gx{background:none;border:0;color:var(--dimmer);font:inherit;
   font-size:16px;line-height:1;padding:0 0 0 4px;cursor:pointer}
 #goalpanel .gx:hover,#subpanel .gx:hover{color:var(--bad)}
-/* DAS ZIEL IST DIE UEBERSCHRIFT, nicht eine Zeile unter dem Wort "Goal": es
-   bricht um, statt abgeschnitten zu werden, und traegt das Zeichen neben sich. */
-#goalpanel .gt{display:flex;gap:9px;align-items:flex-start;padding:0 15px 7px}
-#goalpanel .gi{color:var(--accent);flex:none;margin-top:1px;display:flex}
-#goalpanel .gt .tx{color:var(--text);font-weight:600;font-size:13px;
-  line-height:1.35;min-width:0;overflow-wrap:anywhere}
-/* EINE ZEILE FUER ALLE DREI ZAHLEN, mittig getrennt: Fortschritt, Uhr, Token.
-   Getrennt verteilt waren sie drei Zahlen an drei Orten, und keine davon las
-   sich als Aussage ueber dasselbe Ziel. */
-#goalpanel .gm{padding:0 15px 13px;color:var(--dimmer);
-  font-variant-numeric:tabular-nums}
-#goalpanel .gp{padding:11px 15px 6px;color:var(--dim);font-weight:600;
-  border-top:1px solid var(--line-soft)}
-#goalpanel ol{list-style:none;margin:0;padding:0 15px 13px}
-/* #174: LUFT ZWISCHEN DEN ZEILEN, WEIL SIE UMBRECHEN. Bei 6px und einer
-   einzeiligen Vorlage sah das Raster richtig aus; ein Schritt, der vier Zeilen
-   braucht (M6.2 im Lauf vom 2026-08-30), klebte an seinem Nachbarn, und die
-   Kostenzeile darunter gehoerte optisch schon zum naechsten. Der Abstand nach
-   unten ist groesser als der nach oben: so bleibt die Kostenzeile bei IHREM
-   Schritt. `min-width:0` und `overflow-wrap` sind das, was einen langen Pfad
-   ohne Leerzeichen umbrechen laesst, statt das Panel zu sprengen. */
-#goalpanel li{display:flex;gap:9px;padding:7px 0 9px;align-items:flex-start;
-  color:var(--text-faint);line-height:1.45}
-#goalpanel li>span:last-child{min-width:0;overflow-wrap:anywhere;
-  /* #235: DIE SPALTE FUELLT DIE ZEILE, sonst ist sie so breit wie
-     ihr Text -- und mit ihr die gestrichelte Linie ueber der Kostenzeile:
-     unter "Audit rendern" ein Stummel, unter einem langen Schritt volle Breite. */
-  flex:1}
-#goalpanel li .m{flex:none;margin-top:2px;display:flex;color:var(--dimmer)}
-/* ERLEDIGT WIRD DURCHGESTRICHEN UND GRUEN, LAUFEND AMBER -- dieselben zwei
-   Farben, die die Rail fuer laufend und fertig benutzt, damit ein Blick von
-   dort hierher nichts umlernen muss. */
-#goalpanel li.done{color:var(--dimmer)}
-/* #174: DER STRICH IST EIN HINWEIS, KEIN BALKEN. In der Standarddicke lag er
-   bei 11,5px mitten auf den Buchstaben und machte einen erledigten Schritt
-   unlesbar -- man sah, DASS etwas fertig ist, aber nicht mehr, was. Duenn und in
-   der Linienfarbe bleibt beides. */
-#goalpanel li.done .t{text-decoration:line-through;
-  text-decoration-thickness:1px;text-decoration-color:var(--dimmer);
-  text-underline-offset:0}
-#goalpanel li.done .m{color:var(--ok)}
-#goalpanel li.running .m{color:var(--warn)}
-#goalpanel li.running .t{color:var(--text)}
-#goalpanel li.failed .m{color:var(--bad)}
-/* #289: UEBERSPRUNGEN IST NICHT ERLEDIGT -- kein Strich, kein Gruen, sondern
-   gedimmt mit dem Pfeil in Amber, derselben Farbe wie der Hinweis im Kopf. */
-#goalpanel li.skipped{color:var(--dimmer)}
-/* #296: its own hue (--skip), a dashed ring with a skip glyph, and the word
-   "skipped" -- never the amber of the running step. */
-#goalpanel li.skipped .m,#goalpanel .gh .st.sk{color:var(--skip)}
-#goalpanel li.skipped .t{color:var(--dim)}
-#goalpanel li .lbl{margin-left:6px;font-size:10.5px;letter-spacing:.3px;
+/* DAS ZIEL IST DIE UEBERSCHRIFT: es bricht um, statt abgeschnitten zu werden. */
+#goalpanel .gt .tx{font-size:16px;font-weight:650;line-height:1.35;color:var(--text);
+  overflow-wrap:anywhere}
+#goalpanel .gbar{height:5px;border-radius:3px;background:var(--line);overflow:hidden;
+  display:flex;flex:none}
+#goalpanel .gbar span{background:var(--accent)}
+#goalpanel .gbar.ok span{background:var(--ok)}
+#goalpanel .gbar.warn span{background:var(--warn)}
+#goalpanel .gbar.sk span{background:var(--skip)}
+/* EINE ZEILE FUER ALLE ZAHLEN -- Fortschritt, Uhr, Token, Delegiertes --, und
+   die delegierten im --sub-Kanal (#143, #169: daneben, nicht drin). */
+#goalpanel .gm{display:flex;flex-wrap:wrap;gap:4px 14px;font-family:var(--mono);
+  font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums}
+#goalpanel .dl{color:var(--sub)}
+#goalpanel .gp{margin-top:10px}
+/* #294: the goal waits for the user -- the paused step and the line under the
+   title in --bad; the pill in the head says "Paused". */
+#goalpanel li.held>.ck,#goalpanel .gz{color:var(--bad)}
+#goalpanel .gz{font-size:12px;overflow-wrap:anywhere}
+#goalpanel ol.steps{list-style:none;margin:0;padding:0;display:flex;
+  flex-direction:column}
+#goalpanel ol.steps>li{position:relative;display:flex;gap:11px;padding-bottom:16px}
+#goalpanel ol.steps>li:last-child{padding-bottom:0}
+/* THE LINE THAT MAKES IT A TIMELINE, from under one mark to the next. */
+#goalpanel ol.steps>li::before{content:"";position:absolute;left:9.5px;top:24px;
+  bottom:4px;width:1px;background:var(--line)}
+#goalpanel ol.steps>li:last-child::before{display:none}
+/* ONE MARK PER STATE: done a filled soft circle with a check, running an
+   accent ring, open a hollow one, failed a cross, skipped (#296) a dashed ring
+   in its own hue with a skip glyph, paused (#294) two bars. Done is no longer
+   struck through -- the check says it, and the text stays readable. */
+#goalpanel .ck{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;flex:none;margin-top:1px;color:var(--line)}
+#goalpanel .ck svg{width:20px;height:20px}
+#goalpanel li.done>.ck{background:var(--ok-soft);color:var(--ok)}
+#goalpanel li.done>.ck svg{width:12px;height:12px}
+#goalpanel li.running>.ck{color:var(--accent)}
+#goalpanel li.failed>.ck{color:var(--bad)}
+#goalpanel li.skipped>.ck,#goalpanel .gh .st.sk{color:var(--skip)}
+#goalpanel .sb{flex:1;min-width:0}
+#goalpanel .t{font-size:13px;color:var(--text-soft);line-height:1.45;
+  overflow-wrap:anywhere}
+#goalpanel li.running>.sb>.t{color:var(--text)}
+#goalpanel li.skipped>.sb>.t{color:var(--dim)}
+/* #296: THE WORD, NOT ONLY THE COLOUR (WCAG 1.4.1) -- "skipped", "paused". */
+#goalpanel .word{margin-left:6px;font-size:10.5px;letter-spacing:.3px;
   text-transform:uppercase;color:var(--skip)}
-/* #294: the goal waits for the user -- the paused step and the head in --bad,
-   with a pause glyph, and one line under the title saying why. */
-#goalpanel li.held .m,#goalpanel .gh .st.pz,#goalpanel .gz{color:var(--bad)}
-#goalpanel .gz{padding:0 15px 11px;font-size:12px;overflow-wrap:anywhere}
-#goalpanel ol.subs{padding:6px 0 0 0}
-#goalpanel ol.subs li{padding:3px 0 4px}
-#goalpanel li.open .t{color:var(--text-faint)}
-#goalpanel li.done,#goalpanel li.failed,#goalpanel li.skipped{cursor:pointer}
-/* #174: DIE KOSTENZEILE HAENGT AN IHREM SCHRITT. Sie sass mit 3px so dicht
-   unter dem Text, dass sie bei einem umgebrochenen Schritt wie dessen fuenfte
-   Zeile aussah; mit Luft darueber und einem eigenen Ton ist sie eine Fussnote. */
-#goalpanel .cost{display:block;color:var(--dimmer);font-size:10.5px;
-  margin-top:5px;opacity:.85;font-variant-numeric:tabular-nums;
-  letter-spacing:.2px}
-/* ZUGEKLAPPT BLEIBT, WORUM ES GEHT: Titel, Zaehler, Uhr, Token. Weg ist nur die
-   Liste. Ein Kasten, der zugeklappt nur noch das Wort "Goal" zeigt, ist kein
-   eingeklapptes Ziel -- er ist gar keine Anzeige mehr. */
-#goalpanel.shut .gp,#goalpanel.shut ol,#goalpanel.shut .gz{display:none}
-#goalpanel.shut .gm{padding-bottom:13px}
+#goalpanel li.held .word{color:var(--bad)}
+#goalpanel .sm{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:3px;
+  font-variant-numeric:tabular-nums}
+/* #294: THE SUB-STEPS OF A SPLIT STEP, small, under its text. */
+#goalpanel ol.subs{list-style:none;margin:6px 0 0;padding:0;display:flex;
+  flex-direction:column;gap:4px}
+#goalpanel ol.subs li{display:flex;gap:7px;align-items:flex-start;font-size:12px;
+  color:var(--text-soft)}
+#goalpanel ol.subs .ck,#goalpanel ol.subs .ck svg{width:14px;height:14px}
+#goalpanel ol.subs .ck{margin-top:2px}
+#goalpanel ol.subs li.done>.ck svg{width:9px;height:9px}
+/* The phone's thin goal bar (REMOTE_CSS, #249) folds the panel to its head. */
+#goalpanel.shut .gp,#goalpanel.shut ol,#goalpanel.shut .gz,#goalpanel.shut .gbar{display:none}
 
 /* -- #162: ein Zug, der laeuft, waehrend man woanders steht ---------------- */
 /* AM RAND UND NICHT AUF DER FLAECHE, und dafuer ein eigenes Element: `::before`
@@ -1810,7 +2008,7 @@ body[data-git="shut"] #git{display:none}
    also genau dort, wo es niemand sucht.
    Die Maske ist, was daraus eine Umrandung macht: der Verlauf fuellt das ganze
    Feld, und ausgestanzt bleibt nur der 1 px breite Rahmen. */
-.sess .edge{position:absolute;inset:0;border-radius:6px;padding:1px;
+.sess .edge{position:absolute;inset:0;border-radius:8px;padding:1px;
   pointer-events:none;opacity:0;
   background:linear-gradient(135deg,transparent 30%,var(--warn) 50%,transparent 70%);
   background-size:300% 300%;
@@ -1822,17 +2020,17 @@ body[data-git="shut"] #git{display:none}
    Erste, was abgeschaltet wird. */
 .sess.running .edge{opacity:.55;animation:sessedge 3.2s linear infinite}
 @keyframes sessedge{from{background-position:0% 0%}to{background-position:100% 100%}}
-/* FERTIG UND UNGELESEN: derselbe Balken wie bei der offenen Zeile, in Amber.
-   Die Form ist dieselbe, damit sie ohne Erklaerung gelesen wird -- nur die
-   Farbe sagt, dass hier etwas wartet statt hier zu sein. `done` wird nur
-   gesetzt, solange die Zeile NICHT die offene ist, also kollidieren die beiden
-   ::before-Regeln nicht. */
+/* FERTIG UND UNGELESEN: ein Balken in Amber am linken Rand. `done` wird nur
+   gesetzt, solange die Zeile NICHT die offene ist. #385: die offene Zeile hat
+   seit dem Mockup keinen Balken mehr (nur --raised), also ist dieser der
+   einzige Balken der Rail -- und sagt allein "hier wartet etwas". */
 .sess.done::before{content:"";position:absolute;left:2px;top:8px;bottom:8px;
   width:2px;background:var(--warn);border-radius:2px}
-.sess.done .t{color:var(--text-soft)}
-.sess .t{font-size:12px;color:var(--text-faint);display:block;white-space:nowrap;
+.sess.done .t{color:var(--text)}
+/* #385: the mockup's `.ri-t` (13 px, one line) and `.ri-s` (11.5 px, --dim). */
+.sess .t{font-size:13px;display:block;width:100%;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis}
-.sess .s{font-size:10.5px;color:var(--dimmer);display:block;margin-top:1px}
+.sess .s{font-size:11.5px;color:var(--dim);display:block}
 /* -- #119: the line an empty chat carries -------------------------------- */
 /* CENTRED IN THE COLUMN THE CHAT WILL FILL, not in the window: the first turn
    lands in `.turn`, which is 960 wide and centred, so a greeting centred on
@@ -1856,8 +2054,12 @@ body[data-git="shut"] #git{display:none}
 /* SIZED IN THE PAGE, NOT IN THE FILE. Both drawings are 1024 square; a width
    here keeps them from filling the window, and `height:auto` keeps the square
    without the file having to know how big it is drawn. */
-.mk{width:200px;max-width:46vw;line-height:0}
+/* #385: the mockup's start screen -- the mark 200 px with its foot tucked
+   18 px under the gap, the greeting 26 px at 400 in the text colour. */
+.mk{width:200px;max-width:46vw;line-height:0;margin-bottom:-18px}
 .mk svg{width:100%;height:auto;display:block}
+.hellotext{margin:0;font-size:26px;font-weight:400;line-height:1.5;
+  letter-spacing:-.01em;color:var(--text)}
 /* WHICH ONE IS VISIBLE IS A CSS QUESTION, so switching theme needs no
    JavaScript and no second copy of which theme is live. Dark is the default
    because two of the three themes are dark; only `light` swaps. */
@@ -1896,28 +2098,22 @@ body[data-git="shut"] #git{display:none}
 #rail{transition:width .16s ease}
 body[data-rail="shut"] #rail{width:0;overflow:hidden}
 /* IN THE TITLE BAR, so it survives the rail it hides. It is the one control
-   that must not live in the thing it folds away. */
-#railtoggle,#codetoggle,#gittoggle,#browsertoggle,#remotetoggle{font:inherit;color:var(--dimmer);
-  background:transparent;border:1px solid transparent;border-radius:6px;
-  cursor:pointer;display:flex;align-items:center;padding:3px 5px;margin-right:2px}
-#railtoggle:hover,#codetoggle:hover,#gittoggle:hover,
-#browsertoggle:hover,#remotetoggle:hover{color:var(--accent);border-color:var(--bevel)}
+   that must not live in the thing it folds away. #382: all five toggles are
+   the mockup's `.ib` icon buttons now (see the title bar above). */
 /* #249: an = Akzent mit Toenung wie ein offenes Panel; der Punkt = ein Telefon
-   ist gerade verbunden. Die Luecke nach rechts steht HIER, hinter der
-   gemeinsamen Regel, die jedem Knopf 2px gibt. */
-#remotetoggle{margin-right:9px}
-#remotetoggle.on{color:var(--accent);
-  background:color-mix(in srgb,var(--accent) 12%,transparent)}
-#remotetoggle .rdot{display:none;position:absolute;right:2px;top:2px;width:6px;
+   ist gerade verbunden. #382: die Toenung ist --accent-soft wie bei `.ib.on`. */
+#remotetoggle{position:relative}
+#remotetoggle.on{color:var(--accent);background:var(--accent-soft)}
+#remotetoggle .rdot{display:none;position:absolute;right:6px;top:5px;width:6px;
   height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 2px var(--rail)}
 #remotetoggle.live .rdot{display:block}
 /* #249: der Dialog mit dem QR-Code und die Kopplungsleiste -- in der Form der
    vom Owner abgenommenen Mockups (Schritt 0): das Blatt der Einstellungen,
    nur kleiner; die Kopplungsfrage in der Form von #pendbar ueber der Eingabe. */
 #remotedlg{position:fixed;inset:0;z-index:80;display:grid;place-items:center;
-  background:var(--shadow-strong);padding-top:34px}
+  background:var(--shadow-strong);padding-top:var(--barh)}
 #remotedlg[hidden]{display:none}
-#remotedlg .rsheet{width:min(720px,94vw);max-height:calc(100vh - 58px);display:flex;
+#remotedlg .rsheet{width:min(720px,94vw);max-height:calc(100vh - var(--barh) - 24px);display:flex;
   flex-direction:column;background:var(--panel);border:1px solid var(--bevel);
   border-radius:12px;box-shadow:0 24px 60px var(--shadow-strong);overflow:hidden}
 #remotedlg .rhead{display:flex;align-items:center;gap:10px;padding:13px 16px;
@@ -2005,59 +2201,58 @@ body[data-rail="shut"] #rail{width:0;overflow:hidden}
    Kreuz im Panel), muss der Rueckweg sichtbar sein. */
 body:not([data-code="shut"]) #codetoggle,
 body:not([data-browser="shut"]) #browsertoggle,
-body:not([data-git="shut"]) #gittoggle{color:var(--accent);
-  background:color-mix(in srgb,var(--accent) 12%,transparent)}
+body:not([data-git="shut"]) #gittoggle{color:var(--accent);background:var(--accent-soft)}
 
 /* A PROJECT ROW IS NOT A CHAT ROW, and the difference has to survive a glance:
-   it is a heading you can fold, so it carries a caret and a count and never the
-   two-line shape a chat has. */
+   it is a heading you can fold, never the two-line shape a chat has.
+   #385: THE MOCKUP'S `.grp` -- a folder icon and the name in capitals, 11 px
+   at 600 in --dim. Folding is still a click on it; the count stands only on a
+   folded head, the one state in which nothing else says what is inside. */
 .proj{position:relative;display:flex;align-items:center;gap:7px;width:100%;
-  text-align:left;border:0;background:transparent;font:inherit;color:inherit;
-  padding:6px 9px 6px 8px;border-radius:6px;cursor:pointer;margin-top:2px}
-.proj:hover{background:var(--raised)}
+  text-align:left;border:0;background:transparent;font:inherit;color:var(--dim);
+  padding:14px 10px 4px;border-radius:8px;cursor:pointer;font-size:11px;
+  letter-spacing:.06em;text-transform:uppercase}
+.proj:hover{color:var(--text)}
+.proj svg,#railsep svg{width:13px;height:13px;flex:none}
 /* BOLD, the owner on sight: a heading and its children at one weight is a list
    with an indent, not a group. The chats under it stay at 400. */
-.proj .t{font-size:11.5px;font-weight:600;color:var(--text-hi);white-space:nowrap;
-  overflow:hidden;text-overflow:ellipsis;flex:1}
-.proj .n{font-size:10px;color:var(--dimmer);flex:none}
-/* THE CARET IS THE STATE, so it turns rather than swapping glyph: a rotation
-   reads as the same thing moving, and two different arrows read as two things.
-   The archive drawer beside this uses the same mark for the same reason. */
-.proj .caret{font-size:8px;color:var(--dimmer);flex:none;
-  transition:transform .14s ease}
-.proj.open .caret{transform:rotate(90deg)}
-/* THE INDENT IS THE MEMBERSHIP. A chat under a heading at the same offset as one
-   below it says nothing about which of the two it belongs to -- and a project
-   with its rows folded away leaves no other trace that they were there. */
-.sess.inproj{padding-left:24px}
-.sess.inproj::after{content:"";position:absolute;left:14px;top:0;bottom:0;
-  width:1px;background:var(--line-soft)}
-/* #235: IM PROJEKT LIEGT DER BALKEN AUF DER LINIE. Bei `left:2px`
-   standen in einer markierten Projektzeile zwei Senkrechte 12 px nebeneinander
-   -- Akzent links, Baumlinie rechts. Auf 13 px deckt der 2-px-Balken die
-   1-px-Linie bei 14 und wird zu ihrem hervorgehobenen Stueck. `z-index:1`,
-   weil `::after` spaeter gemalt wird und sonst die halbe Balkenbreite in
-   Linienfarbe uebermalt -- der Akzent las sich dann grau. */
-.sess.inproj.on::before,.sess.inproj.done::before{left:13px;z-index:1}
+.proj .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  flex:1}
+.proj .n{font-size:10.5px;letter-spacing:0;flex:none}
+.proj.open .n{display:none}
+/* #385: NO INDENT AND NO TREE LINE under a head any more -- the mockup's rows
+   stand flush under their `.grp`, and the head alone says which group a row
+   is in. `.inproj` stays on the row as the membership mark. */
 /* The rename field replaces the row in place, so the list never jumps. */
 .sess input{width:100%;font:inherit;font-size:12px;color:var(--model);
   background:var(--bg);border:1px solid var(--accent);border-radius:4px;
   padding:2px 5px;outline:0}
-#railsep{padding:12px 12px 4px;font-size:10.5px;letter-spacing:.13em;
-  text-transform:uppercase;color:var(--dimmer)}
+/* #385: the loose chats' head, "No folder" with a struck-through folder --
+   the same `.grp` shape as a project head, and not a button: it folds nothing. */
+#railsep{display:flex;align-items:center;gap:7px;padding:14px 10px 4px;
+  font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--dim)}
 /* THE FOOTER IS GONE. It said which file the chat came from, which is a thing
    the rail entry already says and nobody reads twice -- and it cost a bordered
-   box in the corner for it. */
-#archbar{display:flex;align-items:center;gap:6px;width:100%;font:inherit;
-  font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
-  color:var(--dimmer);background:transparent;border:0;cursor:pointer;
-  padding:12px 12px 4px}
-#archbar:hover{color:var(--dim)}
-#archbar .caret{font-size:9px;color:var(--bevel);transition:transform .12s ease}
-#arch.open + #archbar .caret,#archbar.open .caret{transform:rotate(90deg)}
-#archbar .count{margin-left:auto;letter-spacing:0;text-transform:none}
+   box in the corner for it.
+   #385: THE ARCHIVE IS A `.foot` ROW, beside Settings at the rail's foot: an
+   icon, the word, the count in mono. Its drawer opens above it. */
+#archbar{flex:none;width:auto;margin:0 8px}
+#archbar .al{flex:1}
+#archbar .count{font-size:11px}
+#archbar.open{color:var(--text)}
 #arch{display:none}
-#arch.open{display:block}
+#arch.open{display:flex;flex-direction:column;gap:2px;flex:0 1 auto;min-height:0;
+  max-height:40%;overflow-y:auto;padding:0 8px 6px}
+/* #382. SETTINGS AT THE RAIL'S FOOT, below the archive. The Help menu that
+   held it as its only entry is gone from the title bar (mockup, the owner
+   2026-10-14). The mockup's `.foot` row; #385 restyles the rail around it. */
+.foot{display:flex;align-items:center;gap:8px;width:100%;height:32px;padding:0 10px;
+  border:0;border-radius:8px;background:transparent;color:var(--dim);font:inherit;
+  font-size:12.5px;cursor:pointer;text-align:left}
+.foot:hover{background:var(--hover);color:var(--text)}
+.foot svg{width:15px;height:15px}
+#settingsbtn{flex:none;width:auto;margin:2px 8px 10px}
 
 /* -- main --------------------------------------------------------------- */
 /* #125. THE CORNER IS THE ONLY DIVIDER LEFT. With every rule removed the chat
@@ -2075,29 +2270,81 @@ body:not([data-git="shut"]) #gittoggle{color:var(--accent);
    SCHLIMMSTEN Zustand: RAIL_MAX 520 + 560 Chat + 50 Spalten-Chrome = 1130.
    Ein Fall prueft beide Zahlen gegeneinander -- keine darf allein wandern. */
 #main{flex:1;display:flex;flex-direction:column;min-width:560px;min-height:0;
-  background:var(--bg);border-top-left-radius:12px;
+  background:var(--bg);
   /* #138. DIE ZWEITE KANTE, gespiegelt. Sie gehoert #main und nicht dem
      Panel: die Chatspalte ist das Blatt, das vor den Seitenflaechen liegt,
      und sie hat eine Ecke auf jeder Seite, sobald es beide gibt. Der Radius
      bleibt auch bei geschlossenem Panel stehen -- dahinter liegt dann der
      Fensterhintergrund, und eine Ecke, die beim Zuklappen aufspringt, macht
-     aus dem Falten eine Formaenderung. */
-  border-top-right-radius:12px;overflow:hidden;
+     aus dem Falten eine Formaenderung.
+     #382: EIN BLATT MIT VIER ECKEN, wie im Mockup, das der Owner am 2026-10-14
+     abgenommen hat: 14 px Radius, eine leise Kante, und 8 px Rail-Farbe
+     rechts und unten, damit es auf der Rail LIEGT statt an den Fensterrand
+     zu stossen. Links liegt die Rail selbst daneben. */
+  border-radius:14px;border:1px solid var(--line-soft);margin:0 8px 8px 0;
+  overflow:hidden;
   position:relative;
-  /* #233: der Abfragecontainer fuer #panels (siehe dort). Nur
+  /* #233: der Abfragecontainer, gebaut fuer #panels -- #384 hat die Karten
+     und ihre Reserve in den Inspektor genommen; der Container bleibt. Nur
      inline-size, also Stil- und Breiten-Containment, KEIN Layout-Containment:
      kein neuer Bezugsblock fuer `fixed`, kein neuer Stapelkontext. Die Breite
      kommt ohnehin aus `flex:1` und min-width 560, nie aus dem Inhalt. */
   container:chat/inline-size}
+/* #382. MIT EINGEKLAPPTER RAIL BEGINNT DAS BLATT, WO DIE LINKE ZONE DER
+   TITELLEISTE ENDET (--railshut, minus dem einen Pixel des Griffs), damit die
+   Suche weiter auf seiner Kante steht. Derselbe Uebergang wie die Rail, also
+   gleiten Blatt und Zone gemeinsam. */
+#main{transition:margin-left .16s ease}
+body[data-rail="shut"] #main{margin-left:calc(var(--railshut) - 1px)}
+/* #382. WENIGER BEWEGUNG, WENN DAS SYSTEM DARUM BITTET: die Breiten der
+   Spalten, der Zonen, des Blatts, der Suche und des Modell-Chips springen
+   dann, statt zu gleiten (Media Queries 5, prefers-reduced-motion). Hinter
+   allen Regeln, die einen dieser Uebergaenge setzen. */
+@media (prefers-reduced-motion:reduce){
+  #rail,#side,#main,#barl,.search,.search input,.s-kbd,.engine .more{transition:none}}
 /* #125. THE STATUS BAR IS GONE, not hidden. Both chips it carried moved into
    the settings sheet -- the connection with its address, and the tool switch --
    and an empty bar is a band of nothing between the ribbon and the first line
    of the chat. The rule it drew is gone with it, which is half of the seam
    the owner asked to remove. */
-.chip{display:inline-flex;align-items:center;gap:6px;color:var(--dim);
-  border:1px solid var(--line);border-radius:999px;padding:2px 10px;
+/* #385. THE MOCKUP'S CHIP, PILL AND DOT, once for the composer row and the
+   chat head: a 28 px pill with a 13 px icon in --dim; the mono variant for a
+   path, a branch or a count (`.chip`'s `font:inherit` would undo `.mono`, so
+   it is named again); the 22 px status pill. */
+.chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;
+  border:1px solid var(--line);border-radius:999px;background:transparent;
+  color:var(--text-soft);font:inherit;font-size:12.5px;cursor:pointer;
   white-space:nowrap}
-.chip b{font-weight:500;color:var(--text-soft)}
+.chip:hover{background:var(--hover)}
+.chip svg{width:13px;height:13px;color:var(--dim);flex:none}
+.chip.mono{font-family:var(--mono);font-size:11.5px}
+.chip b{font-weight:400;color:var(--text)}
+.dot{width:7px;height:7px;border-radius:50%;flex:none;display:inline-block}
+.pill{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;
+  border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.pill svg{width:12px;height:12px}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+/* -- #385: the chat head ------------------------------------------------- */
+/* ONE ROW AT THE TOP OF THE PANEL, with the mockup's soft rule under it: the
+   title, the folder, the branch, then the goal pill on the far side. Above
+   #panels (5) so the folder menu that drops from it is not drawn under a
+   card. */
+#chathead{position:relative;z-index:7;display:flex;align-items:center;gap:8px;
+  flex-wrap:wrap;flex:none;padding:10px 24px;border-bottom:1px solid var(--line-soft)}
+#chathead h1{margin:0 6px 0 0;font-size:14px;font-weight:600;color:var(--text);
+  min-width:0;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#chathead .sp{flex:1 1 auto}
+#main.empty #chathead{display:none}
+#branchchip{cursor:default}
+#branchchip[hidden]{display:none}
+#branchchip:hover{background:transparent}
+#goalpill{border:0;cursor:pointer;font-family:inherit}
+#goalpill[hidden]{display:none}
+#goalpill.part svg{display:none}
+/* THE FOLDER MENU OPENS DOWNWARDS from the head and upwards from the composer
+   (#rootmenu's own rule), left-aligned with its chip in both. */
+#chathead #rootmenu{top:calc(100% + 6px);bottom:auto;left:0;right:auto}
+#foot #rootmenu{left:0;right:auto}
 #dot{width:6px;height:6px;border-radius:50%;background:var(--dimmer)}
 #dot.up{background:var(--ok);box-shadow:0 0 0 3px rgba(78,201,143,.14)}
 #dot.down{background:var(--bad);box-shadow:0 0 0 3px rgba(240,101,90,.14)}
@@ -2147,10 +2394,10 @@ details.rollcard pre.rtp{max-height:220px;overflow:auto;white-space:pre-wrap;
    die sich an diese Mitte haelt, mit ihr. Links `10px + --sbw` macht die
    Box symmetrisch in #main: Spalte und Maske stehen auf der Mitte von #main. */
 /* #280: die zehn Pixel Luft sind seitdem Teil von --colpad (10 + 30 = 40,
-   dieselbe Zahl, die #composer traegt), und die Kartenreserve ist --reserve --
-   eine Variable, die #composer mit derselben Regel bekommt. */
+   dieselbe Zahl, die #composer traegt). #384: keine Kartenreserve mehr -- die
+   Karten stehen im Inspektor, also bleibt die Spalte mittig in #main. */
 #flow{overflow-y:auto;padding:22px 0 26px;
-  padding-inline:calc(var(--sbw) + var(--reserve)) var(--reserve);flex:1;
+  padding-inline:var(--sbw) 0;flex:1;
   min-height:0;scroll-behavior:smooth;user-select:text;
   scrollbar-gutter:stable}
 /* CENTRED, NOT LEFT-HUGGING. max-width alone pins the column to the left edge
@@ -2190,36 +2437,89 @@ details.rollcard pre.rtp{max-height:220px;overflow:auto;white-space:pre-wrap;
 .as{display:block}
 .col{min-width:0}
 
-/* #131. THE TRACE. Same furniture as a reasoning block, one level up: it holds
-   the ROUNDS, each of which holds its own thoughts. Folded it is one line, so a
-   turn of any length costs the reader one line before the answer. */
-details.trace{margin:0 0 14px}
-details.trace>summary{list-style:none;cursor:pointer;display:inline-flex;
-  align-items:center;gap:8px;font-size:11.5px;color:var(--dimmer);padding:2px 0}
-details.trace>summary::-webkit-details-marker{display:none}
-details.trace>summary:hover{color:var(--dim)}
-details.trace[open]>summary .caret{transform:rotate(90deg)}
-details.trace .tl{color:var(--text-soft)}
-details.trace .tn{font-variant-numeric:tabular-nums}
-details.trace .tb{margin-top:8px;padding-left:11px;
-  border-left:2px solid var(--line)}
+/* #383. THE TURN'S HEAD BLOCK (mockup Main.dc.html, the owner 2026-10-14): the
+   head line, the trace strip and the delegate cards, 12 px apart and 12 px
+   above the round under them -- the mockup's article gap. */
+.turn.crowturn{display:flex;flex-direction:column;gap:12px}
+#flow > .turn.crowturn + .turn{margin-top:12px}
+.tacts{display:flex;align-items:center;gap:4px;margin-top:6px}
+.tacts .ib{width:28px;height:28px}
+/* #131 / #383. THE TRACE STRIP. It still holds the finished ROUNDS, folded
+   (`.tb`, opened by its head); above them one segment per tool call of the
+   turn in call order, coloured by kind, and a legend. */
+.trace{display:flex;flex-direction:column;gap:9px;width:100%;padding:11px 13px;
+  border:1px solid var(--line-soft);border-radius:12px;background:var(--panel);
+  color:var(--text-soft);font-size:13px;text-align:left}
+.trace:hover{border-color:var(--line)}
+.trace[hidden],.trace .segs[hidden],.trace .leg[hidden],.trace .tb[hidden],
+.subref[hidden]{display:none}
+.trh{display:flex;align-items:center;gap:8px;width:100%;padding:0;border:0;
+  background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.trh svg{width:14px;height:14px;color:var(--dim);flex:none;transition:transform .12s ease}
+.trh[aria-expanded="true"] svg{transform:rotate(90deg)}
+.trh .tl{font-weight:600;color:var(--text)}
+.trh .tn{font-size:11.5px;color:var(--dim)}
+.segs{display:flex;gap:3px;height:6px;width:100%}
+.segs>.seg{flex:1;min-width:0;height:6px;padding:0;border:0;border-radius:3px;
+  cursor:pointer}
+.segs>.seg:focus-visible,.trh:focus-visible{outline:1px solid var(--accent);
+  outline-offset:2px}
+/* THE KINDS, ONCE (#383, read by #384's dots too): goal_* dim, the
+   delegation calls in the --sub channel, everything else in the accent; a
+   failed call in --bad, last so it wins. */
+.k-goal{background:var(--dim)}
+.k-cmd{background:var(--accent)}
+.k-sub{background:var(--sub)}
+.k-bad{background:var(--bad)}
+.leg{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--dim)}
+.leg span{display:inline-flex;align-items:center;gap:6px}
+.leg .dot{width:7px;height:7px;border-radius:50%;flex:none;display:inline-block}
+.trace .tb{padding-left:11px;border-left:2px solid var(--line)}
 /* The rounds inside carry their own turn padding, and a second column width
    inside a column is an indent nobody asked for. */
-details.trace .tb .turn{padding:0;max-width:none;margin-inline:0}
+.trace .tb .turn{padding:0;max-width:none;margin-inline:0}
+/* #383. THE DELEGATE CARD, one line in the flow (the full card is the
+   inspector's): fork, id, task, model, status, tokens and seconds. */
+.subref{display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;
+  padding:10px 13px;border:1px solid var(--line-soft);border-radius:12px;
+  background:var(--sub-soft);color:var(--text-soft);font:inherit;font-size:13px;
+  text-align:left;cursor:pointer}
+.subref:hover{border-color:var(--line)}
+.subref:focus-visible{outline:1px solid var(--accent);outline-offset:2px}
+.subref svg{width:15px;height:15px;color:var(--sub);flex:none}
+.subref .sid{color:var(--text);font-size:12px}
+.subref .stk{flex:1 1 200px;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.subref .smd,.subref .sts{font-size:11px;color:var(--dim)}
+.subref .pill{display:inline-flex;align-items:center;gap:5px;height:22px;
+  padding:0 8px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.subref .pill.ok{background:var(--ok-soft);color:var(--ok)}
+.subref .pill.run{background:var(--accent-soft);color:var(--accent)}
+.subref .pill.bad{background:var(--raised);color:var(--bad)}
+@media (max-width:760px){.subref .smd{display:none}}
 
+/* #383. THE THOUGHT FOLD, the mockup's `.fold`: a chevron, "Thought" in
+   --text-soft, the share in --dim, no bar between them. */
 details.think{margin:0 0 10px}
 details.think>summary{list-style:none;cursor:pointer;display:inline-flex;
-  align-items:center;gap:7px;font-size:11.5px;color:var(--dimmer);padding:1px 0}
+  align-items:center;gap:6px;height:26px;padding:0 8px 0 4px;border-radius:6px;
+  font-size:12.5px;color:var(--dim)}
 details.think>summary::-webkit-details-marker{display:none}
-details.think>summary:hover{color:var(--dim)}
+details.think>summary:hover{background:var(--hover);color:var(--text)}
+details.think>summary svg{width:14px;height:14px;flex:none;transition:transform .12s ease}
+details.think[open]>summary svg{transform:rotate(90deg)}
+details.think .dur{color:var(--text-soft)}
 .caret{display:inline-block;transition:transform .12s ease;font-size:9px;
   color:var(--bevel)}
-details.think[open] .caret{transform:rotate(90deg)}
-.pct{color:var(--dimmer);border-left:1px solid var(--line);padding-left:7px}
+.pct{color:var(--dim)}
 .tbody{margin:8px 0 2px;padding:10px 13px;border-left:2px solid var(--line);
   color:var(--think);font-size:12px;line-height:1.65;background:var(--think-bg);
   border-radius:0 6px 6px 0;white-space:pre-wrap}
-.say{color:var(--model);line-height:1.62;white-space:pre-wrap}
+/* #383: THE ANSWER IS SET IN THE USER'S SIZE (the owner, 2026-10-14: the
+   mockup's 14.5 px made Crow's text larger than his own bubble, which inherits
+   `body{font:13px}`), on `.say` and not on `.md` so the text does not change
+   size when `format()` swaps the streamed paragraph for the blocks. */
+.say{color:var(--model);font-size:13px;line-height:1.62;white-space:pre-wrap}
 /* THE FORMATTED ANSWER. `pre-wrap` moves off the box and onto the paragraph:
    inside one, a single newline is still a line break -- this client has never
    folded them and folding them now would reflow every answer the owner has read --
@@ -2228,16 +2528,25 @@ details.think[open] .caret{transform:rotate(90deg)}
 .md p{margin:0 0 9px;white-space:pre-wrap}
 .md p:last-child,.md ul:last-child,.md ol:last-child,.md table:last-child{
   margin-bottom:0}
-.md .mdh{color:var(--text-hi);font-weight:600;margin:13px 0 6px;line-height:1.3}
+/* #383: THE MOCKUP'S HEADING, every level -- weight and colour set it off, not
+   size. h3 and below are the prose's own size; h1 and h2 keep one step above
+   it so a hierarchy remains. The prose is the user's 13 px (the owner,
+   2026-10-14: "Crows output ist groesser") -- 15 / 14 / 13 px. */
+.md .mdh{color:var(--text);font-weight:650;margin:16px 0 6px;line-height:1.4}
 .md .mdh:first-child{margin-top:0}
-.md .mdh1{font-size:16px}
-.md .mdh2{font-size:14.5px}
-.md .mdh3,.md .mdh4,.md .mdh5,.md .mdh6{font-size:13px}
+.md .mdh1{font-size:15px}
+.md .mdh2{font-size:14px}
+.md .mdh4,.md .mdh5,.md .mdh6,
+.md .mdh3{font-size:13px;line-height:1.4;margin:16px 0 6px;font-weight:650;
+  color:var(--text)}
 .md ul,.md ol{margin:0 0 9px;padding-left:21px}
 .md li{margin:2px 0}
+.md li::marker{color:var(--dim)}
 .md strong{color:var(--text-hi);font-weight:600}
-.md code{font-family:var(--mono);font-size:12px;background:var(--raised);
-  border-radius:4px;padding:1px 5px}
+/* #383: inline code as a chip, the mockup's `.ic`. */
+.md code{font-family:var(--mono);font-size:.86em;background:var(--raised);
+  border:1px solid var(--line-soft);border-radius:5px;padding:1px 5px;
+  color:var(--text)}
 .md a.lnk{color:var(--accent);text-decoration:underline;cursor:pointer}
 /* -- #228: what can be selected, in BOTH spellings ------------------------
    WEBKITGTK DROPS THE UNPREFIXED PROPERTY. Measured 2026-09-23, WebKitGTK
@@ -2278,39 +2587,15 @@ a.lnk:focus-visible,.pth:focus-visible
 .md th,.md td{border:1px solid var(--line);padding:5px 9px;text-align:left;
   vertical-align:top}
 .md th{background:var(--raised);color:var(--text-hi);font-weight:600}
-/* #131. THE TOOL-CALL TILE. Collapsed it is a title, a count and a plus; open
-   it is every call this chat has made. It sizes to the WIDEST row it holds --
-   `width:max-content` -- because a tool line is a path plus arguments and a
-   fixed width would ellipsis away the half that says which file.
-   ABSOLUTE AND NOT STICKY: sticky inside `#flow` scrolls with the first turn
-   until it hits the top, which is a tile that moves for no reason. */
-/* THE SAME GROUND AS THE USER'S BUBBLE, and by the same tokens rather than by
-   a matching literal: `--raised` and `--line` are defined once per palette, so
-   the tile follows the skin that is on instead of following one that was. */
-/* #138. IM PANEL, NICHT MEHR UEBER DEM CHAT. Als Kachel schwebte sie absolut
-   ueber der Leseflaeche und musste sich auf 44vw begrenzen, um sie nicht zu
-   verdecken. In einer eigenen Spalte verdeckt sie nichts, also nimmt sie die
-   volle Breite und traegt weder Schatten noch eigene Ecke -- beides war die
-   Sprache eines Elements, das ueber etwas anderem liegt. */
-#toolcalls{width:100%;border:1px solid var(--line);border-radius:8px;
-  background:var(--raised);font-size:11.5px;overflow:hidden}
-#toolcalls .tchd{display:flex;align-items:center;gap:9px;padding:7px 12px;
-  cursor:pointer;user-select:none}
-#toolcalls .tct{font-weight:600;color:var(--text-soft)}
-#toolcalls .tcn{color:var(--dimmer);font-variant-numeric:tabular-nums}
-#toolcalls .tcx{margin-left:auto;color:var(--dimmer);font-size:15px;
-  line-height:1;width:11px;text-align:center}
-#toolcalls.shut .tcbody{display:none}
-#toolcalls .tcbody{border-top:1px solid var(--line);padding:8px}
-#toolcalls .tool{margin:0 0 6px}
-/* INSIDE THE TILE THE ARGUMENTS ARE THE POINT, so they are not clipped -- the
-   tile grew to fit them. In the flow they were one line of a column that had
-   other things to show. */
-#toolcalls .tcclear{font:inherit;font-size:10.5px;cursor:pointer;
-  border-radius:5px;padding:2px 9px;background:transparent;
-  border:1px solid var(--line);color:var(--dimmer)}
-#toolcalls .tcclear:hover{border-color:var(--bevel);color:var(--text-hover)}
-#toolcalls .empty{margin:0;padding:2px 4px}
+/* #131. TOOL CALLS DO NOT BELONG IN THE READING COLUMN. A turn of 24 rounds
+   put 24 rows between the question and the answer; they are collected in the
+   side column instead (#138), one list per chat, there before the first call.
+   #384. A LIST IN THE INSPECTOR'S TOOLS TAB, as the mockup draws it: no tile
+   and no fold of its own -- the tab is the surface, and every row folds by
+   itself. */
+#toolcalls{width:100%;display:flex;flex-direction:column;font-size:12.5px}
+#tclist{display:flex;flex-direction:column;gap:1px}
+#toolcalls .empty{margin:0;padding:6px 8px;color:var(--dim);font-size:12px}
 
 /* #156. DIESELBE KACHEL FUER JEDE KLAPPE, und das ist des Owners Ansage vom
    2026-08-29: "sollen so ein panel haben wie Tool-Calls mit diesem Grau
@@ -2358,29 +2643,61 @@ a.lnk:focus-visible,.pth:focus-visible
 
 /* #138b. JEDE ZEILE IST IHRE EIGENE KLAPPE. Der Kopf bleibt eine Zeile -- er
    ist der Index -- und alles, was Platz braucht, liegt darunter und nur dann,
-   wenn jemand danach gefragt hat. */
-#toolcalls .tool{border:1px solid transparent;border-radius:6px}
-#toolcalls .tool .hd{cursor:pointer;user-select:none}
-#toolcalls .tool:not(.shut){border-color:var(--line);background:var(--panel)}
-#toolcalls .tool.shut .tbody{display:none}
-#toolcalls .tool .tx{margin-left:6px;color:var(--dimmer);width:9px;
-  text-align:center;flex:none}
+   wenn jemand danach gefragt hat.
+   #384. THE MOCKUP'S ROW: 32 px, a two-digit number, the dot of the call's
+   kind (`toolKind`, the kinds #383's trace strip draws), the name in mono,
+   the first argument as a summary cut by an ellipsis, a chevron. Open, the
+   row is raised and ARGUMENTS and RESULT stand under it; a call with neither
+   has nothing to open (`.flat`). The note is the call's clock (#172). The
+   dot colours are this list's own, under `#toolcalls`. */
+#toolcalls .tool{margin:0;border:0;border-radius:0;background:none;overflow:visible}
+#toolcalls .tool .hd{display:flex;align-items:center;gap:9px;width:100%;height:32px;
+  padding:0 8px;border:0;border-radius:7px;background:transparent;
+  color:var(--text-soft);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+#toolcalls .tool .hd:hover{background:var(--hover)}
+#toolcalls .tool:not(.shut) .hd{background:var(--raised)}
+#toolcalls .tool.flat .hd{cursor:default}
+#toolcalls .tool .hd:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
+#toolcalls .tool .num{font-family:var(--mono);font-size:10.5px;color:var(--dim);
+  width:16px;flex:none}
+#toolcalls .tool .ico{width:7px;height:7px;border-radius:50%;flex:none;
+  display:inline-block;background:var(--dim)}
+#toolcalls .tool .ico.k-goal{background:var(--dim)}
+#toolcalls .tool .ico.k-cmd{background:var(--accent)}
+#toolcalls .tool .ico.k-sub{background:var(--sub)}
+#toolcalls .tool .name{color:var(--text);font-family:var(--mono);font-size:12px;flex:none}
+#toolcalls .tool .su{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;color:var(--dim)}
+#toolcalls .tool .note{flex:none;margin:0;padding:0;font-family:var(--mono);
+  font-size:10.5px;color:var(--dim);white-space:nowrap}
+#toolcalls .tool .note:empty{display:none}
+#toolcalls .tool.run .note{color:var(--warn);font-variant-numeric:tabular-nums}
+#toolcalls .tool .tx{width:14px;height:14px;color:var(--dim);flex:none;
+  transition:transform .15s}
+#toolcalls .tool:not(.shut) .tx{transform:rotate(90deg)}
+#toolcalls .tool.flat .tx{visibility:hidden}
 /* EIN FEHLGESCHLAGENER AUFRUF TRAEGT ES AM KOPF, nicht erst im Rumpf: sonst
    muesste man neunzig Zeilen aufklappen, um den einen zu finden, der der
-   Grund war. */
-#toolcalls .tool.bad .ico{color:var(--bad,#e06c75)}
-#toolcalls .tbody{padding:2px 8px 8px}
-#toolcalls .tsec{margin-top:6px}
-#toolcalls .tsh{font-size:10px;letter-spacing:.04em;text-transform:uppercase;
-  color:var(--dimmer);margin-bottom:3px}
-/* DIE ANTWORT IN EINEM EIGENEN BLOCK, abgesetzt gegen die Argumente. Beides
-   in einem Kasten war die Form, die aus dem Panel eine JSON-Wand gemacht hat:
-   was hineinging und was herauskam sahen gleich aus. */
-#toolcalls .tsp{margin:0;padding:6px 8px;border-radius:5px;background:var(--rail);
-  border:1px solid var(--line);white-space:pre-wrap;word-break:break-word;
-  max-height:260px;overflow:auto;font-size:11px;line-height:1.45}
-#toolcalls .res .tsp{background:var(--raised)}
-#toolcalls .tsmore{font-size:10px;color:var(--dimmer);margin-top:3px}
+   Grund war. #384: the dot in --bad and the word "error" in the row. */
+#toolcalls .tool.bad .ico{background:var(--bad)}
+#toolcalls .tool.bad .note{color:var(--bad)}
+#toolcalls .tool.shut .tbody{display:none}
+/* ALL OF IT HERE: `.tbody` alone is a reasoning block in the chat. */
+#toolcalls .tool .tbody{display:flex;flex-direction:column;gap:6px;margin:0;
+  padding:6px 6px 12px 33px;border:0;border-radius:0;background:none;color:inherit;
+  font-size:inherit;line-height:inherit;white-space:normal;max-height:none;overflow:visible}
+#toolcalls .tsec{display:flex;flex-direction:column;gap:6px}
+/* DIE ANTWORT IN EINEM EIGENEN BLOCK unter ihrem eigenen Namen, abgesetzt gegen
+   die Argumente: was hineinging und was herauskam, nie in einem Kasten. */
+#toolcalls .tsec.res{margin-top:4px}
+#toolcalls .tsh{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--dim);font-weight:600}
+/* UMBRECHEND UND NICHT SCROLLEND: eine Zeile JSON ist tausend Zeichen lang. */
+#toolcalls .tsp{margin:0;padding:9px 11px;border-radius:8px;background:var(--code-bg);
+  color:var(--code);border:1px solid var(--line-soft);white-space:pre-wrap;
+  word-break:break-word;font-family:var(--mono);font-size:11.5px;line-height:1.55}
+#toolcalls .tsmore{font-size:10.5px;color:var(--dim)}
+@media (prefers-reduced-motion:reduce){#toolcalls .tool .tx{transition:none}}
 
 .tool{margin:11px 0;border:1px solid var(--line);border-radius:8px;
   background:var(--panel);overflow:hidden}
@@ -2432,8 +2749,28 @@ a.lnk:focus-visible,.pth:focus-visible
    stack; the body around it does not. */
 code,.asktop code,#url,.cost{font-family:var(--mono)}
 .cost{margin-top:11px;font-size:10.5px;color:var(--dimmer);
-  border-top:1px dashed var(--line);padding-top:7px;overflow-x:auto;
+  border-top:1px dashed var(--line);padding-top:7px}
+/* #383. THE TELEMETRY STRIP, the mockup's `.tele`: labelled cells that wrap
+   instead of one line that scrolled sideways -- nothing to scroll. A CELL IS
+   SIZED BY ITS CONTENT and its label, value and sub-line never break inside
+   themselves (nowrap on those three, not on the strip): when the row is too
+   narrow whole cells go to a second row. A fixed 112 px basis let a phrase
+   outgrow its cell and break ("subtask . 65 / tok"). Two classes, so it wins
+   over `.cost` above. */
+.cost.tele{display:flex;flex-wrap:wrap;margin-top:12px;padding:0;
+  border:1px solid var(--line-soft);border-radius:12px;background:var(--panel);
+  overflow:hidden;overflow-wrap:normal;font-family:var(--ui);font-size:13px;
+  color:var(--dim)}
+.tele .m{flex:1 1 auto;display:flex;flex-direction:column;gap:1px;
+  padding:9px 13px;box-shadow:1px 0 0 var(--line-soft)}
+.tele .ml{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--dim);font-weight:600;white-space:nowrap}
+.tele .mv{font-size:15px;color:var(--text);font-weight:500;line-height:1.35;
   white-space:nowrap}
+.tele .mv small{font-size:11px;color:var(--dim);margin-left:3px;font-weight:400}
+.tele .ms{font-size:11px;color:var(--dim);white-space:nowrap}
+.tele .m.dlg .mv{color:var(--sub)}
+.tcut{margin-top:6px;font-size:11.5px;color:var(--warn)}
 .fail{color:var(--bad);font-size:11.5px;margin-top:8px;
   /* `failure_line` puts advice on a second line. Without this the
      newline renders as a space and the advice reads as part of the
@@ -2792,7 +3129,8 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
    in Chromium, so it fades to nothing rather than through grey -- and 26px of it
    is why the gap #flow keeps below is measured from offsetHeight, which
    INCLUDES the fade: the last line comes to rest above it, never inside it. */
-/* #233: z-index 6, EINE STUFE UEBER #panels (5). #box ist mit
+/* #233: z-index 6, EINE STUFE UEBER den Karten (#panels, 5; seit #384 im
+   Inspektor). #box ist mit
    `z-index:1` ein eigener Stapelkontext, also galt das `z-index:40` der Menues
    nur darin -- Modell-, Stufen- und Ordnermenue oeffneten UNTER der Git-Karte
    (elementFromPoint: #gitbranchname ueber der Modellzeile, 1180x800). Hebt man
@@ -2800,37 +3138,48 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
    `--comph` oberhalb, also teilen sich beide sonst kein Pixel. */
 /* #256: BEIDE SEITEN --sbw, aus demselben Grund wie links an #flow --
    die Maske steht auf der Mitte von #main, nicht 5 px links davon. */
-/* #280: dieselben --sbw, --reserve und --colpad wie #flow und .turn. */
+/* #280: dieselben --sbw und --colpad wie #flow und .turn (#384: ohne die
+   #233/#256-Kartenreserve). */
 #composer{position:absolute;bottom:0;z-index:6;
-  left:calc(var(--sbw) + var(--reserve));right:calc(var(--sbw) + var(--reserve));
-  padding:26px var(--colpad) 14px;
+  left:var(--sbw);right:var(--sbw);
+  padding:26px var(--colpad) 20px;
   background:linear-gradient(to bottom,transparent,var(--bg) 26px)}
-/* #233. WO PLATZ IST, WEICHT DIE SPALTE DEN KARTEN AUS. Die Karten
-   bleiben absolut (#164), aber ueber der Leseflaeche lagen sie bei jeder
-   Breite: 1920x1080 (#main 1418 px) endet die 960er-Spalte bei 1189, die
-   Karten beginnen bei 1112 -- 77 px jedes Zuges und der Kopierknopf jedes
-   Code-Blocks darunter. Ab 1100 px #main bekommt #flow rechts die Breite der
-   Karten (290 + 16 Rand) dazu, und #composer zieht seine rechte Kante um
-   dieselben 306 px ein: Spalte und Maske bleiben buendig und mittig im freien
-   Raum (Mitte beider: (#main - --sbw - 306)/2). Darunter bleibt das Schweben,
-   wie es war -- eine reservierte Spalte waere dort schmaler als die Karte.
-   Nur solange eine Karte STEHT: das Git-Panel offen oder ein Ziel gesetzt.
-   #256 (der Owner, 2026-09-23): "die Eingabemaske ist nicht mittig". Die
-   Reserve nur RECHTS schob Spalte und Maske um 306/2 = 153 px (+ 5 px Rinnstein)
-   links der Fenstermitte -- gemessen 158 px, Chromium, 1920x900, Git offen.
-   Jetzt reserviert #flow die Kartenbreite auf BEIDEN Seiten und die Maske
-   zieht beide Kanten um dieselben 306 px ein: die Mitte bleibt die von #main,
-   und die Karten liegen trotzdem nie ueber dem Text. Die Spalte wird dabei nur
-   schmaler, wo 960 + 2 x 316 + 2 x --sbw nicht passen (#main < 1612 px);
-   darueber ist die Reserve wirkungslos, weil .turn ohnehin 960 breit ist. */
-@container chat (min-width:1100px){
-  body:not([data-git="shut"]) #flow,
-  #main:has(#goalpanel:not([hidden])) #flow,
-  #main:has(#subpanel:not([hidden])) #flow,
-  body:not([data-git="shut"]) #composer,
-  #main:has(#goalpanel:not([hidden])) #composer,
-  #main:has(#subpanel:not([hidden])) #composer{--reserve:306px}
+/* -- #385: the start screen ---------------------------------------------- */
+/* AN EMPTY CHAT IS ONE CENTRED GROUP (mockup Start.dc.html): the mark and the
+   greeting (#hello in #flow), the composer 26 px under them, then "Continue"
+   and up to two cards. `#main.empty` is set by `crow.emptyCheck` exactly while
+   #flow holds the greeting, so the first turn -- which removes it -- puts the
+   composer back at the bottom. CENTRED BY TWO EQUAL FLEX SPACERS and not by
+   `justify-content:center`: on a window too short for the group the spacers
+   shrink to nothing and #main scrolls, instead of cutting the mark off at the
+   top. The phone layer (below 700 px, #387) is left as it was. */
+@media (min-width:701px){
+  #main.empty{overflow-y:auto;padding:40px 0}
+  #main.empty::before,#main.empty::after{content:"";flex:1 0 0}
+  #main.empty #flow{flex:none;overflow:visible;padding:0;scrollbar-gutter:auto}
+  #main.empty #hello{min-height:0;max-width:calc(760px + 2 * var(--colpad))}
+  #main.empty #composer{position:relative;left:auto;right:auto;bottom:auto;
+    padding:26px var(--colpad) 0;background:none}
+  #main.empty #box{max-width:760px;border-radius:18px;padding:14px 10px 10px 16px;
+    gap:10px;box-shadow:0 14px 40px var(--shadow)}
+  #main.empty #in{font-size:15px;min-height:4.5em}
+  #main.empty #cont:not([hidden]){display:flex}
 }
+#cont{display:none;flex:none;flex-direction:column;gap:10px;width:100%;
+  max-width:calc(760px + 2 * var(--colpad));margin:32px auto 0;
+  padding:0 var(--colpad)}
+#cont .lbl{padding-left:2px;font-size:10.5px;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--dim)}
+#cont .cards{display:flex;gap:10px;flex-wrap:wrap}
+.cont{flex:1 1 240px;display:flex;flex-direction:column;gap:4px;min-width:0;
+  padding:12px 14px;border:1px solid var(--line-soft);border-radius:12px;
+  background:transparent;color:var(--text-soft);font:inherit;text-align:left;
+  cursor:pointer}
+.cont:hover{background:var(--hover);border-color:var(--line)}
+.cont-t{font-size:13.5px;color:var(--text);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.cont-s{font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
 /* DAS BAND LIEGT UEBER DEM PLATZHALTER, NICHT UEBER DER ZEILE (the owner,
    2026-08-23). Eine eigene Zeile machte die Maske hoeher, sobald jemand zu
    sprechen anfaengt, und schoebe alles darunter -- dieselbe Bewegung, die der
@@ -2857,10 +3206,15 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
 /* AT REST NO COLOUR (the owner, 2026-09-27): the idle frame was --bevel, the
    banner blue, plus a faint blue ring, so a box nobody was typing in
    read as selected. It is now the neutral --line of every other frame and no
-   ring; the glow belongs to #box.focus alone, which is unchanged. */
-#box{border:1px solid var(--line);border-radius:8px;background:var(--panel);
-  padding:9px 11px 8px;box-shadow:none;
-  transition:border-color .15s ease,box-shadow .15s ease;
+   ring; the glow belongs to #box.focus alone (#385: the accent frame alone). */
+/* #385: THE MOCKUP'S COMPOSER -- radius 16, --panel on a --line frame, lifted
+   off the chat by a soft drop shadow (`0 10px 30px var(--shadow)`, a lift and
+   not a ring: the frame itself stays neutral), the textarea over one row of
+   controls 8 px below it. */
+#box{border:1px solid var(--line);border-radius:16px;background:var(--panel);
+  padding:12px 10px 10px 14px;box-shadow:0 10px 30px var(--shadow);
+  display:flex;flex-direction:column;gap:8px;
+  transition:border-color .15s ease;
   /* --colw (900), the width .turn's text runs at: .turn is --colw plus
      --colpad either side. The same variable here puts this box's border on
      the same edge as the text above it (#280: and on the bubbles' edges).
@@ -2873,7 +3227,8 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
    also stuenden sonst beide uebereinander und die ruhenden Punkte laesen sich
    als Zeichen im Satz -- genau so sah es am 2026-08-23 beim Owner aus. */
 #box.rec #in::placeholder{color:transparent}
-#box.focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(126,176,248,.13)}
+/* #385: focus is the accent frame alone, as in the mockup (`:focus-within`). */
+#box.focus{border-color:var(--accent)}
 /* THE WHOLE BOX, NOT A SEPARATE ZONE. A drop target that is smaller than the
    thing it looks like is a target people miss; the window takes a file anywhere
    and the box is what says so. */
@@ -2885,6 +3240,7 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
 #line{display:flex;position:relative;align-items:flex-start}
 /* #142: staged images in the composer, and a sent one in the transcript. */
 #stage{display:flex;gap:6px;flex-wrap:wrap;padding:8px 8px 0}
+#stage[hidden]{display:none}
 #stage .imgchip{position:relative}
 #stage .imgchip img{height:46px;border-radius:6px;display:block;
   border:1px solid var(--bevel)}
@@ -2982,9 +3338,12 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 #lbinfo dt{color:var(--dim)}
 #lbinfo dd{margin:0;color:var(--text);overflow-wrap:anywhere;-webkit-user-select:text;
   user-select:text}
+/* #385: 14.5 px, two rows at rest (the mockup's `rows="2"`, as a minimum
+   height so the phone's one-row field keeps its own). */
 #in{flex:1;background:transparent;border:0;outline:0;resize:none;color:var(--text);
-  font:inherit;font-size:13px;line-height:1.5;max-height:140px;user-select:text}
-#in::placeholder{color:var(--dimmer)}
+  font:inherit;font-size:14.5px;line-height:1.5;min-height:3em;max-height:140px;
+  padding:0;user-select:text}
+#in::placeholder{color:var(--dim)}
 /* #138c. NICHTS RAGT AUS DER MASKE, UND ZWAR BEI JEDER BREITE.
    Der Owner, 2026-08-26: "die Icons gucken immer noch ausserhalb der Eingabemaske".
    Der Pfeil stand rechts NEBEN dem Rahmen statt darin.
@@ -3005,9 +3364,13 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    KEIN `flex-wrap`. Umbrechen wuerde die Maske hoeher machen, sobald ein Chip
    nicht passt -- und "das darf sich nicht verschieben" war die zweite Haelfte
    der Ansage. */
-#foot{display:flex;align-items:center;gap:10px;margin-top:9px;font-size:11px;
+#foot{display:flex;align-items:center;gap:6px;font-size:11px;
   color:var(--dimmer);min-width:0}
-#ctx{font-size:11.5px;white-space:nowrap;min-width:0;overflow:hidden;
+/* #385: THE CONTEXT METER of the mockup -- a 44x4 bar filled used / n_ctx
+   (accent; amber from half, red from 85 %, the colours the number carried
+   before), then `6.1k / 200k` in mono. */
+#ctx{display:inline-flex;align-items:center;gap:7px;padding:0 4px;
+  font-size:11.5px;color:var(--dim);white-space:nowrap;min-width:0;overflow:hidden;
   text-overflow:ellipsis;
   /* #231: .2 STATT 1, damit die Rangfolge oben stimmt. Schrumpfen
      verteilt sich nach Faktor MAL Basis; mit 1 verlor die kurze Zahl anteilig
@@ -3023,10 +3386,15 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    `test_the_chip_borrows_the_shape_of_its_new_neighbours` liest die ERSTE
    Regel dieses Selektors und fand statt der Pillenform zwei Zeilen Flexbox. */
 #model>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#ctx .fill{color:var(--ok)} #ctx .fill.w{color:var(--warn)} #ctx .fill.b{color:var(--bad)}
-#ctx .rest{color:var(--dimmer)}
-#ctx .n{color:var(--dim);margin-left:5px}
-/* STRETCH, NOT CENTER, AND THAT IS THE WHOLE FIX. Four controls sat here at
+#ctx:empty{display:none}
+#ctx .ctxbar{width:44px;height:4px;border-radius:2px;background:var(--line);
+  overflow:hidden;display:inline-flex;flex:none}
+#ctx .ctxbar span{background:var(--accent);height:100%}
+#ctx .ctxbar.w span{background:var(--warn)}
+#ctx .ctxbar.b span{background:var(--bad)}
+#ctx .mono{overflow:hidden;text-overflow:ellipsis}
+/* (#119; #385 below centres the row again, at the mockup's sizes per kind.)
+   STRETCH, NOT CENTER, AND THAT IS THE WHOLE FIX. Four controls sat here at
    four heights because each one was as tall as whatever it happened to hold:
    the level and the folder are a 11.5px line box at the inherited 1.55 factor
    (25.83px with padding and border), the arrow is 14px at 1.2 (22.8), and the
@@ -3044,12 +3412,16 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    (der Hinweis traegt 0 bei, siehe #hint), #acts schrumpft nie darunter und
    nimmt allen Rest der Zeile -- den der Hinweis fuellt. Der Mangel landet bei
    #ctx und #modelwrap, die dafuer min-width:0 und Ellipse haben. */
-#acts{margin-left:auto;display:flex;gap:8px;align-items:stretch;
+/* #385: CENTRED, AT THE MOCKUP'S OWN SIZES -- the chip 28 px, the microphone
+   32, the send 34. #119's stretch gave every control the tallest one's height;
+   the mockup draws them as three sizes on one centre line. */
+#acts{margin-left:auto;display:flex;gap:6px;align-items:center;
   min-width:0;flex:1 0 auto}
 /* #138c. DIE KNOEPFE GEBEN NICHT NACH. Sie sind das Angeklickte, und ein
    halber Knopf ist schlimmer als ein gekuerztes Wort -- also schrumpft in
-   dieser Reihe nur der Hinweis. */
-#acts>#rootwrap,#acts>#modewrap,#acts>#mic,#acts>#go{flex:none}
+   dieser Reihe nur der Hinweis. #385: der Ordner steht seither im Kopf des
+   Chats (oder, im leeren Chat, links in dieser Reihe) und gibt dort nicht nach. */
+#acts>#modewrap,#acts>#mic,#acts>#go,#rootwrap{flex:none}
 /* CENTRED, NOT STRETCHED: it is a bare word with no border to line up, and a
    stretched span puts its text at the top of the box instead of on the row. */
 #hint{color:var(--dimmer);font-size:10.5px;align-self:center;
@@ -3067,21 +3439,23 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    "1234 tok · 23.4 tok/s" waehrend eines Zuges auf zwei Zeilen um (1280x720)
    und machte die Fusszeile hoeher, genau in dem Moment, in dem gelesen wird. */
 #turnstate{white-space:nowrap;flex:none}
-/* A FLEX BOX SO THE GLYPH STAYS ON THE CENTRE LINE once #acts stretches this
-   button past its own line box. Left as a plain button it would grow at the
-   bottom and the arrow would ride high in it. */
-#go{font:inherit;font-size:11.5px;cursor:pointer;border-radius:6px;
-  padding:3px 13px;background:transparent;border:1px solid var(--line);
-  color:var(--dim);display:flex;align-items:center;justify-content:center}
-/* THE ARROW IS THE LABEL, so the button is one glyph wide plus its padding --
-   about half of what "send" needed. The larger size applies only while idle:
-   "Stop" keeps 11.5px, because a word set at 14px would grow the button in the
-   one state where it is already the wider of the two. */
-#go:not(.stop){font-size:14px;line-height:1.2;padding:2px 11px}
-#go:hover{border-color:var(--bevel);color:var(--accent)}
-#go.stop{color:var(--bad-text);background:rgba(240,101,90,.10);
-  border-color:rgba(240,101,90,.45)}
-#go.stop:hover{background:rgba(240,101,90,.18)}
+/* #385: THE MOCKUP'S ROUND SEND, 34 px in --accent with the arrow in
+   --on-accent. The button's TEXT stays the state's word (the arrow, "Stop",
+   "Queue") -- it is what a screen reader says and what the page's own code
+   sets -- at size 0; the glyph is the mockup's stroke arrow, drawn as a mask,
+   and Stop keeps its meaning as a square on the alarm colour. */
+#go{position:relative;width:34px;height:34px;flex:none;border-radius:50%;
+  border:0;padding:0;background:var(--accent);color:var(--on-accent);
+  font:inherit;font-size:0;cursor:pointer;display:inline-flex;align-items:center;
+  justify-content:center}
+#go::before{content:"";width:16px;height:16px;background:currentColor;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 19V5M6 11l6-6 6 6' fill='none' stroke='%23000' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 19V5M6 11l6-6 6 6' fill='none' stroke='%23000' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
+#go:hover{filter:brightness(1.1)}
+#go.stop{color:var(--bad);background:rgba(240,101,90,.16);
+  box-shadow:inset 0 0 0 1px rgba(240,101,90,.55)}
+#go.stop:hover{background:rgba(240,101,90,.24);filter:none}
+#go.stop::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='7' y='7' width='10' height='10' rx='2'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='7' y='7' width='10' height='10' rx='2'/%3E%3C/svg%3E")}
 
 /* -- the microphone, between the level and the arrow ------------------- */
 /* IT BORROWS #go's SHAPE rather than inventing one. The two sit against each
@@ -3090,12 +3464,10 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    that lacks it would draw a box, and an emoji would drag its own colour into
    a row that takes every colour from state. `currentColor` means the drawing
    follows the button, including into the recording red. */
-#mic{font:inherit;cursor:pointer;border-radius:6px;padding:2px 10px;
-  background:transparent;border:1px solid var(--line);color:var(--dim);
-  display:flex;align-items:center;
-  transition:color .15s ease,border-color .15s ease,background .15s ease}
-#mic:hover:not([disabled]){border-color:var(--bevel);color:var(--accent)}
-#mic[disabled]{cursor:default;color:var(--dimmer);border-color:var(--line-soft)}
+/* #385: the mockup's 32 px icon button (`.ib`), no frame of its own. */
+#mic{display:inline-flex;align-items:center;justify-content:center;
+  transition:color .15s ease,background .15s ease}
+#mic[disabled]{cursor:default;color:var(--dimmer);background:transparent}
 /* TWO STATES AND NO THIRD. Grey is snoozed, blue glow is recording -- the owner's
    rule, and both halves of it were earned. The first build painted recording
    RED, which is the colour every conference tool on the machine uses for MUTE:
@@ -3106,8 +3478,8 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    while the icon stays the icon it was, and `box-shadow` spreads past the border
    without touching layout, so the row beside it does not move while someone
    speaks. */
-#mic.rec{color:var(--accent);border-color:rgba(126,176,248,.55);
-  background:rgba(126,176,248,.10);animation:micglow 1.8s ease-in-out infinite}
+#mic.rec{color:var(--accent);background:var(--accent-soft);
+  animation:micglow 1.8s ease-in-out infinite}
 @keyframes micglow{
   0%,100%{box-shadow:0 0 0 0 rgba(126,176,248,.32)}
   50%    {box-shadow:0 0 0 6px rgba(126,176,248,0)}}
@@ -3156,15 +3528,15 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    transparent div. The menu is position:absolute and is not a flex item, so
    it is untouched by this. */
 #modewrap{position:relative;display:flex}
-#mode{font:inherit;font-size:11.5px;cursor:pointer;border-radius:6px;
-  padding:3px 11px;background:transparent;border:1px solid var(--line);
-  color:var(--dim);display:flex;align-items:center;gap:6px}
-#mode:hover{border-color:var(--bevel)}
+/* #385: a `.chip` like its neighbours; the colour stays the state. `auto` is
+   the mockup's: --warn on --warn-soft with a --warn dot. */
+#mode{gap:6px}
 #mode .dot{width:7px;height:7px;border-radius:50%;background:currentColor;
   flex:none}
 #mode[data-mode="manual"]{color:var(--text-strong);border-color:var(--bevel)}
 #mode[data-mode="allowedit"]{color:var(--ok);border-color:rgba(78,201,143,.45)}
-#mode[data-mode="auto"]{color:var(--gold);border-color:rgba(229,192,75,.45)}
+#mode[data-mode="auto"]{color:var(--warn);border-color:var(--warn-soft);
+  background:var(--warn-soft)}
 /* YOLO IS THE ALARM COLOUR, on purpose (#bad is what an escaped working area
    and a failed call draw in): a level that asks nothing has to be the loudest
    thing on the strip, not a fourth calm pill. */
@@ -3193,16 +3565,14 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    it. The level is the loud control -- it decides whether a shell runs unasked;
    the boundary decides where, and only ever refuses. Same shape so the two read
    as one row of controls, no colour of its own so it does not compete. */
+/* #385: THE FOLDER CHIP of the chat head (`.chip.mono`, a folder icon and the
+   path with `~` for home); the full path is its title. */
 #rootwrap{position:relative;display:flex}
-#root{font:inherit;font-size:11.5px;cursor:pointer;border-radius:6px;
-  padding:3px 11px;background:transparent;border:1px solid var(--line);
-  color:var(--dimmer);max-width:150px;overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap}
-#root:hover{border-color:var(--bevel)}
+#root{max-width:320px;min-width:0;overflow:hidden}
+#root .rt{overflow:hidden;text-overflow:ellipsis}
 /* UNBOUND IS THE STATE THAT MUST BE VISIBLE, so it is the dashed one: a solid
    quiet button reads as "set and fine", and "no folder" is neither. */
-#root[data-bound="0"]{border-style:dashed}
-#root[data-bound="1"]{color:var(--dim)}
+#root[data-bound="0"]{border-style:dashed;color:var(--dim)}
 
 #rootmenu{position:absolute;bottom:calc(100% + 6px);right:0;min-width:300px;
   max-width:420px;background:var(--panel);border:1px solid var(--bevel);
@@ -3228,18 +3598,21 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    root button sits at the bottom; everything else here is the same list. */
 .chipwrap{position:relative;display:inline-block}
 .chip.pick{cursor:pointer}
-.chip.pick:hover{border-color:var(--bevel)}
 /* #119. IT BORROWS #mode's SHAPE, not the bar's. `.chip` is a pill because the status bar is a
    row of pills; this control now stands in the composer beside #root and #mode, and the rule the
    microphone was built under applies unchanged: a neighbour with its own radius and padding
-   reads as an accident. Same 6px, same 3px/11px, same 11.5px as the two on the other side. */
-#model{border-radius:6px;padding:3px 11px;font-size:11.5px;gap:0;
+   reads as an accident. #385: the shape they share is the mockup's `.chip` now. */
+/* #385: THE MOCKUP'S MODEL CHIP -- the server's dot in --ok, the name, the
+   level in --dim, a chevron -- in the `.chip` shape its neighbours wear. */
+#model{
   /* #138c. DER LAENGSTE TEXT DER REIHE gibt nach, damit die Knoepfe rechts
      nicht aus der Maske gedraengt werden. */
   min-width:0;overflow:hidden}
+#model .dot{background:var(--ok)}
 /* THE LEVEL IS DIMMER THAN THE MODEL because it is the setting, not the subject -- the same
    split #modelmenu draws between a model row and the level rows under it. */
-#model .lvl{color:var(--dimmer)}
+#model .lvl{color:var(--dim)}
+#model .lvl:empty{display:none}
 /* #235. `pre`, WEIL DER RAUM VOR DEM PUNKT SONST STIRBT. `levelLabel`
    liefert " · high", und `.lvl` ist ein eigenes Flex-Item -- also eine eigene
    Zeile, an deren Anfang CSS Text Phase II zusammenfallende Leerzeichen
@@ -3286,39 +3659,44 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    the running state is the one that must be seen, not the finished one. */
 .subcard{border:1px solid var(--line);border-left:3px solid var(--sub);border-radius:10px;
   background:var(--panel);padding:10px 14px;margin:0 0 10px;max-width:760px}
-/* #255. DIE KARTEN WOHNEN IN #subpanel, der dritten Karte der
-   `#panels`-Spalte (#164/#233) -- nicht mehr im Fluss, wo sie mit dem
-   Transkript wegscrollten. Das Panel ist gebaut wie das Zielpanel: eigene
-   Scrollflaeche (`min-height:0` + `overflow:auto`), Kopf klappt. Laufende
-   stehen oben in `.splive`, fertige in `.spdone`, ZU per Default: die aktive
-   Flaeche zeigt nur, was gerade arbeitet. `position:relative` macht das Panel
-   zum offsetParent, damit ein Sprung die Karte IM PANEL einrollt und nie
-   #main verschiebt. */
-#subpanel{flex:0 1 auto;min-height:0;position:relative;
-  overflow:auto;background:var(--panel);border:1px solid var(--line);
-  border-radius:10px;box-shadow:0 6px 24px var(--shadow);font-size:11.5px;
-  padding:0 10px 4px}
+/* #255. DIE KARTEN WOHNEN IN #subpanel, nicht im Fluss, wo sie mit dem
+   Transkript wegscrollten. #384: in the inspector's Subtasks tab, as the
+   mockup draws them -- a head with the counts, then one card per subtask:
+   the fork, the id, the status pill, tokens and time; the task; the model;
+   RESULT. Running above, finished below. `position:relative` makes the panel
+   the offsetParent, so a jump rolls the card into view INSIDE the panel and
+   never moves anything else. */
+#subpanel{flex:1 1 auto;min-height:0;position:relative;overflow:auto;display:flex;
+  flex-direction:column;gap:12px;padding:10px 20px 22px;font-size:13px}
 #subpanel[hidden]{display:none}
-#subpanel .sph{display:flex;align-items:center;gap:8px;padding:13px 5px 11px;
-  cursor:pointer}
-#subpanel .sph b{color:var(--text-faint);font-weight:600;letter-spacing:.2px}
-#subpanel .sph .st{margin-left:auto;color:var(--dimmer);font-family:var(--mono);
-  font-size:10.5px}
-#subpanel .subcard{max-width:none;margin:0 0 8px;padding:8px 11px;
-  background:var(--bg)}
-#subpanel .subcard .shead{font-size:11.5px;gap:7px}
-#subpanel .subcard .stask{font-size:12px;display:-webkit-box;
-  -webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-#subpanel .subcard .sstat{margin-left:0;flex-basis:100%}
-#subpanel .spfold{display:block;width:100%;background:none;border:0;
-  border-top:1px solid var(--line);padding:8px 5px;margin:0 0 4px;font:inherit;
-  font-size:11px;color:var(--dim);text-align:left;cursor:pointer}
-#subpanel .spfold[hidden]{display:none}
-#subpanel .spfold:hover{color:var(--text-soft)}
-#subpanel .spfold .caret{display:inline-block;font-size:8px;margin-right:6px;
-  color:var(--dimmer);transition:transform .12s}
-#subpanel .spfold.open .caret{transform:rotate(90deg)}
-#subpanel.shut .splive,#subpanel.shut .spfold,#subpanel.shut .spdone{display:none}
+#subpanel .sph{display:flex;align-items:center;gap:8px}
+#subpanel .sph .lbl{flex:none}
+#subpanel .sph .st{margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;color:var(--dim);font-family:var(--mono);font-size:11.5px}
+#subpanel .splive,#subpanel .spdone{display:flex;flex-direction:column;gap:12px}
+#subpanel .splive:empty,#subpanel .spdone:empty{display:none}
+/* THE CARD IN FULL HERE: `.subcard` alone is the delegate card in the chat
+   (#383), and nothing of it may reach this one. */
+#subpanel .subcard{position:relative;display:flex;flex-direction:column;
+  align-items:stretch;flex-wrap:nowrap;gap:9px;width:auto;max-width:none;margin:0;
+  padding:12px 13px;border:1px solid var(--line-soft);border-radius:12px;
+  background:var(--panel);color:var(--text-soft);font:inherit;font-size:13px;
+  text-align:left;cursor:default;animation:none}
+#subpanel .subcard .sh{display:flex;align-items:center;gap:8px}
+#subpanel .subcard .sh svg{width:15px;height:15px;color:var(--sub);flex:none}
+#subpanel .subcard .sid{font-family:var(--mono);font-size:12.5px;color:var(--text);
+  font-weight:600}
+#subpanel .subcard .sq{margin-left:auto;font-family:var(--mono);font-size:11px;
+  color:var(--dim);white-space:nowrap}
+#subpanel .subcard .stk{font-size:13px;color:var(--text-soft);white-space:pre-wrap;
+  overflow-wrap:anywhere}
+#subpanel .subcard .smod{font-family:var(--mono);font-size:11px;color:var(--dim);
+  overflow-wrap:anywhere}
+#subpanel .subcard .lbl{margin-top:2px}
+#subpanel .subcard .sres{margin:0;padding:9px 11px;border-radius:8px;
+  background:var(--code-bg);color:var(--code);border:1px solid var(--line-soft);
+  font-family:var(--mono);font-size:11.5px;line-height:1.55;white-space:pre-wrap;
+  word-break:break-word}
 @keyframes subseen{0%{box-shadow:0 0 0 2px var(--sub)}100%{box-shadow:0 0 0 2px transparent}}
 #subpanel .subcard.seen{animation:subseen 1.4s ease-out}
 @media (prefers-reduced-motion: reduce){#subpanel .subcard.seen{animation:none;
@@ -3363,6 +3741,9 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 @media (prefers-reduced-motion: reduce){
   .subcard.run::before{animation:none;
     background:color-mix(in srgb,var(--warn) 60%,transparent)}}
+/* #384: the inspector's card shows running in its pill, not on a left bar. */
+#subpanel .subcard.run{border-left-color:var(--line-soft)}
+#subpanel .subcard.run::before{content:none}
 .subcard .sresult{font-size:12.5px;color:var(--text-soft);margin-top:8px;white-space:pre-wrap;
   border-left:2px solid var(--line);padding-left:12px;overflow-wrap:anywhere}
 /* Its own dot class: `.dot` already belongs to the mode chip, and a shared
@@ -3372,21 +3753,24 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 .sdot.ok{background:var(--ok)}
 .sdot.bad{background:var(--bad)}
 @keyframes subpulse{0%,100%{opacity:1}50%{opacity:.25}}
-.subchat{display:flex;align-items:center;gap:7px;margin:1px 0 1px 18px;padding:4px 8px;
-  width:calc(100% - 18px);background:none;border:0;border-left:1px solid var(--line);
-  border-radius:0 6px 6px 0;font:inherit;font-size:11.5px;color:var(--dim);
-  text-align:left;cursor:default}
+/* #385: THE MOCKUP'S `.ri.child` -- a fork in --sub, the subtask's id in mono,
+   its task, its state as a word (done --ok, running --accent, failed --bad),
+   20 px in under the chat that spawned it. */
+.subchat{display:flex;align-items:center;gap:7px;width:100%;padding:5px 10px 5px 20px;
+  background:transparent;border:0;border-radius:8px;font:inherit;font-size:12px;
+  color:var(--text-soft);text-align:left;cursor:default}
 .subchat[data-open]{cursor:pointer}
-.subchat:hover{background:var(--panel)}
-.subchat .glyph{color:var(--sub);font-weight:600}
+.subchat:hover{background:var(--hover)}
+.subchat svg{width:13px;height:13px;color:var(--sub);flex:none}
+.subchat .sid{color:var(--text);flex:none}
 /* THE TASK IS THE ROW'S SUBJECT and keeps the space: measured 2026-08-27 in
    the 236px rail, an unclamped mono model slug ate the whole line and the
-   title rendered as nothing. The model may truncate; the task may not vanish. */
+   title rendered as nothing. The model went into the row's title (#385). */
 .subchat .stitle{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   flex:1 1 auto;min-width:0}
-.subchat .who{color:var(--dimmer);font-family:var(--mono);font-size:10.5px;
-  margin-left:auto;flex:0 1 auto;max-width:38%;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap}
+.subchat .sst{font-size:11px;flex:none;color:var(--bad)}
+.subchat .sst[data-st="ok"]{color:var(--ok)}
+.subchat .sst[data-st="run"]{color:var(--accent)}
 #subwrap{position:relative;display:inline-flex}
 #subwrap[hidden]{display:none}
 /* der Owner, 2026-08-27: ohne AKTIVE Subtasks zeigt der Chip 0 und traegt den
@@ -3394,6 +3778,7 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
    NUR solange etwas laeuft. Der Zustand ist die Klasse `live`. */
 #subchip{cursor:pointer;display:inline-flex;gap:6px;align-items:center}
 #subchip.live{border-color:var(--sub);color:var(--sub)}
+#subchip.live svg{color:var(--sub)}
 #submenu{position:absolute;bottom:calc(100% + 8px);left:0;width:280px;
   background:var(--panel);border:1px solid var(--line);border-radius:9px;
   padding:5px;box-shadow:0 10px 26px var(--shadow);z-index:40}
@@ -3408,97 +3793,124 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
   color:var(--dimmer);flex:none}
 #submenu .hint{font-size:10.5px;color:var(--dimmer);padding:5px 9px 3px;
   border-top:1px solid var(--line);margin-top:3px}
-.cost .subshare{color:var(--sub)}
 .tool.sub .ico{color:var(--sub)}
 </style>
 <style>/* __REMOTE_CSS__ */</style></head><body data-rail="__RAIL__" data-code="__CODE__" data-git="__GIT__" data-browser="__BROWSER__">
 
 <div id="bar" class="pywebview-drag-region" ondblclick="pywebview.api.maximise()">
-  <!-- #119. LEFT OF THE WORDMARK, and it has to live in the TITLE BAR rather
-       than in the rail head: a button inside the rail goes away with the rail,
-       and then there is no way back. The glyph is the side-panel mark from
-       the owner's reference -- a frame with one column filled, which is the panel
-       it toggles. Inline SVG for the reason the microphone is: the system font
-       has no such character, and an emoji would drag its own colour in. -->
-  <button id="railtoggle" class="pywebview-no-drag" onclick="crow.toggleRail()"
-          title="Show or hide the chat rail">
-    <svg viewBox="0 0 20 20" width="15" height="15" fill="none"
-         stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-      <rect x="2.5" y="4" width="15" height="12" rx="2"></rect>
-      <line x1="8" y1="4" x2="8" y2="16"></line></svg></button>
-  <span id="mark">CR<span>O</span>W</span>
-  <div id="helpwrap" class="pywebview-no-drag">
-    <button id="help" onclick="crow.helpMenu()">Help</button>
-    <div id="helpmenu" hidden>
-      <button onclick="crow.openSettings()">Settings</button>
-    </div>
+  <!-- #382. THREE ZONES OVER THE THREE COLUMNS (mockup Main.dc.html, the owner
+       2026-10-14): rail toggle and wordmark over the rail; the search and the
+       engine chip on the chat panel's two edges; the panel toggles and the
+       window buttons over the side column. Every icon is the mockup's inline
+       stroke SVG at 1.75, `currentColor`, so it takes the theme and the
+       on-state like any text here. -->
+  <div id="barl" class="hz">
+    <!-- #119. LEFT OF THE WORDMARK, and it has to live in the TITLE BAR rather
+         than in the rail head: a button inside the rail goes away with the rail,
+         and then there is no way back. A frame with its left column drawn --
+         the panel it toggles. -->
+    <button id="railtoggle" class="ib pywebview-no-drag" type="button"
+            onclick="crow.toggleRail()" title="Show or hide the chat rail"
+            aria-label="Toggle chat list">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 4v16"></path></svg></button>
+    <span id="mark">CR<span>O</span>W</span>
   </div>
-  <!-- #138. LINKS VON DEN FENSTERKNOEPFEN, aus dem Grund, den #119 fuer den
-       Rail-Knopf aufgeschrieben hat: ein Knopf im Panel geht mit dem Panel weg,
-       und dann gibt es keinen Weg zurueck. Das Zeichen ist die Terminal-Marke des Owners
-       aus dem Noun Project, aber NACHGEZEICHNET statt eingebettet -- die Datei
-       besteht aus gefuellten Pfaden ohne jeden Strich, und `stroke-width` haette
-       dort nichts, worauf es wirken koennte. Als Striche traegt es dieselbe 1.6
-       wie der Rail-Knopf daneben, nimmt `currentColor` wie alles hier, und
-       braucht keine Namensnennung. Derselbe Rahmen wie links, nur ist innen ein
-       Prompt statt einer Spalte. -->
-  <!-- #249. DAS TELEFON, LINKS VON DEN DREI PANEL-KNOEPFEN und durch eine
-       Luecke von ihnen getrennt: es schaltet kein Panel, sondern oeffnet den
-       QR-/Geraete-Dialog (derselbe Weg wie ein nacktes `/remote`). Gezeichnet
-       wie die Nachbarn -- 1.6 Strich, `currentColor`. Aus heisst gedimmt wie
-       sie, an heisst Akzent mit Toenung, ein gruener Punkt heisst: ein Geraet
-       ist verbunden. Der Zustand kommt als `{"k":"remote"}`. -->
-  <button id="remotetoggle" class="pywebview-no-drag" onclick="crow.remoteOpen()"
-          title="Phone mirror: pair a phone on this network">
-    <svg viewBox="0 0 20 20" width="15" height="15" fill="none"
-         stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
-         stroke-linejoin="round" aria-hidden="true">
-      <rect x="5.5" y="2.5" width="9" height="15" rx="2"></rect>
-      <line x1="8.8" y1="14.6" x2="11.2" y2="14.6"></line></svg><span
-      class="rdot" aria-hidden="true"></span></button>
-  <button id="codetoggle" class="pywebview-no-drag" onclick="crow.toggleCode()"
-          title="Show or hide the code panel">
-    <svg viewBox="0 0 20 20" width="15" height="15" fill="none"
-         stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
-         stroke-linejoin="round" aria-hidden="true">
-      <rect x="2.5" y="4" width="15" height="12" rx="2"></rect>
-      <path d="M6.2 8.6 8.6 11 6.2 13.4"></path>
-      <line x1="10.8" y1="13.4" x2="14" y2="13.4"></line></svg></button>
-  <!-- #156. NEBEN DEM CODE-KNOPF, aus demselben Grund wie dieser: ein Schalter
-       im Panel geht mit dem Panel weg. Das Zeichen ist GitHubs eigene Katze --
-       die Marke des Dienstes, den der Knopf verbindet, in der offiziellen
-       Pfadform und mit `currentColor` statt eigener Farbe, damit sie sich in
-       alle drei Themes und in den Aktivzustand einfuegt wie jedes andere
-       Zeichen hier. Ein gefuellter Pfad, kein Strich: `stroke-width` haette
-       daran nichts, worauf es wirken koennte. -->
-  <button id="gittoggle" class="pywebview-no-drag" onclick="crow.toggleGit()"
-          title="Show or hide the git panel">
-    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-      <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47
-        7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01
-        1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95
-        0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6
-        0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08
-        2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54
-        1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
-    </svg></button>
-  <!-- #175. NEBEN DEN BEIDEN ANDEREN, aus demselben Grund: ein Schalter im
-       Panel geht mit dem Panel weg. Ein Globus, gezeichnet statt eingebettet --
-       Kreis, Aequator, ein Meridian: die kleinste Form, die aus einem Kreis eine
-       Weltkugel macht. Dieselbe 1.6 Strichstaerke und `currentColor` wie die
-       Nachbarn, damit die drei eine Reihe sind und nicht drei Zeichen. -->
-  <button id="browsertoggle" class="pywebview-no-drag" onclick="crow.toggleBrowser()"
-          title="Show or hide the browser panel">
-    <svg viewBox="0 0 20 20" width="15" height="15" fill="none"
-         stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-      <circle cx="10" cy="10" r="7.2"></circle>
-      <line x1="2.8" y1="10" x2="17.2" y2="10"></line>
-      <ellipse cx="10" cy="10" rx="3.1" ry="7.2"></ellipse></svg></button>
-  <div id="wbtns" class="pywebview-no-drag">
-    <div class="wb" onclick="pywebview.api.minimise()">&#8211;</div>
-    <div class="wb" onclick="pywebview.api.maximise()">&#9633;</div>
-    <div class="wb close" onclick="document.body.classList.add('closing');
-         pywebview.api.close()">&#10005;</div>
+  <div id="barm" class="hz">
+    <!-- #382. THE SEARCH: a magnifier label for the field, so a click on it
+         focuses the field and CSS alone opens it. Ctrl+K focuses it, Escape
+         lets go. A double-click in it is a word selection, not a maximise, so
+         it stops here.
+         #386. WHAT IT FINDS is the popup under it, a sibling of the field and
+         not a child: the field clips its own overflow. The box around both is
+         as wide as the field, so the list follows it. The input is the
+         combobox (WAI-ARIA APG) -- `type="text"`, because HTML-ARIA lets a
+         `type="search"` without a `list` carry no role but searchbox -- and
+         keeps the DOM focus; the option the keys stand on is named by
+         `aria-activedescendant` (see `finder`). -->
+    <div id="searchbox" class="searchbox">
+      <div id="search" class="search pywebview-no-drag" ondblclick="event.stopPropagation()">
+        <label class="s-ico" for="searchin"><svg viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path
+            d="m20 20-3.5-3.5"></path></svg><span class="sr">Search chats and commands</span></label>
+        <input id="searchin" type="text" role="combobox" aria-autocomplete="list"
+               aria-expanded="false" aria-controls="searchlist"
+               placeholder="Search chats and commands" autocomplete="off" spellcheck="false">
+        <span class="kbd s-kbd">Ctrl K</span>
+      </div>
+      <div id="searchpop" class="pywebview-no-drag" hidden
+           ondblclick="event.stopPropagation()">
+        <div id="searchlist" role="listbox" aria-label="Chats and commands"></div>
+        <div id="searchnone" role="status"></div>
+      </div>
+    </div>
+    <!-- #382. THE ENGINE CHIP: the server's state as a dot and the model's
+         name; a click slides out the level, the last turn's decode rate and
+         the context in use (`crow.showEngine`). A disclosure button, so
+         Enter and Space work as they do on any button. -->
+    <button id="engine" class="engine pywebview-no-drag" type="button"
+            aria-expanded="false" data-state="wait" onclick="crow.engineToggle()"
+            ondblclick="event.stopPropagation()"><span class="edot" aria-hidden="true"></span><span
+            class="ename">connecting</span><span class="more mono"><span class="vsep"></span><span
+            class="elvl" hidden></span><span class="erate" hidden></span><span
+            class="ectx" hidden></span><span class="eword" hidden></span></span></button>
+  </div>
+  <div id="barr" class="hz">
+    <!-- #138/#156/#175. THE PANEL TOGGLES LIVE IN THE TITLE BAR for #119's
+         reason: a switch inside a panel goes away with the panel. #382: in the
+         mockup's order -- side panel, git, browser, phone -- and its icons:
+         a frame with its right column drawn, a branch, a globe. -->
+    <button id="codetoggle" class="ib pywebview-no-drag" type="button"
+            onclick="crow.toggleCode()" title="Show or hide the inspector"
+            aria-label="Inspector">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg></button>
+    <button id="gittoggle" class="ib pywebview-no-drag" type="button"
+            onclick="crow.toggleGit()" title="Show or hide the git panel"
+            aria-label="Git">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle
+        cx="18" cy="7" r="2"></circle><path d="M6 7v10"></path><path
+        d="M18 9a6 6 0 0 1-6 6H8"></path></svg></button>
+    <button id="browsertoggle" class="ib pywebview-no-drag" type="button"
+            onclick="crow.toggleBrowser()" title="Show or hide the browser panel"
+            aria-label="Browser">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path
+        d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"></path></svg></button>
+    <!-- #249. DAS TELEFON: es schaltet kein Panel, sondern oeffnet den
+         QR-/Geraete-Dialog (derselbe Weg wie ein nacktes `/remote`). Aus heisst
+         gedimmt wie die Nachbarn, an heisst Akzent mit Toenung, ein gruener
+         Punkt heisst: ein Geraet ist verbunden. Der Zustand kommt als
+         `{"k":"remote"}`. #382: nach dem Globus, wie im Mockup. -->
+    <button id="remotetoggle" class="ib pywebview-no-drag" type="button"
+            onclick="crow.remoteOpen()" title="Phone mirror: pair a phone on this network"
+            aria-label="Phone">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="7" y="2.5" width="10" height="19" rx="2"></rect><path d="M11 18.5h2"></path></svg><span
+        class="rdot" aria-hidden="true"></span></button>
+    <span class="vsep"></span>
+    <div id="wbtns" class="pywebview-no-drag">
+      <button class="ib wb" type="button" onclick="pywebview.api.minimise()"
+              aria-label="Minimize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path
+              d="M6 12h12"></path></svg></button>
+      <button class="ib wb" type="button" onclick="pywebview.api.maximise()"
+              aria-label="Maximize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="1.75" aria-hidden="true"><rect x="6" y="6" width="12" height="12"
+              rx="1.5"></rect></svg></button>
+      <button class="ib wb close" type="button" aria-label="Close"
+              onclick="document.body.classList.add('closing');
+         pywebview.api.close()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path
+              d="M7 7l10 10M17 7 7 17"></path></svg></button>
+    </div>
   </div>
 </div>
 
@@ -3693,18 +4105,64 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 </template>
 <div id="body">
   <aside id="rail">
-    <div id="railhead"><h2>Chats</h2>
-      <button id="new" onclick="crow.reset()">new</button></div>
+    <!-- #385. THE RAIL AS IN THE MOCKUP (Main.dc.html, the owner 2026-10-14): a
+         full-width "New chat" with its key, the chats grouped under their
+         folders, the archive and the settings at the foot. Ctrl+N anywhere
+         does what this button does. -->
+    <div id="railhead">
+      <button id="new" type="button" onclick="crow.reset()" title="new chat (Ctrl+N)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+             stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg><span
+        class="nl">New chat</span><span class="kbd">Ctrl N</span></button></div>
     <div id="sessions"></div>
-    <button id="archbar" onclick="crow.toggleArchive()">
-      <span class="caret">&#9654;</span>Archive<span class="count"></span></button>
     <div id="arch"></div>
+    <button id="archbar" class="foot" type="button" onclick="crow.toggleArchive()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4"
+           width="18" height="5" rx="1"></rect><path d="M5 9v10h14V9M10 13h4"></path></svg><span
+      class="al">Archive</span><span class="count mono"></span></button>
+    <!-- #382. SETTINGS, where the mockup puts it: at the rail's foot, beside
+         the archive. It was the Help menu's only entry in the title bar. -->
+    <button id="settingsbtn" class="foot" type="button" onclick="crow.openSettings()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" aria-hidden="true"><path
+           d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle
+           cx="10" cy="17" r="2"></circle></svg><span>Settings</span></button>
   </aside>
   <!-- #132. Der Griff zwischen Rail und Chat. Ein eigenes Element und nicht ein
        `resize` auf der Rail: CSS-resize zeichnet einen Anfasser in die Ecke und
        kennt weder Minimum noch Gedaechtnis. -->
   <div id="railgrip" onmousedown="crow.railDrag(event)" title="drag to resize"></div>
   <div id="main">
+    <!-- #385. THE CHAT HEAD (mockup Main.dc.html): the chat's title, the
+         folder it works in (#92's chip and menu, moved here from the
+         composer's button row), the branch of that folder's repository (the
+         #156 git state; hidden without one), and the goal as a pill that opens
+         the inspector's Goal tab. Hidden on an empty chat, whose start screen
+         carries the folder chip in the composer instead (`crow.placeRoot`). -->
+    <div id="chathead">
+      <h1 id="chattitle"></h1>
+      <div id="rootwrap">
+        <button id="root" class="chip mono" type="button" data-bound="0"
+                onclick="crow.rootMenu()"><svg viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"
+                aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span
+                class="rt">no folder</span></button>
+        <div id="rootmenu" hidden></div>
+      </div>
+      <span id="branchchip" class="chip mono" hidden title="branch of the folder's repository"><svg
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5"
+            r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="7"
+            r="2"></circle><path d="M6 7v10"></path><path d="M18 9a6 6 0 0 1-6 6H8"></path></svg><span
+            class="bt"></span></span>
+      <span class="sp"></span>
+      <button id="goalpill" class="pill ok" type="button" hidden onclick="crow.goalPill()"
+              title="open the goal in the inspector"><svg viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.25" stroke-linecap="round"
+              stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg><span
+              class="gt"></span></button>
+    </div>
     <!-- TWO CHIPS, AND THE ADDRESS IS NOT ONE OF THEM. The bar carried five:
          state, model, level, n_ctx and the base URL. Three of them said things
          that belong where the typing happens -- the model and its level are a
@@ -3712,101 +4170,6 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
          readout in the composer. The URL is not a choice at all: it is the one
          fact you look up when something is wrong, so it is the connected
          chip's title and costs no width until asked for. -->
-    <!-- #131. TOOL CALLS DO NOT BELONG IN THE READING COLUMN. A turn of 24
-         rounds put 24 rows between the question and the answer, and what a
-         person came back for was the answer. They are collected here instead:
-         one tile, per chat, always present so there is somewhere to look even
-         before the first call. ABSOLUTE, so it does not scroll away from the
-         reader who wants it. -->
-    <!-- #164. DAS ZIEL, oben rechts IM Chatfenster und nicht als dritte Spalte
-         daneben: es gehoert zu dem Gespraech, in dem es gesetzt wurde, und eine
-         eigene Spalte haette es zu einem Moebel gemacht, das immer da ist.
-         ABSOLUT wie die Tool-Kachel, damit es dem Leser nicht wegscrollt.
-         VERSTECKT OHNE ZIEL (der Owner, 2026-08-30): kein leerer Rahmen. -->
-    <div id="panels">
-      <div id="goalpanel" hidden></div>
-      <!-- #255. DIE SUBTASKS, gepinnt wie Ziel und Git: eine Karte
-           im Chatfenster, nicht im Verlauf. Im Fluss scrollten sie mit dem
-           Transkript weg (the owner, 2026-09-23). Laufende oben, fertige in einer
-           zugeklappten Gruppe darunter. Versteckt, solange der offene Chat
-           nichts delegiert hat. -->
-      <div id="subpanel" hidden>
-        <div class="sph" onclick="crow.subPanelFold()"><b>Subtasks</b>
-          <span class="st"></span><button class="gx" type="button"
-            title="hide this card -- running subtasks keep running"
-            aria-label="Close subtasks card"
-            onclick="crow.subPanelClose(event)">×</button></div>
-        <div class="splive"></div>
-        <button class="spfold" onclick="crow.subDoneFold()" hidden></button>
-        <div class="spdone" hidden></div>
-      </div>
-      <!-- #156. DAS GIT-PANEL. Was der Chat als Karten zeigt -- Aenderungen, ein
-           Commit, ein Push -- steht hier als Zustand: was ist offen, auf welchem
-           Zweig, und was ist passiert. Der Chat erzaehlt den Verlauf, das Panel
-           beantwortet die Lage.
-           UND ES STEHT IM CHATFENSTER, unter dem Ziel: die Lage des Ordners
-           gehoert neben das, woran gerade gearbeitet wird, und nicht neben den
-           Quelltext eines einzelnen Werkzeugaufrufs. -->
-      <aside id="git">
-        <div id="githead">
-          <h2>Git tools</h2>
-          <button id="gituser" class="off" onclick="crow.gitAccount()"
-                  title="GitHub account">not connected</button>
-        </div>
-        <div id="gitbody">
-          <div class="gnone" id="gitnone">no repository in the working folder</div>
-          <section id="gitchanges" class="gitgrp" hidden>
-            <div class="tchd" onclick="crow.gitToggle('gitchanges')">
-              <span class="tct">Changes</span>
-              <span class="gcount"><span class="gplus"></span>
-                <span class="gminus"></span></span>
-              <span class="tcx">−</span>
-            </div>
-            <div class="gbody"><div id="gitfiles"></div></div>
-          </section>
-          <section id="gitbranch" class="gitgrp shut" hidden>
-            <div class="tchd" onclick="crow.gitToggle('gitbranch')">
-              <span class="tct" id="gitbranchname">—</span>
-              <span class="gcount" id="gitab"></span>
-              <span class="tcx">+</span>
-            </div>
-            <div class="gbody"><div id="gitbranches"></div></div>
-          </section>
-          <!-- #156. COMMIT ALS EIGENE GRUPPE, wie im abgenommenen Mockup. Sie
-               nimmt eine Nachricht und legt GENAU die verfolgten, geaenderten
-               Dateien ab, die darueber stehen -- kein `-a`, kein Punkt, und nichts
-               Unverfolgtes: was neu ist, will jemand bewusst hinzunehmen. -->
-          <section id="gitcommit" class="gitgrp shut" hidden>
-            <div class="tchd" onclick="crow.gitToggle('gitcommit')">
-              <span class="tct">⊸ Commit</span>
-              <span class="gcount" id="gitcn"></span>
-              <span class="tcx">+</span>
-            </div>
-            <div class="gbody">
-              <!-- #156. WELCHE DREI, des Owners Frage vom 2026-08-29: "WO SIN DIE 3
-                   FILES". Ein Knopf, der eine Zahl nennt und die Namen verschweigt,
-                   verlangt vom Nutzer, sie zu erraten -- und ausgerechnet vor dem
-                   Schritt, der Geschichte schreibt. Sie stehen jetzt darin, dieselbe
-                   Zeilenform wie unter Changes. -->
-              <div id="gitstaged"></div>
-              <div class="gcommit">
-                <input id="gitmsg" placeholder="commit message"
-                       onkeydown="if(event.key==='Enter')crow.gitCommit()">
-                <button id="gitdo" onclick="crow.gitCommit()">Commit</button>
-              </div>
-              <div class="gnone" id="gitcsaid"></div>
-            </div>
-          </section>
-          <section id="githist" class="gitgrp" hidden>
-            <div class="tchd" onclick="crow.gitToggle('githist')">
-              <span class="tct">History</span><span class="gcount"></span>
-              <span class="tcx">−</span>
-            </div>
-            <div class="gbody"><div id="gitrows"></div></div>
-          </section>
-        </div>
-      </aside>
-    </div>
     <div id="flow"></div>
     <div id="composer">
       <!-- #162. WO MAN STEHT, WENN ES NICHT DER LAUFENDE CHAT IST. Ein Blick in
@@ -3820,9 +4183,13 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
         <!-- #142. One chip per staged image, drawn from what stage_image
              returns. Hidden while empty so the composer keeps its height. -->
         <div id="stage" hidden></div>
-        <div id="line"><textarea id="in" rows="1"
+        <div id="line"><label class="sr" for="in">Message</label><textarea id="in" rows="1"
             placeholder="Message, or /tools for what the model can call"></textarea>
           <div id="voice" hidden></div></div>
+        <!-- #385. ONE ROW, IN THE MOCKUP'S ORDER: the context meter, the
+             model chip, the subtask chip (and, on the start screen, the folder
+             chip) on the left; the hint taking the rest; the release level,
+             the microphone and the round send on the right. -->
         <div id="foot">
           <span id="ctx"></span>
           <!-- BESIDE THE NUMBER IT DECIDES. The model sets the window the
@@ -3837,18 +4204,14 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
           <!-- #143. The subtask chip: beside the model chip, visible as soon
                as anything was delegated, pulsing while anything runs. Click
                opens the list; a finished row jumps into its child chat. -->
-          <span class="chipwrap" id="subwrap" hidden><span class="chip" id="subchip"
+          <span class="chipwrap" id="subwrap" hidden><span class="chip mono" id="subchip"
                 onclick="crow.subsMenu()" title="delegated subtasks"></span>
             <div id="submenu" hidden></div></span>
           <span id="turnstate"></span>
           <div id="acts"><span id="hint"></span>
-            <div id="rootwrap">
-              <button id="root" data-bound="0" onclick="crow.rootMenu()">no folder</button>
-              <div id="rootmenu" hidden></div>
-            </div>
             <div id="modewrap">
-              <button id="mode" data-mode="auto" onclick="crow.modeMenu()"
-                      title="release level for tool calls">
+              <button id="mode" data-mode="auto" class="chip" type="button"
+                      onclick="crow.modeMenu()" title="release level for tool calls">
                 <span class="dot"></span><span id="modename">auto</span></button>
               <div id="modemenu" hidden></div>
             </div>
@@ -3858,17 +4221,23 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
                     onclick="document.getElementById('remotefile').click()">+</button>
             <input id="remotefile" type="file" hidden
                    onchange="crow.remoteUpload(this)">
-            <button id="mic" onclick="crow.mic()" title="dictate">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
-                   stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                   stroke-linejoin="round" aria-hidden="true">
-                <rect x="9" y="2" width="6" height="11" rx="3"></rect>
-                <path d="M5 10a7 7 0 0 0 14 0"></path>
-                <line x1="12" y1="17" x2="12" y2="21"></line></svg></button>
-            <button id="go" onclick="crow.press()" title="send">&#8593;</button></div>
+            <button id="mic" onclick="crow.mic()" class="ib" type="button" title="dictate"
+                    aria-label="Dictate">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="9" y="3" width="6" height="11" rx="3"></rect>
+                <path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path></svg></button>
+            <!-- #385: the round send. Its text stays the state's word ("↑",
+                 "■ Stop", "↑ Queue") for the reader and the tests; the glyph
+                 is drawn by CSS from the same two shapes. -->
+            <button id="go" onclick="crow.press()" type="button" title="send">&#8593;</button></div>
         </div>
       </div>
     </div>
+    <!-- #385. THE START SCREEN'S "CONTINUE": the two newest other chats as
+         cards, under the centred composer of an empty chat (`#main.empty`).
+         Drawn from the rail payload by `crow.contDraw`; none, no section. -->
+    <div id="cont" hidden><span class="lbl">Continue</span><div class="cards"></div></div>
   </div>
   <!-- #138. Der Griff zwischen Chat und Code, gespiegelt zu #railgrip und aus
        demselben Grund ein eigenes Element. -->
@@ -3878,16 +4247,50 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
        zu dem, was hier steht, und nebeneinander waeren beide schmaler. -->
   <!-- #156. DIE SPALTE, die beide Panels haelt. Sie traegt die Breite und den
        Griff; was darin liegt, teilt sich die Hoehe. -->
-  <div id="side">
-  <aside id="code">
+  <!-- #384. THE INSPECTOR (mockup Main.dc.html, the owner 2026-10-14): the same
+       column -- width, grip, clamp and open state (#codetoggle) -- and in it
+       ONE view at a time behind a tab strip: Goal, Tools, Subtasks, plus Git
+       and Browser while their title-bar toggles are on. The goal, subtasks
+       and git cards that floated over the chat's top right (#panels,
+       #164/#255/#156) live here now, so nothing lies over the reading column
+       and the chat keeps its width. WAI-ARIA tabs (tablist / tab /
+       tabpanel), automatic activation; `#side[data-tab]` is the state. -->
+  <div id="side" role="complementary" aria-label="Inspector" data-tab="goal">
+  <div id="itabs" role="tablist" aria-label="Inspector views"
+       onkeydown="crow.inspectorKey(event)">
+    <button id="itab-goal" class="tab on" type="button" role="tab" data-tab="goal"
+            aria-selected="true" aria-controls="igoal" tabindex="0"
+            onclick="crow.inspectorPick('goal')"><span class="tl">Goal</span></button>
+    <button id="itab-tools" class="tab" type="button" role="tab" data-tab="tools"
+            aria-selected="false" aria-controls="code" tabindex="-1"
+            onclick="crow.inspectorPick('tools')"><span class="tl">Tools</span><span
+            class="cnt" hidden></span></button>
+    <button id="itab-subs" class="tab" type="button" role="tab" data-tab="subs"
+            aria-selected="false" aria-controls="isubs" tabindex="-1"
+            onclick="crow.inspectorPick('subs')"><span class="tl">Subtasks</span><span
+            class="cnt" hidden></span></button>
+    <button id="itab-git" class="tab" type="button" role="tab" data-tab="git"
+            aria-selected="false" aria-controls="git" tabindex="-1"
+            onclick="crow.inspectorPick('git')"><span class="tl">Git</span></button>
+    <button id="itab-browser" class="tab" type="button" role="tab" data-tab="browser"
+            aria-selected="false" aria-controls="browser" tabindex="-1"
+            onclick="crow.inspectorPick('browser')"><span class="tl">Browser</span></button>
+  </div>
+  <!-- #164. DAS ZIEL. Versteckt ohne Ziel (der Owner, 2026-08-30: kein leerer
+       Rahmen) -- #384: then the tab says so in one line instead. -->
+  <div id="igoal" role="tabpanel" aria-labelledby="itab-goal" tabindex="0">
+    <div id="goalpanel" hidden></div>
+    <p class="inone">No goal in this chat.</p>
+  </div>
+  <aside id="code" role="tabpanel" aria-labelledby="itab-tools">
     <div id="codehead">
-      <h2>Code</h2><span class="n"></span>
-      <!-- #138b. LEERT ALLES, was in diesem Panel steht -- Quelltext UND
-           Aufrufe. Der `clear` in der Gruppe leert nur die Aufrufe; wer den
-           Verlauf loswerden will, meint beides und soll dafuer nicht zweimal
-           an zwei Stellen klicken. -->
-      <button id="codewipe" onclick="crow.codeWipe(event)"
-              title="clear everything in this panel">clear all</button>
+      <!-- #384: the mockup's head -- the label, what is being written, and
+           #138b's clear, which LEERT ALLES in this tab: the calls AND the
+           program code, and the watermark so a restart does not bring them
+           back. -->
+      <span class="lbl">Tool calls</span><span class="n"></span>
+      <button id="codewipe" type="button" onclick="crow.codeWipe(event)"
+              title="clear the calls and the program code">clear</button>
     </div>
     <div id="codebody">
       <!-- #138b. DIE AUFRUFE ZUERST, DER QUELLTEXT DARUNTER, und die
@@ -3895,15 +4298,8 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
            Umgekehrt gebaut wanderte die Klappe mit jeder geschriebenen Datei
            weiter nach unten: sie ist der INDEX, und ein Index, den man suchen
            muss, ist keiner. Der Quelltext ist das Lange und darf wachsen. -->
-      <div id="toolcalls" class="shut">
-        <div class="tchd" onclick="crow.toolsToggle()">
-          <span class="tct">Tool-Calls</span><span class="tcn"></span>
-          <span class="tcx">+</span>
-        </div>
-        <div class="tcbody">
-          <div id="tclist"></div>
-          <button class="tcclear" onclick="crow.toolsClear(event)">clear</button>
-        </div>
+      <div id="toolcalls">
+        <div id="tclist"></div>
       </div>
       <!-- #138b. UNTER EIGENEM NAMEN. Vorher lagen die Bloecke jedes Werkzeugs
            hier, `web_search` neben `write_file`, und das Panel beantwortete
@@ -3933,6 +4329,86 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
       </section>
     </div>
   </aside>
+  <!-- #255. DIE SUBTASKS des offenen Chats, laufende oben, fertige darunter.
+       Versteckt, solange er nichts delegiert hat (#384: the tab says so) or
+       while its `×` holds them shut for this chat (#281). -->
+  <div id="isubs" role="tabpanel" aria-labelledby="itab-subs" tabindex="0">
+    <div id="subpanel" hidden>
+      <div class="sph"><span class="lbl">Subtasks</span>
+        <span class="st"></span><button class="gx" type="button"
+          title="hide this card -- running subtasks keep running"
+          aria-label="Close subtasks card"
+          onclick="crow.subPanelClose(event)">×</button></div>
+      <div class="splive"></div>
+      <div class="spdone"></div>
+    </div>
+    <p class="inone">Nothing delegated in this chat.</p>
+  </div>
+  <!-- #156. DAS GIT-PANEL. Was der Chat als Karten zeigt -- Aenderungen, ein
+       Commit, ein Push -- steht hier als Zustand: was ist offen, auf welchem
+       Zweig, und was ist passiert. Der Chat erzaehlt den Verlauf, das Panel
+       beantwortet die Lage.
+       #384: a tab of the inspector while its title-bar toggle is on; it was
+       a card over the chat beside the goal before. -->
+  <aside id="git" role="tabpanel" aria-labelledby="itab-git">
+    <div id="githead">
+      <h2>Git tools</h2>
+      <button id="gituser" class="off" onclick="crow.gitAccount()"
+              title="GitHub account">not connected</button>
+    </div>
+    <div id="gitbody">
+      <div class="gnone" id="gitnone">no repository in the working folder</div>
+      <section id="gitchanges" class="gitgrp" hidden>
+        <div class="tchd" onclick="crow.gitToggle('gitchanges')">
+          <span class="tct">Changes</span>
+          <span class="gcount"><span class="gplus"></span>
+            <span class="gminus"></span></span>
+          <span class="tcx">−</span>
+        </div>
+        <div class="gbody"><div id="gitfiles"></div></div>
+      </section>
+      <section id="gitbranch" class="gitgrp shut" hidden>
+        <div class="tchd" onclick="crow.gitToggle('gitbranch')">
+          <span class="tct" id="gitbranchname">—</span>
+          <span class="gcount" id="gitab"></span>
+          <span class="tcx">+</span>
+        </div>
+        <div class="gbody"><div id="gitbranches"></div></div>
+      </section>
+      <!-- #156. COMMIT ALS EIGENE GRUPPE, wie im abgenommenen Mockup. Sie
+           nimmt eine Nachricht und legt GENAU die verfolgten, geaenderten
+           Dateien ab, die darueber stehen -- kein `-a`, kein Punkt, und nichts
+           Unverfolgtes: was neu ist, will jemand bewusst hinzunehmen. -->
+      <section id="gitcommit" class="gitgrp shut" hidden>
+        <div class="tchd" onclick="crow.gitToggle('gitcommit')">
+          <span class="tct">⊸ Commit</span>
+          <span class="gcount" id="gitcn"></span>
+          <span class="tcx">+</span>
+        </div>
+        <div class="gbody">
+          <!-- #156. WELCHE DREI, des Owners Frage vom 2026-08-29: "WO SIN DIE 3
+               FILES". Ein Knopf, der eine Zahl nennt und die Namen verschweigt,
+               verlangt vom Nutzer, sie zu erraten -- und ausgerechnet vor dem
+               Schritt, der Geschichte schreibt. Sie stehen jetzt darin, dieselbe
+               Zeilenform wie unter Changes. -->
+          <div id="gitstaged"></div>
+          <div class="gcommit">
+            <input id="gitmsg" placeholder="commit message"
+                   onkeydown="if(event.key==='Enter')crow.gitCommit()">
+            <button id="gitdo" onclick="crow.gitCommit()">Commit</button>
+          </div>
+          <div class="gnone" id="gitcsaid"></div>
+        </div>
+      </section>
+      <section id="githist" class="gitgrp" hidden>
+        <div class="tchd" onclick="crow.gitToggle('githist')">
+          <span class="tct">History</span><span class="gcount"></span>
+          <span class="tcx">−</span>
+        </div>
+        <div class="gbody"><div id="gitrows"></div></div>
+      </section>
+    </div>
+  </aside>
   <!-- #175. DER BROWSER, gebaut wie das Code-Panel daneben: derselbe Kopf,
        dieselbe Spalte, dieselbe Falte. Er ist eine OBERFLAECHE und nicht nur ein
        Werkzeug hinter dem Modell -- was der Nutzer hier sieht, ist dieselbe
@@ -3943,7 +4419,7 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
        und einiges mehr, und es trifft NICHT den Fall, um den es hier geht: eine
        lokale Datei oder ein localhost-Bau, den das Modell gerade geschrieben
        hat. -->
-  <aside id="browser">
+  <aside id="browser" role="tabpanel" aria-labelledby="itab-browser">
     <div id="brhead">
       <h2>Browser</h2>
       <button id="brnew" onclick="crow.brNew()" title="new tab">+</button>
@@ -4443,6 +4919,19 @@ function genShrink(url, edge){
 }
 // ---- end of the pure half
 
+// #385. THE MOCKUP'S STROKE ICONS that the rail and the composer draw from
+// script: 24-unit boxes at 1.75, `currentColor`, so a row's colour reaches its
+// icon. Constants, never data -- every name beside them goes in by textContent.
+const RICON = (d, cap) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+  + ' stroke-width="1.75"' + (cap ? ' stroke-linecap="round"' : '')
+  + ' stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+RICON.folder = RICON('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>');
+RICON.folderOff = RICON('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>'
+  + '<path d="M4 20 20 6"></path>', true);
+RICON.fork = RICON('<circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="5" r="2"></circle>'
+  + '<circle cx="12" cy="19" r="2"></circle><path d="M6 7v1a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4V7M12 12v5"></path>', true);
+RICON.chevron = RICON('<path d="m6 9 6 6 6-6"></path>', true);
+
 const crow = {
   running:false, col:null, say:null, think:null, fence:null, fenceLang:"",
   cursor:null, blocks:[],
@@ -4461,9 +4950,12 @@ const crow = {
   // WHAT `fold` WILL MOVE NEXT TIME. Set by `start`, cleared by anything that
   // ends the trace: a new user line, a reset, a reopened chat.
   round: null, trace: null, traceN: 0,
+  // #383: the turn's head block (`frame`), its tool calls and its rounds.
+  frameEl: null, tcalls: [], trounds: 0, traceSeq: 0, refItems: null,
   // #264: {t, i} -- a line typed mid-turn, queued, drawn at the turn's end.
   held: null,
-  endTrace(){ this.round=null; this.trace=null; this.traceN=0; },
+  endTrace(){ this.round=null; this.trace=null; this.traceN=0;
+    this.frameEl=null; this.tcalls=[]; this.trounds=0; },
 
   // DRAWN, NOT RUN: the line carries the user's login name, which is a string
   // off the machine. textContent, like every other name in this file.
@@ -4473,7 +4965,8 @@ const crow = {
     // #127. THE DRAWING FIRST, THE LINE UNDER IT, and the template is CLONED so
     // a second greeting in the same session still has one to clone.
     const t=$("#marktpl"); if(t) d.appendChild(t.content.cloneNode(true));
-    const p=document.createElement("div"); p.className="hellotext";
+    // #385: the start screen's heading (the mockup's h1, 26 px).
+    const p=document.createElement("h1"); p.className="hellotext";
     p.textContent=text; d.appendChild(p);
     flow.appendChild(d); },
 
@@ -4778,6 +5271,231 @@ const crow = {
       $("#lightbox").close(); });
   },
 
+  // -- #383: the turn as the mockup draws it -------------------------------
+  //
+  // ONE BLOCK ABOVE THE ROUNDS (mockup Main.dc.html, the owner 2026-10-14): the
+  // head -- who answered, with which model and level, when, a copy button --
+  // the trace strip, and a one-line card for each subtask the turn delegated.
+  // Made at the turn's first `start`, or by the first fold or call that needs
+  // it on a page that never saw that start (#209). Names and numbers go in by
+  // textContent; the only markup is the page's own icons.
+  turnIcon(d){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+    +' stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"'
+    +' aria-hidden="true" focusable="false">'+d+'</svg>'; },
+
+  turnFrame(){
+    if(this.frameEl && this.frameEl.isConnected) return this.frameEl;
+    const f=this.turn("crowturn");
+    // NO HEAD LINE (the owner, 2026-10-14). "Crow · model · time" told what the
+    // title-bar chip already says, and its copy button, beside the model
+    // name, read as "copy the model name". The copy button sits under the
+    // answer now (`cost`).
+    // THE TRACE STRIP: its head is the disclosure of the folded rounds (APG
+    // disclosure: a button with aria-expanded), hidden until the turn has a
+    // call or a folded round.
+    const tr=document.createElement("div"); tr.className="trace"; tr.hidden=true;
+    const id="tb"+(++this.traceSeq);
+    tr.innerHTML='<button class="trh" type="button" aria-expanded="false"'
+      +' aria-controls="'+id+'">'+this.turnIcon('<path d="m9 6 6 6-6 6"></path>')
+      +'<span class="tl">Trace</span><span class="tn mono"></span></button>'
+      +'<div class="segs" role="group" aria-label="Tool calls" hidden></div>'
+      +'<div class="leg" hidden></div><div class="tb" id="'+id+'" hidden></div>';
+    const head=tr.querySelector(".trh"), tb=tr.querySelector(".tb");
+    head.onclick=()=>{ tb.hidden=!tb.hidden;
+      head.setAttribute("aria-expanded", String(!tb.hidden)); };
+    f.append(tr);
+    this.frameEl=f; return f; },
+
+  // FROM THE `start` CASE, before `start` opens the round: the block goes
+  // above round one, and every round of the turn is counted.
+  turnStart(){ this.turnFrame(); this.trounds++; this.traceHead(); },
+
+  // A CALL OF THIS TURN, one segment in call order -- fed from the `tool`
+  // case beside the inspector's row builder, never inside it. The number is
+  // the call's place in the chat, as the inspector's Tools list counts it.
+  traceTool(name, raw){
+    const tr=this.turnFrame().querySelector(".trace");
+    const no=flow.querySelectorAll(".segs .seg").length+1;
+    const kind=this.toolKind(name), b=document.createElement("button");
+    b.type="button"; b.className="seg k-"+kind;
+    const lab="Call "+String(no).padStart(2,"0")+": "+String(name||"");
+    b.title=lab; b.setAttribute("aria-label", lab);
+    b.onclick=()=>{ if(this.inspectorShow) this.inspectorShow("tools", no); };
+    tr.querySelector(".segs").appendChild(b);
+    const call={name:String(name||""), kind, seg:b, ref:null};
+    if(call.name==="delegate") call.ref=this.refOpen(raw);
+    this.tcalls.push(call); this.traceHead(); },
+
+  // A CALL THAT ANSWERED `error: ` FAILED -- the inspector's own test
+  // (`toolRes`) -- and a failed `delegate` started nothing to show a card of.
+  traceRes(name, text){
+    const c=this.tcalls[this.tcalls.length-1];
+    if(!c || c.name!==String(name||"") || !String(text||"").startsWith("error: ")) return;
+    c.seg.classList.add("k-bad");
+    c.seg.title=c.seg.getAttribute("aria-label")+", failed";
+    c.seg.setAttribute("aria-label", c.seg.title);
+    if(c.ref){ c.ref.remove(); c.ref=null; } },
+
+  // "Trace · N tool calls · M rounds", the segments' visibility, the legend.
+  traceHead(){
+    const f=this.frameEl; if(!f) return;
+    const tr=f.querySelector(".trace"), n=this.tcalls.length, m=this.trounds;
+    const many=(k,w)=>k+" "+w+(k===1 ? "" : "s");
+    tr.querySelector(".tn").textContent=[n ? many(n,"tool call") : "",
+      m ? many(m,"round") : ""].filter(Boolean).join(" · ");
+    tr.hidden=!(n || this.traceN);
+    tr.querySelector(".segs").hidden=!n;
+    const leg=tr.querySelector(".leg"); leg.hidden=!n; leg.textContent="";
+    this.traceLegend(this.tcalls).forEach(([kind, text])=>{
+      const s=document.createElement("span"), d=document.createElement("span");
+      d.className="dot k-"+kind; s.append(d, document.createTextNode(text));
+      leg.appendChild(s); }); },
+
+  // THE LEGEND, pure (the suite runs it): goal n · the two most frequent
+  // other names n · the delegation names n.
+  traceLegend(calls){
+    const out=[], cmd=new Map(), sub=[];
+    let goal=0, subs=0;
+    (calls||[]).forEach(c=>{
+      if(c.kind==="goal") goal++;
+      else if(c.kind==="sub"){ subs++; if(sub.indexOf(c.name)<0) sub.push(c.name); }
+      else cmd.set(c.name, (cmd.get(c.name)||0)+1); });
+    if(goal) out.push(["goal", "goal "+goal]);
+    [...cmd].sort((a,b)=>b[1]-a[1]).slice(0,2)
+      .forEach(([nm,k])=>out.push(["cmd", nm+" "+k]));
+    if(subs) out.push(["sub", sub.join(" · ")+" "+subs]);
+    return out; },
+
+  // THE SUBTASK'S CARD (#255 kept it out of the flow; the mockup puts one
+  // line back, the full card stays in the inspector). Opened by its
+  // `delegate` call, drawn once a `subs` push names the subtask. The key is
+  // the task the call sent: the registry's `task` is its first line, cut.
+  refOpen(raw){
+    let task="";
+    try{ const a=JSON.parse(raw||"{}"); task=String((a && a.task)||""); }catch(_){ task=""; }
+    const b=document.createElement("button"); b.type="button"; b.className="subref";
+    b.hidden=true; b.dataset.task=task.trim().split(/\r\n|\r|\n/)[0] || "";
+    this.turnFrame().appendChild(b); return b; },
+
+  // FROM THE `subs` CASE: bind the open cards, draw every bound one by its
+  // id, and redraw the strips that count them. `here` only -- another
+  // chat's subtask is not this chat's card.
+  refSubs(items){
+    const list=(items||[]).filter(it=>it && it.here);
+    this.refItems=new Map(list.map(it=>[String(it.i), it]));
+    const open=[...flow.querySelectorAll(".subref:not([data-sub])")];
+    const taken=[...flow.querySelectorAll(".subref[data-sub]")].map(b=>b.dataset.sub);
+    this.refBind(open.map(b=>b.dataset.task||""), list, taken)
+      .forEach(([k, id])=>{ open[k].dataset.sub=id; });
+    flow.querySelectorAll(".subref[data-sub]").forEach(b=>{
+      const it=this.refItems.get(b.dataset.sub); if(it) this.refDraw(b, it); });
+    flow.querySelectorAll(".cost.tele").forEach(d=>{ if(d.teleStats) this.teleDraw(d); }); },
+
+  // WHICH OPEN CARD IS WHICH SUBTASK, pure (the suite runs it): each card's
+  // task head, in call order, takes the first `here` subtask not yet taken
+  // whose registry head it starts with. [card index, id] pairs.
+  refBind(heads, items, taken){
+    const used=new Set((taken||[]).map(String)), out=[];
+    (heads||[]).forEach((h, k)=>{
+      const it=(items||[]).find(x=>x && x.here && x.task && !used.has(String(x.i))
+                                   && String(h||"").startsWith(String(x.task)));
+      if(it){ used.add(String(it.i)); out.push([k, String(it.i)]); } });
+    return out; },
+
+  // THE CARD'S LINE, pure: id, task, model (without its vendor), status,
+  // tokens and seconds -- [class, text] in the mockup's order.
+  refParts(it, task){
+    const st=String(it.st||""), model=String(it.model||"");
+    return [["mono sid", String(it.i)], ["stk", task || String(it.task||"")],
+            ["mono smd", model.split("/").pop()],
+            ["pill "+(st==="done" ? "ok" : st==="running" ? "run" : "bad"), st],
+            ["mono sts", Number(it.tok||0).toLocaleString("en-US")+" tok · "
+                         +Number(it.s||0).toFixed(1)+" s"]]; },
+
+  // DRAWN AGAIN ON EVERY PUSH, by its id: the card has no state to keep.
+  refDraw(b, it){
+    b.hidden=false; b.textContent="";
+    b.insertAdjacentHTML("beforeend", this.turnIcon('<circle cx="6" cy="5" r="2"></circle>'
+      +'<circle cx="18" cy="5" r="2"></circle><circle cx="12" cy="19" r="2"></circle>'
+      +'<path d="M6 7v1a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4V7M12 12v5"></path>'));
+    this.refParts(it, b.dataset.task).forEach(([cls, text])=>{
+      const s=document.createElement("span"); s.className=cls;
+      s.textContent=text; b.appendChild(s); });
+    const md=b.querySelector(".smd"); if(md) md.title=String(it.model||"");
+    b.title="Open "+it.i+" in the inspector";
+    b.onclick=()=>{ if(this.inspectorShow) this.inspectorShow("subs", String(it.i)); }; },
+
+  // THE TELEMETRY STRIP, drawn (again) from its own numbers: `stats` as the
+  // push brought them, and the cards of its turn for the Delegated cell.
+  teleDraw(d){
+    const f=d.teleFrame, items=this.refItems || new Map();
+    let n=0, tok=0;
+    if(f && f.isConnected) f.querySelectorAll(".subref[data-sub]").forEach(b=>{
+      n++; tok+=Number((items.get(b.dataset.sub)||{}).tok||0); });
+    d.textContent="";
+    this.teleCells(d.teleStats, n ? {n, tok} : null).forEach(c=>{
+      const m=document.createElement("div"); m.className="m"+(c.dlg ? " dlg" : "");
+      const l=document.createElement("span"); l.className="ml"; l.textContent=c.label;
+      const v=document.createElement("span"); v.className="mv mono"; v.textContent=c.value;
+      if(c.unit){ const u=document.createElement("small"); u.textContent=c.unit;
+        v.appendChild(u); }
+      m.append(l, v);
+      if(c.note){ const s=document.createElement("span"); s.className="ms mono";
+        s.textContent=c.note; m.appendChild(s); }
+      d.appendChild(m); }); },
+
+  // THE CELLS, pure (the suite runs it), in the formats of crow_core.TurnCost.line():
+  // en-US thousands, a rate to two places, a time as format_clock writes it,
+  // the model/tools split only from half a second of tools on. NEVER PARSED
+  // OUT OF THE LINE -- a second formatter would drift from the core's.
+  teleCells(st, del){
+    st=st || {};
+    const n=x=>Number(x||0).toLocaleString("en-US");
+    const two=x=>String(x).padStart(2,"0");
+    const clock=s=>{ s=Number(s||0); if(s<60) return s.toFixed(1)+"s";
+      const t=Math.round(s), h=Math.floor(t/3600), m=Math.floor(t%3600/60);
+      return h ? h+"h"+two(m)+"m"+two(t%60)+"s" : m+"m"+two(t%60)+"s"; };
+    const rate=(label, r, k)=>typeof r==="number"
+      ? {label, value:r.toFixed(2), unit:"tok/s", note:n(k)+" tok"}
+      : {label, value:n(k), unit:"tok", note:""};
+    const out=[];
+    if(st.decoded) out.push(rate("Decode", st.decode_rate, st.decoded));
+    if(st.prefilled) out.push(rate("Prefill", st.prefill_rate, st.prefilled));
+    if(typeof st.cached==="number") out.push({label:"Cache",
+      value:String(st.cached_of>0 ? Math.round(100*st.cached/st.cached_of) : 0),
+      unit:"%", note:n(st.cached)+" / "+n(st.cached_of)});
+    const k=Number(st.tool_calls||0);
+    out.push({label:"Rounds", value:String(Number(st.rounds||0)), unit:"",
+      note:k ? k+" tool call"+(k===1 ? "" : "s")
+               +(st.tool_errors ? ", "+st.tool_errors+" failed" : "")
+               +(st.tool_declined ? ", "+st.tool_declined+" declined" : "") : ""});
+    const w=Number(st.waited_s||0);
+    out.push({label:"Waited", value:w<60 ? w.toFixed(1) : clock(w), unit:w<60 ? "s" : "",
+      note:Number(st.tool_s||0)>=0.5
+        ? "model "+clock(st.model_s)+" + tools "+clock(st.tool_s) : ""});
+    if(del && del.n) out.push({label:"Delegated", value:String(del.n), unit:"", dlg:true,
+      note:(del.n===1 ? "subtask" : "subtasks")+" · "+n(del.tok)+" tok"});
+    return out; },
+
+  // THE COPY BUTTON: the turn's answer as text -- prose and code of the
+  // rounds under this block (the folded ones are its trace; with nothing
+  // there, the last folded round that said something) -- through `clip`,
+  // the path the right-click menu copies by.
+  turnCopy(f, btn){
+    this.clip(this.turnText(f)).then(ok=>{ if(!ok) return;
+      btn.classList.add("on"); btn.setAttribute("aria-label","Copied");
+      setTimeout(()=>{ btn.classList.remove("on");
+        btn.setAttribute("aria-label","Copy answer"); }, 1400); }); },
+  turnText(f){
+    const out=[], take=el=>el.querySelectorAll(".say, .code pre").forEach(x=>{
+      const s=(x.innerText||x.textContent||"").trim(); if(s) out.push(s); });
+    for(let t=f.nextElementSibling; t && !t.classList.contains("crowturn")
+        && !t.querySelector(".you"); t=t.nextElementSibling) take(t);
+    if(!out.length){ const r=[...f.querySelectorAll(".tb > .turn")].reverse()
+      .find(t=>t.querySelector(".say")); if(r) take(r); }
+    return out.join("\n\n"); },
+  // -- end #383 ------------------------------------------------------------
+
   // #131. VARIANT A (the owner, 2026-08-22). A 24-round turn put 24 rounds of
   // thoughts and running commentary between the question and the answer, and
   // the answer was below the fold when it finally arrived.
@@ -4795,18 +5513,12 @@ const crow = {
     const done=this.round; this.round=null;
     if(!done.textContent.trim() && !done.querySelector("details")){
       done.remove(); return; }
+    // #383: THE TRACE IS THE STRIP in the turn's head block, made with it.
     if(!this.trace || !this.trace.isConnected){
-      const t=this.turn("");
-      const d=document.createElement("details"); d.className="trace";
-      d.innerHTML='<summary><span class="caret"></span>'
-        + '<span class="tl">Trace</span><span class="tn"></span></summary>'
-        + '<div class="tb"></div>';
-      d.querySelector(".caret").textContent=String.fromCharCode(9654);
-      t.appendChild(d); this.trace=d; this.traceN=0; }
+      this.trace=this.turnFrame().querySelector(".trace"); this.traceN=0; }
     this.trace.querySelector(".tb").appendChild(done);
     this.traceN++;
-    this.trace.querySelector(".tn").textContent =
-      this.traceN + (this.traceN===1 ? " round" : " rounds"); },
+    this.traceHead(); },
 
   start(){
     this.fold();
@@ -4835,7 +5547,12 @@ const crow = {
   thinkOpen(){
     this.here();
     const d=document.createElement("details"); d.className="think";
-    d.innerHTML='<summary><span class="caret">&#9654;</span><span class="dur">'+
+    // #383: the mockup's chevron. Written out, not built by `turnIcon`: the
+    // suite runs this slice in node without the rest of the object.
+    d.innerHTML='<summary><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"'+
+      ' stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"'+
+      ' aria-hidden="true" focusable="false"><path d="m9 6 6 6-6 6"></path></svg>'+
+      '<span class="dur">'+
       (this.col.querySelectorAll("details").length? "Thought again":"Thought")+
       '</span></summary><div class="tbody"></div>';
     this.col.insertBefore(d,this.cursor); this.think=d.querySelector(".tbody");
@@ -5104,6 +5821,13 @@ const crow = {
 
   // #138. EIN LAUFENDER AUFRUF SCHLIESST SEINEN BLOCK. Ab hier sind die
   // Argumente vollstaendig -- was jetzt noch kaeme, gehoert zur naechsten Runde.
+  // #383/#384. THE KIND OF A TOOL CALL, ONCE: the trace strip and the inspector's dots read it.
+  toolKind(name){
+    const n=String(name||"");
+    if(n.startsWith("goal_")) return "goal";
+    if(n==="delegate"||n==="collect"||n==="subtasks"||n==="verify") return "sub";
+    return "cmd";
+  },
   tool(name,args,raw,code){
     // #138. Der Block im Panel ist fertig, sobald der Aufruf laeuft -- ab hier
     // darf er Farbe bekommen. Die Sprache steht im Pfad, den das Werkzeug
@@ -5116,10 +5840,16 @@ const crow = {
     if(this.live) this.codeFinish(name,raw);
     this.live=null;
     const n=$("#codehead .n"); if(n) n.textContent="";
-    const d=document.createElement("div"); d.className="tool shut";
-    d.innerHTML='<div class="hd"><span class="ico">&#9679;</span>'+
-      '<span class="name"></span>'+
-      '<span class="note"></span><span class="tx">+</span></div>'+
+    // #384. THE MOCKUP'S ROW: number, kind dot, name, summary, the clock
+    // (#172), a chevron -- one button, so it folds by keyboard as well. `flat`
+    // until there are arguments or a result to open.
+    const d=document.createElement("div"); d.className="tool shut flat";
+    d.innerHTML='<button class="hd" type="button" aria-expanded="false">'+
+      '<span class="num"></span><span class="ico"></span>'+
+      '<span class="name"></span><span class="su"></span><span class="note"></span>'+
+      '<svg class="tx" viewBox="0 0 24 24" fill="none" stroke="currentColor"'+
+      ' stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"'+
+      ' aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg></button>'+
       '<div class="tbody"></div>';
     d.querySelector(".note").textContent =
       this.execute ? "ran" : "shown, not run";
@@ -5129,10 +5859,10 @@ const crow = {
     // der Zeile oder ueber sie -- und beim Aufklappen steht er ohnehin
     // vollstaendig da, einmal. Die Kopfzeile traegt jetzt nur, was immer kurz
     // ist: Name, Uhr, Aufklapper.
-    // #143. The delegation calls wear their own glyph and channel, so a fan-out
-    // is readable in the panel without opening a single row.
-    if(name==="delegate"||name==="collect"||name==="subtasks"){
-      d.classList.add("sub"); d.querySelector(".ico").textContent="⑂"; }
+    // #143. The delegation calls wear their own channel, so a fan-out is
+    // readable in the panel without opening a single row -- #384: as the dot
+    // of their kind, the same kinds the trace strip draws.
+    d.querySelector(".ico").classList.add("k-"+this.toolKind(name));
     // #138b. JEDE ZEILE KLAPPT FUER SICH. Vorher klappte nur die ganze Gruppe,
     // und "aufklappen" hiess: neunzig Zeilen auf einmal, von denen eine die
     // gesuchte war.
@@ -5143,18 +5873,32 @@ const crow = {
     // weg. Dieselbe Falle, die die Memory-Kachel am 2026-08-22 getroffen hat.
     d.querySelector(".hd").addEventListener("click", ev=>{
       ev.stopPropagation();
+      if(d.classList.contains("flat")) return;
       const shut=d.classList.toggle("shut");
-      d.querySelector(".tx").textContent = shut ? "+" : "−"; });
+      ev.currentTarget.setAttribute("aria-expanded", shut ? "false" : "true"); });
     // #131. INTO THE TILE, NOT INTO THE COLUMN. A 24-round turn used to put 24
     // of these between the question and the answer.
     const list=$("#tclist");
     const empty=list.querySelector(".empty"); if(empty) empty.remove();
+    const first=!list.querySelector(".tool");
     list.appendChild(d); this.toolsCount();
+    // #384. ITS NUMBER IN THIS CHAT, the key `inspectorShow("tools", n)` opens
+    // -- the place #383's trace strip gives the same call. COUNTED, NOT THE
+    // ROWS: after a `clear` the next call keeps its number, so an older
+    // segment finds no row instead of a wrong one. And the summary: the first
+    // argument's value, cut by the row's ellipsis.
+    const k=this.toolSeq=(this.toolSeq||0)+1;
+    d.dataset.n=String(k);
+    d.querySelector(".num").textContent=String(k).padStart(2,"0");
+    d.querySelector(".su").textContent=this.toolSum(raw || args, name);
     // DIE ARGUMENTE IN VOLLER LAENGE, in den Rumpf. Die Kopfzeile traegt die
     // gekuerzte Fassung, weil sie eine Zeile ist; wer aufklappt, will das,
     // was das Werkzeug wirklich bekommen hat.
     if(raw) this.toolArgBlock(d, name, raw);
     else if(args) this.toolArgBlock(d, name, args);
+    // #384: THE FIRST CALL OF A CHAT WITHOUT A GOAL SELECTS TOOLS -- unless the
+    // user picked a tab in this chat.
+    if(first && !this.goal) this.inspectorAuto("tools");
     // DER OFFENE AUFRUF, an den Uhr und Antwort gehen. Die drei Ereignisse
     // kommen je Aufruf in dieser Reihenfolge ueber die Naht, also ist der
     // zuletzt angelegte immer der gemeinte. `tools_reported` legt Zeilen an,
@@ -5247,7 +5991,26 @@ const crow = {
     pre.textContent=shown;
     HL.paint(pre,"json");
     wrap.appendChild(head); wrap.appendChild(pre);
-    row.querySelector(".tbody").appendChild(wrap); },
+    row.querySelector(".tbody").appendChild(wrap);
+    row.classList.remove("flat"); },
+
+  // #384. THE ROW'S SUMMARY: the first argument's value -- the command, the
+  // path, the query -- on one line. A number or a flag says its name with it
+  // ("step 3"); text that is no JSON object is shown as it came. A goal_step
+  // adds the status it reports, the mockup's "step 3 · done" -- the one tool
+  // whose first argument alone says too little.
+  toolSum(raw,name){
+    const s=String(raw||"").trim(); if(!s) return "";
+    const line=x=>String(x).replace(/\s+/g," ").trim();
+    let got; try{ got=JSON.parse(s); }catch(err){ return line(s); }
+    if(!got || typeof got!=="object" || Array.isArray(got)) return line(s);
+    const keys=Object.keys(got); if(!keys.length) return "";
+    if(name==="goal_step" && got.step!=null && typeof got.status==="string"
+       && line(got.status)) return "step "+got.step+" · "+line(got.status);
+    const v=got[keys[0]];
+    if(typeof v==="string") return line(v);
+    if(typeof v==="number" || typeof v==="boolean") return keys[0]+" "+v;
+    return line(JSON.stringify(v)); },
 
   toolEnd(name,seconds,repeated){
     // #172: DER AUFRUF IST ZURUECK -- die Uhr der Seite hoert auf, und was
@@ -5273,6 +6036,9 @@ const crow = {
     if(!row || row.querySelector(".name").textContent!==name) return;
     const bad=String(text||"").startsWith("error: ");
     if(bad) row.classList.add("bad");
+    // #384: AND THE WORD IN THE ROW, beside the --bad dot.
+    if(bad){ const nt=row.querySelector(".note");
+      nt.textContent = nt.textContent ? "error · "+nt.textContent : "error"; }
     const wrap=document.createElement("div"); wrap.className="tsec res";
     const head=document.createElement("div"); head.className="tsh";
     head.textContent = bad ? "error" : "result";
@@ -5285,11 +6051,14 @@ const crow = {
       more.textContent = cut.toLocaleString() + " more characters not shown";
       wrap.appendChild(more); }
     row.querySelector(".tbody").appendChild(wrap);
+    row.classList.remove("flat");
     this.openCall=null; },
 
   toolsCount(){
     const n=$("#tclist").querySelectorAll(".tool").length;
-    $("#toolcalls .tcn").textContent = n ? String(n) : "";
+    // #384: the count rides the Tools tab.
+    const c=$("#itab-tools .cnt");
+    if(c){ c.textContent = n ? String(n) : ""; c.hidden=!n; }
     if(!n && !$("#tclist").querySelector(".empty")){
       const p=document.createElement("p");
       p.className="empty"; p.textContent="Nothing called yet.";
@@ -5351,30 +6120,15 @@ const crow = {
     const dot=m[1].lastIndexOf(".");
     return dot<0 ? "" : m[1].slice(dot+1); },
 
-  toolsToggle(){
-    const box=$("#toolcalls"), shut=box.classList.toggle("shut");
-    $("#toolcalls .tcx").textContent = shut ? "+" : "−";
-    if(!shut) this.toolsCount(); },
-
-  // THE CLICK IS CAUGHT, or it bubbles to the head and folds the tile away --
-  // the trap the memory tile hit on 2026-08-22, where `discard` would have
-  // hidden the very thing it discarded.
-  toolsClear(e){
-    if(e) e.stopPropagation();
-    $("#tclist").textContent=""; this.toolsCount();
-    // AND IT STAYS CLEARED ACROSS A RESTART. The chat replays its tool rows on
-    // open, so without a watermark on the Python side a list somebody emptied
-    // comes back at the next start -- found by the owner after rebooting the window.
-    pywebview.api.tools_cleared(); },
-
   // A NEW CHAT IS A NEW LIST. The tile belongs to the conversation, not to the
   // window, so switching or resetting empties it with everything else.
   toolsReset(){
     $("#tclist").textContent="";
-    $("#toolcalls").classList.add("shut");
-    $("#toolcalls .tcx").textContent="+";
+    this.toolSeq=0;                        // #384: a new chat counts from one
     this.codeReset();
-    this.toolsCount(); },
+    this.toolsCount();
+    // #384: a new chat is a new choice -- the auto rules may pick again.
+    this.itabPicked=false; },
 
   // #138b. Der Quelltext-Abschnitt, geleert und wieder versteckt.
   //
@@ -5406,7 +6160,7 @@ const crow = {
     // -- gefunden, nachdem der Owner das Fenster neu gestartet hatte.
     pywebview.api.tools_cleared(); },
 
-  cost(line,share,sub){
+  cost(line,share,stats,cut){
     if(this.cursor){ this.cursor.remove(); this.cursor=null; }
     // THE SAME NUMBER ON EVERY BLOCK IS CORRECT, because the number is the TURN's and the label
     // says so. It was not until #117: the turn object kept the LAST ROUND's ratio, and this loop
@@ -5422,15 +6176,29 @@ const crow = {
           s.textContent=share.toFixed(0)+" % of the turn";
           el.parentNode.appendChild(s);} });
     }
-    if(line){ const d=document.createElement("div"); d.className="cost";
-      // #143. The delegation share rides the cost line in its own channel:
-      // the closing bracket moves into the coloured span so the share sits
-      // INSIDE the brackets, exactly as the agreed mockup draws it.
-      if(sub){ d.textContent=line.replace(/\]$/," | ");
-        const s=document.createElement("span"); s.className="subshare";
-        s.textContent=sub+"]"; d.appendChild(s); }
-      else d.textContent=line;
-      (this.col||flow).appendChild(d); }
+    // #383. THE TELEMETRY STRIP replaces the bracket line: labelled cells
+    // that wrap, drawn from `stats` (`teleDraw`). Class `cost` stays -- the
+    // phone layer addresses it. A cut-off turn says so under the strip, in
+    // the core's words. The line itself is drawn only where a push brought
+    // no numbers (a chat remembered from before #382).
+    if(line && stats){ const d=document.createElement("div"); d.className="cost tele";
+      d.setAttribute("role","group"); d.setAttribute("aria-label","Turn statistics");
+      d.teleStats=stats; d.teleFrame=this.frameEl; this.teleDraw(d);
+      (this.col||flow).appendChild(d);
+      if(cut){ const w=document.createElement("div"); w.className="tcut";
+        w.textContent=cut; (this.col||flow).appendChild(w); } }
+    else if(line){ const d=document.createElement("div"); d.className="cost";
+      d.textContent=line; (this.col||flow).appendChild(d); }
+    // THE COPY BUTTON UNDER THE ANSWER (the owner, 2026-10-14), where a reader
+    // looks for it -- live and replayed turns alike, since both end here.
+    const f=this.frameEl;
+    if(f && f.isConnected){ const a=document.createElement("div"); a.className="tacts";
+      const cp=document.createElement("button"); cp.type="button"; cp.className="ib thcopy";
+      cp.setAttribute("aria-label","Copy answer"); cp.title="Copy answer";
+      cp.innerHTML=this.turnIcon('<rect x="9" y="9" width="11" height="11" rx="2"></rect>'
+        +'<path d="M5 15V6a2 2 0 0 1 2-2h8"></path>');
+      cp.onclick=()=>this.turnCopy(f, cp);
+      a.appendChild(cp); (this.col||flow).appendChild(a); }
     this.bottom();
   },
 
@@ -5517,10 +6285,7 @@ const crow = {
   },
   toggleTools(){ if(this.running) return; pywebview.api.set_tools(!this.execute); },
 
-  helpMenu(){ const m=$("#helpmenu"); m.hidden=!m.hidden; },
-
   openSettings(){
-    $("#helpmenu").hidden=true;
     // THE ATTRIBUTE IS THE TRUTH, not a variable beside it. Python wrote it onto
     // <html> before the page was handed over, so the sheet marks whatever is
     // actually on screen rather than what a second copy of the state believes.
@@ -6284,8 +7049,8 @@ const crow = {
     // AUF document UND NICHT AUF DEM GRIFF. Die Maus verlaesst fuenf Pixel in
     // der ersten Bewegung, und ein Listener auf dem Griff verloere sie dort.
     ev.preventDefault();
-    const rail=$("#rail"), grip=$("#railgrip");
-    grip.classList.add("on"); rail.classList.add("dragging");
+    const rail=$("#rail"), grip=$("#railgrip"), bar=$("#bar");
+    grip.classList.add("on"); rail.classList.add("dragging"); bar.classList.add("dragging");
     sizing.begin();
     const left=rail.getBoundingClientRect().left;
     const move=e=>{
@@ -6296,12 +7061,15 @@ const crow = {
       // sich, und an der Wurzel gesetzt rechnete jeder Mausschritt den Stil
       // ALLER 12 968 Knoten neu -- gemessen 2026-09-23: 1249 ms Stil fuer
       // einen Zug von 80 Schritten (Chromium), WebKitGTK 38.5 -> 16.1 ms pro
-      // Schritt. Gelesen wird `--railw` nur von `#rail` selbst.
-      rail.style.setProperty("--railw",w+"px"); };
+      // Schritt. Gelesen wird `--railw` nur von `#rail` selbst --
+      // #382: und von der linken Zone der Titelleiste, also bekommt `#bar`
+      // denselben Wert im selben Schritt. Zwei kleine Teilbaeume, nie die Wurzel.
+      rail.style.setProperty("--railw",w+"px"); bar.style.setProperty("--railw",w+"px"); };
     const up=()=>{
       document.removeEventListener("mousemove",move);
       document.removeEventListener("mouseup",up);
       grip.classList.remove("on"); rail.classList.remove("dragging");
+      bar.classList.remove("dragging");
       sizing.end();
       pywebview.api.rail_width(Math.round(
         rail.getBoundingClientRect().width)); };
@@ -6315,7 +7083,7 @@ const crow = {
     ev.preventDefault();
     // #156: DIE SPALTE, nicht das Panel. Sie traegt die Breite, seit zwei
     // Panels darin liegen -- gezogen wird eine Kante, und die gehoert beiden.
-    const panel=$("#side"), grip=$("#codegrip");
+    const panel=$("#side"), grip=$("#codegrip"), bar=$("#bar");
     grip.classList.add("on"); panel.classList.add("dragging");
     sizing.begin();
     const right=panel.getBoundingClientRect().right;
@@ -6328,8 +7096,10 @@ const crow = {
                    : 612;
     const move=e=>{
       const w=Math.max(260,Math.min(cap,Math.round(right-e.clientX)));
-      // #236. Aus demselben Grund auf `#side`, das `--codew` als einziges liest.
-      panel.style.setProperty("--codew",w+"px"); };
+      // #236. Aus demselben Grund auf `#side`, das `--codew` als einziges liest
+      // -- #382: neben der rechten Zone der Titelleiste, die denselben Wert
+      // im selben Schritt bekommt.
+      panel.style.setProperty("--codew",w+"px"); bar.style.setProperty("--codew",w+"px"); };
     const up=()=>{
       document.removeEventListener("mousemove",move);
       document.removeEventListener("mouseup",up);
@@ -6651,7 +7421,11 @@ const crow = {
   // folgen, seit ein Projektname `'); doSomething('` heissen darf.
   goalPanel(g){ const p=$("#goalpanel");
     if(!g){ p.hidden=true; p.textContent=""; this.goal=null; return; }
+    // #384: A NEW GOAL SELECTS THE GOAL TAB, unless the user picked a tab in
+    // this chat. New is a goal where there was none, or another title.
+    const fresh=!this.goal || this.goal.title!==g.title;
     this.goal=g;
+    // The phone's thin bar (REMOTE_JS) sets `shut` once; a redraw keeps it.
     const shut=p.classList.contains("shut");
     p.textContent=""; p.className=shut ? "shut" : "";
 
@@ -6667,53 +7441,32 @@ const crow = {
     // #294: A PAUSED GOAL SAYS SO IN THE HEAD -- the thin phone bar too.
     const pz=g.pause||null;
 
-    // ZONE 1: die Kopfzeile. Nur das Wort und der Zustand -- alles Weitere hat
-    // seinen eigenen Platz darunter.
+    // ZONE 1: GOAL and the status pill -- #384: Complete in --ok with the
+    // mockup's check, Paused in --warn, Open in the accent; a skip (#289) in
+    // its own hue -- and the `×`.
     const head=document.createElement("div"); head.className="gh";
-    head.onclick=()=>{ p.classList.toggle("shut"); };
-    const label=document.createElement("b"); label.textContent="Goal";
+    const label=document.createElement("b"); label.className="lbl";
+    label.textContent="Goal";
     const st=document.createElement("span");
-    st.className="st"+(done ? " ok" : pz ? " pz" : skipped.length ? " sk" : "");
-    st.textContent=done ? "Complete"
+    st.className="st pill "+(done ? "ok" : pz ? "warn pz"
+      : (partial || skipped.length) ? "sk" : "acc");
+    if(done) st.innerHTML=this.svgCheck(2.25);
+    st.append(done ? "Complete"
       : partial ? "Complete · "+skipText
-      : pz ? "Paused · step "+pz.step : skipText;
+      : pz ? "Paused · step "+pz.step
+      : skipText ? "Open · "+skipText : "Open");
     if(pz) st.title=pz.why||"";
     const shutBtn=document.createElement("button"); shutBtn.className="gx";
-    shutBtn.textContent="×"; shutBtn.title="close this goal";
+    shutBtn.type="button"; shutBtn.textContent="×"; shutBtn.title="close this goal";
+    shutBtn.setAttribute("aria-label", "Close this goal");
     shutBtn.onclick=ev=>{ ev.stopPropagation(); pywebview.api.close_goal(); };
     head.append(label, st, shutBtn);
 
-    // ZONE 2: das Ziel selbst, mit dem Zeichen daneben. Es bricht um.
+    // ZONE 2: das Ziel selbst, die Ueberschrift. Es bricht um.
     const title=document.createElement("div"); title.className="gt";
-    const mark=document.createElement("span"); mark.className="gi";
-    mark.innerHTML=this.svgGoal();
     const tt=document.createElement("span"); tt.className="tx";
     tt.textContent=g.title;
-    title.append(mark, tt);
-
-    // ZONE 3: die drei Zahlen in EINER Zeile -- Fortschritt, Uhr, Token.
-    // #164: DIE UHR LAEUFT IN DER SEITE WEITER, nicht mit den Pushes: gezeichnet
-    // wird nur, wenn ein Werkzeug einen Schritt bewegt, und dazwischen liegen
-    // Minuten. Die Zahl stand deshalb still, waehrend das Ziel lief.
-    // #174: DIE ZAHL KOMMT AUS DEM SPEICHER, sie wird hier nicht mehr aus der
-    // Spalte aufsummiert. Die Summe der Schritte war zweimal falsch: sie erbte
-    // deren Fehler (#169), und sie liess alles weg, was zwischen zwei Schritten
-    // passiert -- Nachdenken, Werkzeuge, den Rollover selbst.
-    const meta=document.createElement("div"); meta.className="gm";
-    const tok=g.tokens||0, deleg=g.delegated||0;
-    const base=g.seconds||0, at=Date.now();
-    // #169: DIE DELEGIERTEN STEHEN DANEBEN, nicht drin. Sie sind auf einem
-    // anderen Anbieter ausgegeben; addiert waere die Zahl eine ueber zwei Dinge.
-    const drawMeta=x=>g.done+"/"+g.total+" · "+this.clock(x)
-                      +" · "+this.tokShort(tok)+" tokens"
-                      +(deleg ? " · "+this.tokShort(deleg)+" delegated" : "");
-    meta.textContent=drawMeta(base);
-    // #164: NUR WENN CROW ANGEFANGEN HAT. Ein Plan, der dasteht und auf die
-    // Zeile wartet, die ihn anstoesst, hat noch keine Dauer -- und eine Uhr, die
-    // ab dem Tippen laeuft, misst das Tippen (der Owner, 2026-08-31).
-    if(!done && !partial && g.begun) this.goalTick=setInterval(()=>{
-      if(!document.body.contains(meta)){ clearInterval(this.goalTick); return; }
-      meta.textContent=drawMeta(base+(Date.now()-at)/1000); }, 1000);
+    title.append(tt);
 
     // #294: WHY IT WAITS, under the title -- the report itself is in the chat.
     const gz=document.createElement("div"); gz.className="gz";
@@ -6721,10 +7474,44 @@ const crow = {
       +(pz.why||"")+" -- waiting for your line.";
     else gz.hidden=true;
 
-    const prog=document.createElement("div"); prog.className="gp";
-    prog.textContent="Progress";
+    // #384: THE BAR, the share of steps done, in the pill's colour.
+    const bar=document.createElement("div");
+    bar.className="gbar"+(done ? " ok" : pz ? " warn" : partial ? " sk" : "");
+    bar.setAttribute("role", "img");
+    bar.setAttribute("aria-label", g.done+" of "+g.total+" steps done");
+    const fill=document.createElement("span");
+    fill.style.width=(g.total ? Math.min(100, 100*g.done/g.total) : 0)+"%";
+    bar.append(fill);
 
-    const list=document.createElement("ol");
+    // ZONE 3: die Zahlen in EINER Zeile -- Schritte, Uhr, Token, Delegiertes.
+    // #164: DIE UHR LAEUFT IN DER SEITE WEITER, nicht mit den Pushes: gezeichnet
+    // wird nur, wenn ein Werkzeug einen Schritt bewegt, und dazwischen liegen
+    // Minuten. #174: DIE ZAHL KOMMT AUS DEM SPEICHER, sie wird hier nicht aus
+    // der Spalte aufsummiert -- die Summe der Schritte liess alles weg, was
+    // zwischen zwei Schritten passiert.
+    const meta=document.createElement("div"); meta.className="gm";
+    const tok=g.tokens||0, deleg=g.delegated||0;
+    const base=g.seconds||0, at=Date.now();
+    const count=document.createElement("span");
+    count.textContent=g.done+"/"+g.total+" steps";
+    const clock=document.createElement("span"); clock.textContent=this.clock(base);
+    const tokens=document.createElement("span");
+    tokens.textContent=this.tokShort(tok)+" tok";
+    meta.append(count, clock, tokens);
+    // #169: DIE DELEGIERTEN STEHEN DANEBEN, nicht drin -- im --sub-Kanal.
+    if(deleg){ const dl=document.createElement("span"); dl.className="dl";
+      dl.textContent=this.tokShort(deleg)+" delegated"; meta.append(dl); }
+    // #164: NUR WENN CROW ANGEFANGEN HAT. Ein Plan, der dasteht und auf die
+    // Zeile wartet, die ihn anstoesst, hat noch keine Dauer.
+    if(!done && !partial && g.begun) this.goalTick=setInterval(()=>{
+      if(!document.body.contains(meta)){ clearInterval(this.goalTick); return; }
+      clock.textContent=this.clock(base+(Date.now()-at)/1000); }, 1000);
+
+    const prog=document.createElement("div"); prog.className="gp lbl";
+    prog.textContent="Steps";
+
+    // #384: STEPS AS A TIMELINE -- one mark per step on a line that joins them.
+    const list=document.createElement("ol"); list.className="steps";
     (g.steps||[]).forEach((s,i)=>{
       const li=document.createElement("li"); li.className=s.status;
       // #294: the step the pause stands on.
@@ -6732,91 +7519,91 @@ const crow = {
       if(held) li.classList.add("held");
       // #289: why it was skipped -- the note the user or the model gave.
       if(s.status==="skipped" && s.note) li.title=s.note;
-      const mark=document.createElement("span"); mark.className="m";
+      const mark=document.createElement("span"); mark.className="ck";
       mark.innerHTML=this.svgStep(held ? "held" : s.status);
-      const body=document.createElement("span");
-      const t=document.createElement("span"); t.className="t";
+      const body=document.createElement("div"); body.className="sb";
+      const t=document.createElement("div"); t.className="t";
       t.textContent=s.text; body.append(t);
       // #296: THE WORD, NOT ONLY THE COLOUR (WCAG 1.4.1).
       if(s.status==="skipped"){ const l=document.createElement("span");
-        l.className="lbl"; l.textContent="skipped"; body.append(l); }
+        l.className="word"; l.textContent="skipped"; t.append(l); }
       if(held){ const l=document.createElement("span");
-        l.className="lbl"; l.textContent="paused"; body.append(l); }
+        l.className="word"; l.textContent="paused"; t.append(l); }
+      // #164: WAS EIN SCHRITT GEKOSTET HAT, unter seinem Text -- #384: always,
+      // as the mockup shows it, no longer behind a click. Der laufende zeigt
+      // seine Uhr live.
+      if(s.status!=="open"){
+        const c=document.createElement("div"); c.className="sm";
+        const run=s.status==="running";
+        const sbase=s.seconds||0, sat=Date.now();
+        // #169: EIN DELEGIERTER SCHRITT SAGT ES, daneben und nicht darin.
+        const sdel=s.delegated||0;
+        // #169: DER LAUFENDE SCHRITT ZEIGT GEBUCHTES PLUS LAUFENDES, genau wie
+        // die Uhr daneben (`sbase + verstrichen`).
+        const stok = (s.status==="running" && s.at!=null)
+          ? (s.tokens||0) + Math.max(0, (g.tokens||0) - s.at) : (s.tokens||0);
+        const chk=s.checks ? " · checks "+s.checks[0]+"/"+s.checks[1] : "";
+        const draw=x=>{ c.textContent=this.clock(x)+" · "
+          +stok.toLocaleString("en-US")+" tok";
+          if(sdel){ const dl=document.createElement("span"); dl.className="dl";
+            dl.textContent=this.tokShort(sdel)+" delegated"; c.append(" · ", dl); }
+          if(chk) c.append(chk); };
+        draw(sbase);
+        if(run){ this.stepTicks.push(setInterval(()=>{
+          if(!document.body.contains(c)) return;
+          draw(sbase+(Date.now()-sat)/1000); }, 1000)); }
+        body.append(c); }
       // #294: THE SUB-STEPS OF A SPLIT STEP, under it.
       if((s.subs||[]).length){ const ol=document.createElement("ol");
         ol.className="subs";
         s.subs.forEach((x,k)=>{ const sl=document.createElement("li");
           sl.className=x.status;
-          const sm=document.createElement("span"); sm.className="m";
+          const sm=document.createElement("span"); sm.className="ck";
           sm.innerHTML=this.svgStep(x.status);
           const st2=document.createElement("span"); st2.className="t";
           st2.textContent=(i+1)+"."+(k+1)+" "+x.text;
           sl.append(sm, st2); ol.append(sl); });
         body.append(ol); }
-      // #164: KLICK AUF EINEN SCHRITT ZEIGT, WAS ER GEKOSTET HAT. Ein fertiger
-      // nennt seine Wanduhr und seine Token, ein laufender dasselbe bis jetzt.
-      if(s.status!=="open"){
-        const c=document.createElement("span"); c.className="cost";
-        // #164. DER LAUFENDE SCHRITT ZEIGT SEINE UHR OFFEN UND LIVE. Ein Schritt,
-        // der arbeitet, ist das Einzige, was gerade passiert -- ihn erst auf
-        // Klick preiszugeben hiesse, die einzige Zahl zu verstecken, die sich
-        // bewegt. Fertige bleiben zugeklappt: dort ist die Zahl ein Nachschlag.
-        const run=s.status==="running";
-        c.hidden=!run;
-        const sbase=s.seconds||0, sat=Date.now();
-        // NUR ZEIT UND TOKEN. Die Notiz des Modells stand hier auch und war ein
-        // Pfad quer durch die Zeile -- die Zeile beantwortet "was hat das
-        // gekostet", nicht "was hat es dazu gesagt".
-        // #169: EIN DELEGIERTER SCHRITT SAGT ES. Drei Schritte standen live auf
-        // "0 tok", weil ihre Arbeit auf einem fremden Spot lief -- das las sich
-        // wie "hat nichts gekostet". Die Zahl steht daneben, nicht darin.
-        const sdel=s.delegated||0;
-        // #169: DER LAUFENDE SCHRITT ZEIGT GEBUCHTES PLUS LAUFENDES, genau wie
-        // die Uhr daneben (`sbase + verstrichen`). Nur die laufende Strecke
-        // waere bei einem wieder aufgemachten Schritt (#168) ein Ruecksprung:
-        // seine erste Strecke ist bereits gebucht und gehoert ihm weiter.
-        const stok = (s.status==="running" && s.at!=null)
-          ? (s.tokens||0) + Math.max(0, (g.tokens||0) - s.at) : (s.tokens||0);
-        const chk=s.checks ? " · checks "+s.checks[0]+"/"+s.checks[1] : "";
-        const draw=x=>this.clock(x)+" · "+stok+" tok"
-                      +(sdel ? " · "+this.tokShort(sdel)+" delegated" : "")+chk;
-        c.textContent=draw(sbase);
-        if(run){ this.stepTicks.push(setInterval(()=>{
-          if(!document.body.contains(c)) return;
-          c.textContent=draw(sbase+(Date.now()-sat)/1000); }, 1000)); }
-        body.append(c);
-        li.onclick=()=>{ if(!run) c.hidden=!c.hidden; }; }
       li.append(mark, body); list.append(li); });
 
-    p.append(head, title, gz, meta, prog, list);
-    p.hidden=false; },
+    p.append(head, title, gz, bar, meta, prog, list);
+    p.hidden=false;
+    if(fresh) this.inspectorAuto("goal"); },
 
   // #164. DIE ZEICHEN, inline statt als Datei: die Seite ist eine einzige
   // Zeichenkette, und ein Bild daneben waere etwas, das beim Packen fehlen kann.
   // `currentColor` ueberall, damit sie dem Zustand und dem Theme folgen.
-  svgGoal(){ return '<svg viewBox="0 0 24 24" width="15" height="15" fill="none"'
-    +' stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/>'
-    +'<path d="M10.5 8.2l5.4 3.8-5.4 3.8z" fill="currentColor" stroke="none"/>'
-    +'</svg>'; },
+  // #384: the mockup's check, for the done step and the Complete pill.
+  svgCheck(w){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+    +' stroke-width="'+w+'" stroke-linecap="round" stroke-linejoin="round"'
+    +' aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>'; },
 
-  // Ein Ring je Zustand: mit Haken, mit Punkt, mit Kreuz, oder leer.
-  svgStep(state){ const o='<svg viewBox="0 0 24 24" width="14" height="14"'
-    +' fill="none" stroke="currentColor" stroke-width="2"'
-    +' stroke-linecap="round" stroke-linejoin="round">';
-    if(state==="done") return o+'<circle cx="12" cy="12" r="9"/>'
-      +'<path d="M8 12.4l2.7 2.6L16 9.6"/></svg>';
-    if(state==="running") return o+'<circle cx="12" cy="12" r="9"/>'
-      +'<circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/></svg>';
-    if(state==="failed") return o+'<circle cx="12" cy="12" r="9"/>'
+  // #384. A STEP'S MARK fills the 20 px circle of the timeline: done the check
+  // on its soft disc (CSS), every other state a ring of its own -- running in
+  // the accent, open hollow, failed with a cross, skipped dashed, paused with
+  // two bars.
+  svgStep(state){ const o='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+    +' stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"'
+    +' aria-hidden="true">';
+    if(state==="done") return this.svgCheck(2.5);
+    if(state==="running") return o+'<circle cx="12" cy="12" r="10.5" stroke-width="2.2"/></svg>';
+    if(state==="failed") return o+'<circle cx="12" cy="12" r="10.5"/>'
       +'<path d="M9 9l6 6M15 9l-6 6"/></svg>';
-    // #296: dashed ring and a skip-forward glyph -- not the running dot.
-    if(state==="skipped") return o+'<circle cx="12" cy="12" r="9"'
+    // #296: dashed ring and a skip-forward glyph -- not the running ring.
+    if(state==="skipped") return o+'<circle cx="12" cy="12" r="10.5"'
       +' stroke-dasharray="3 2.6"/><path d="M8 8.6l3.6 3.4L8 15.4M12.6 8.6'
       +'l3.6 3.4-3.6 3.4"/></svg>';
     // #294: the paused step -- two bars.
-    if(state==="held") return o+'<circle cx="12" cy="12" r="9"/>'
+    if(state==="held") return o+'<circle cx="12" cy="12" r="10.5"/>'
       +'<path d="M10 8.6v6.8M14 8.6v6.8"/></svg>';
-    return o+'<circle cx="12" cy="12" r="9"/></svg>'; },
+    return o+'<circle cx="12" cy="12" r="10.5"/></svg>'; },
+
+  // #384: the fork of a subtask, the mockup's.
+  svgFork(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+    +' stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"'
+    +' aria-hidden="true"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="5" r="2"/>'
+    +'<circle cx="12" cy="19" r="2"/><path d="M6 7v1a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4V7M12 12v5"/>'
+    +'</svg>'; },
 
   // 89K statt 89234: im Kopf einer Anzeige zaehlt die Groessenordnung.
   tokShort(n){ n=n||0;
@@ -7129,10 +7916,12 @@ const crow = {
   // "none" IS DRAWN, not left blank. An empty button reads as "no boundary
   // needed"; the state that has to be legible is exactly the one where writes
   // are unbounded.
-  rootIs(path, name, roots){
+  // #385: THE CHIP PRINTS THE PATH, `~` for the home folder (`short`, from
+  // Python), as the mockup's folder chip does; the name stays the menu's.
+  rootIs(path, name, roots, short){
     this.root = path || ""; this.roots = roots || [];
     const b = $("#root");
-    b.textContent = name || "no folder";
+    b.querySelector(".rt").textContent = short || path || "no folder";
     b.title = path || "writes are not restricted -- pick a folder to bound them";
     b.dataset.bound = path ? "1" : "0"; },
 
@@ -7280,15 +8069,67 @@ const crow = {
   // and the template lands there anyway. Dropping the word to save six characters would put the
   // chip back to naming a setting instead of naming what the model DOES.
   showModel(){ const c = $("#model");
+    this.showEngine();                     // #382: the title bar says it too
     if(!this.modelName){ c.hidden = true; return; }
     c.hidden = false;
-    c.innerHTML = '<b></b><span class="lvl"></span>';
+    // #385: the mockup's chip -- dot, name, the level as its own dim word (the
+    // chip's gap is the separator, as on the engine chip), chevron.
+    c.innerHTML = '<span class="dot"></span><b></b><span class="lvl"></span>' + RICON.chevron;
     c.querySelector("b").textContent = this.modelName;
-    c.querySelector(".lvl").textContent = this.levelLabel(); },
+    c.querySelector(".lvl").textContent = this.levelLabel().replace(/^ · /,""); },
 
   // KEPT AS A NAME the two `case` arms already call, so the merge did not have to touch the
   // seam between the Python side and the page. It sets the level and redraws the one chip.
   showReason(level){ this.reasoning = level || ""; this.showModel(); },
+
+  // #382. THE ENGINE CHIP IN THE TITLE BAR, drawn only from what the page
+  // already holds: the server's state (`up` / `down` set data-state), the
+  // model and its level (the composer chip's own fields), the context (`ctx`)
+  // and the last turn's numbers (`stats`, from the turn-end `cost`). Every
+  // part by textContent -- they all arrived over the bridge. A part with
+  // nothing to say is hidden, not drawn empty between two gaps.
+  showEngine(){ const b=$("#engine"); if(!b) return;
+    const st=b.dataset.state;
+    const part=(sel,text)=>{ const el=b.querySelector(sel);
+      el.textContent=text||""; el.hidden=!text; };
+    b.querySelector(".ename").textContent = this.modelName
+      || (st==="down" ? "no server" : "connecting");
+    part(".elvl", this.levelLabel().replace(/^ · /,""));
+    const rate=(this.stats||{}).decode_rate;
+    part(".erate", typeof rate==="number" ? rate.toFixed(2)+" tok/s" : "");
+    const used=(this.ctxNow||[0,0])[0], limit=(this.ctxNow||[0,0])[1];
+    part(".ectx", used>0 ? this.tokK(used)+(limit>0 ? " / "+(limit/1000).toFixed(0)+"k" : "")
+                         : "");
+    // NOTHING MEASURED YET: the chip says what the server is doing instead, the
+    // way the mockup's start screen says "ready".
+    const none=!(typeof rate==="number") && !(used>0);
+    part(".eword", !none ? "" : st==="up" ? "ready"
+                     : st==="down" ? (this.downWhy||"no server") : "connecting"); },
+
+  // #382. THE MONO FACE, ASKED FOR ONCE THE BRIDGE IS THERE. The bytes come as
+  // base64 (`Api.mono_font`; on a phone through `/api`), become an ArrayBuffer
+  // and a FontFace for the family `--mono` names first (CSS Font Loading:
+  // `new FontFace(family, buffer, descriptors)`, `load()`,
+  // `document.fonts.add()`). Until then, and if it never comes, the stack's
+  // system monospace sets the code -- the first paint never waits for it.
+  monoFace(){
+    if(this.monoAsked || !window.FontFace || !document.fonts) return;
+    this.monoAsked = true;
+    return Promise.resolve(pywebview.api.mono_font()).then(b64 => {
+      if(!b64) return;
+      const bin = atob(b64), bytes = new Uint8Array(bin.length);
+      for(let i=0; i<bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      // A VARIABLE FONT: one face covers 300 to 800.
+      const face = new FontFace("Google Sans Code", bytes.buffer,
+                                {weight:"300 800", style:"normal", display:"swap"});
+      return face.load().then(f => { document.fonts.add(f); });
+    }).catch(() => {}); },
+
+  // A DISCLOSURE (WAI-ARIA APG): a button that says whether its details are
+  // out. `aria-expanded` is the state, `.open` only what CSS draws from it.
+  engineToggle(){ const b=$("#engine"), open=b.getAttribute("aria-expanded")!=="true";
+    b.setAttribute("aria-expanded", open ? "true" : "false");
+    b.classList.toggle("open", open); },
 
   // #119: `reasonMenu` IS GONE, not renamed. Its rows moved into modelMenu above, keeping the
   // rule the panel existed to hold: a click chooses AND applies, and every name is drawn with
@@ -7641,18 +8482,28 @@ const crow = {
       btn.dataset.armed=""; label.textContent="delete"; },4000);
   },
 
+  // ONE SPELLING OF A TOKEN COUNT for the composer and the title bar (#382).
+  tokK(n){ return n<1000 ? String(n) : (n/1000).toFixed(1)+"k"; },
+
   ctx(tokens,limit){
-    const el=$("#ctx"); if(tokens<=0){ el.innerHTML=""; return; }
-    const size = tokens<1000 ? String(tokens) : (tokens/1000).toFixed(1)+"k";
-    if(limit<=0){ el.innerHTML='<span class="n">'+size+'</span>'; return; }
-    // THE NUMBER, NOT A BAR OF HASHES. Ten cells could only ever say the share
-    // to within 10%, and the figure that answers "how much room is left" was
-    // already being printed beside them. The colour is the only thing the bar
-    // carried that the number did not, so it moved onto the number.
-    const share=Math.min(1,tokens/limit);
-    const cls = share<0.5 ? "fill" : (share<0.85 ? "fill w" : "fill b");
-    el.innerHTML='<span class="'+cls+'">'+size+'</span>'+
-      '<span class="rest"> / '+(limit/1000).toFixed(0)+'k</span>';
+    // #382: kept for the engine chip, which says the same "used / n_ctx".
+    this.ctxNow=[tokens||0, limit||0]; this.showEngine();
+    const el=$("#ctx"), used=Math.max(0, tokens||0), n=limit||0;
+    // #385: AN EMPTY CHAT READS "0 / 200k" (the mockup's start screen); only
+    // with neither number is there nothing to say.
+    if(used<=0 && n<=0){ el.innerHTML=""; el.removeAttribute("aria-label"); return; }
+    const size = this.tokK(used);
+    if(n<=0){ el.innerHTML='<span class="mono"></span>';
+      el.firstChild.textContent=size; return; }
+    // #385: THE MOCKUP'S METER -- a 44 px bar filled used / n_ctx beside the
+    // figure. The colour the figure carried (#119: amber from half, red from
+    // 85 %) is the bar's now; below half it is the accent.
+    const share=Math.min(1,used/n), cap=(n/1000).toFixed(0)+"k";
+    const cls = share<0.5 ? "ctxbar" : (share<0.85 ? "ctxbar w" : "ctxbar b");
+    el.innerHTML='<span class="'+cls+'"><span></span></span><span class="mono"></span>';
+    el.firstChild.firstChild.style.width=(share*100).toFixed(1)+"%";
+    el.lastChild.textContent=size+" / "+cap;
+    el.setAttribute("aria-label","Context window "+size+" of "+cap+" tokens");
   },
 
   // A CHAT KEEPS ITS PLACE WHEN YOU OPEN IT. The open one was drawn in a slot of
@@ -7698,18 +8549,15 @@ const crow = {
     }
   },
 
-  // The status words, written once for the card and the menu. TOKEN COUNTS
-  // ONLY -- no money figure anywhere on a subtask, the owner's call 2026-08-27.
+  // The tokens and the time of a subtask, written once for its card. TOKEN
+  // COUNTS ONLY -- no money figure anywhere on a subtask, the owner's call
+  // 2026-08-27.
   subStat(it){
-    const tok=(it.tok||0).toLocaleString("en-US")+" tok";
-    if(it.st==="running") return "running · "+Math.round(it.s)+" s · "+tok;
-    if(it.st==="done")    return "✓ done · "+tok;
-    return "✗ "+it.st+" · "+Math.round(it.s)+" s";
+    return (it.tok||0).toLocaleString("en-US")+" tok · "+(it.s||0).toFixed(1)+" s";
   },
 
   // A card exists FROM THE MOMENT delegate runs -- the running state is the
-  // one that must be seen -- and is then updated in place, never rebuilt, so
-  // an open result fold survives every tick.
+  // one that must be seen -- and is then updated in place, never rebuilt.
   subCard(it){
     // getElementById: the no-money guard below reads this block for the dollar sign.
     const p=document.getElementById("subpanel");
@@ -7720,50 +8568,48 @@ const crow = {
       // its own cached copy was the frame that drew no card at all.
       if(!it.here) return;
       d=document.createElement("div"); d.className="subcard"; d.dataset.sub=it.i;
-      // des Owners letzte Kartenform 2026-08-29: die klassische Kopfzeile --
-      // ⑂ delegate · dN, Modell, Status rechts -- und der Task darunter.
-      // Der volle Output bleibt ZU; die Karte selbst ist die Klickflaeche.
-      d.innerHTML='<div class="shead"><span class="glyph">⑂</span>'
-        +'<span class="dlabel"></span><span class="sname"></span>'
-        +'<span class="sstat"></span></div><div class="stask"></div>';
-      d.querySelector(".dlabel").textContent="delegate · "+it.i;
-      d.querySelector(".sname").textContent=it.model||"";
-      d.querySelector(".stask").textContent=it.task||"";
+      // #384. THE MOCKUP'S CARD: the fork, the id, the status pill, tokens
+      // and time; the task; the model in mono; RESULT once there is one.
+      // Every text by textContent -- task, model and result come from outside.
+      d.innerHTML='<div class="sh">'+this.svgFork()+'<span class="sid"></span>'
+        +'<span class="pill"></span><span class="sq"></span></div>'
+        +'<div class="stk"></div><div class="smod"></div>';
+      d.querySelector(".sid").textContent=it.i;
+      d.querySelector(".stk").textContent=it.task||"";
+      d.querySelector(".smod").textContent=it.model||"";
       // #255. INTO THE PINNED PANEL, NEVER INTO THE FLOW. A card
       // in `#flow` was a block of the transcript and scrolled away with it
       // (the owner, 2026-09-23 on 9a59872); in a round's column it folded away
-      // with the round (2026-08-27, "die sollen bleiben"). `#subpanel` sits
-      // in `#panels` beside goal and git: it stays put while the chat
-      // scrolls, and the chat gains no block, so nothing below it moves.
+      // with the round (2026-08-27, "die sollen bleiben"). `#subpanel` is the
+      // inspector's Subtasks tab (#384): it stays put while the chat scrolls,
+      // and the chat gains no block, so nothing below it moves.
     }
-    // RUNNING ABOVE, FINISHED IN THE FOLD. appendChild MOVES an existing
-    // node, so a card that finishes changes group once and keeps its open
-    // result; a card already in the right group stays where it is.
+    // RUNNING ABOVE, FINISHED BELOW. appendChild MOVES an existing node, so a
+    // card that finishes changes group once; one already in its group stays.
     const group=p.querySelector(it.st==="running" ? ".splive" : ".spdone");
     if(d.parentNode!==group) group.appendChild(d);
-    // des Owners letzte Fassung 2026-08-28: die LAUFENDE Karte atmet als Zeile;
-    // fertig steht sie still. Die Klasse traegt den Zustand, das CSS den Atem.
     d.classList.toggle("run", it.st==="running");
-    const stat=d.querySelector(".sstat");
+    // THE STATE IN THE PILL: running in the delegation channel with its
+    // pulsing dot, done in --ok, anything else (failed, cancelled) in --bad.
+    const pill=d.querySelector(".pill");
     if(it.st==="running"){
-      stat.innerHTML='<span class="sdot run"></span><span></span>';
-      stat.lastChild.textContent=this.subStat(it);
-    } else if(it.st==="done"){
-      stat.innerHTML='<span class="okword"></span>';
-      stat.firstChild.textContent=this.subStat(it);
+      pill.className="pill sub";
+      pill.innerHTML='<span class="sdot run"></span><span></span>';
+      pill.lastChild.textContent="running";
     } else {
-      stat.innerHTML='<span class="badword"></span>';
-      stat.firstChild.textContent=this.subStat(it);
+      pill.className="pill "+(it.st==="done" ? "ok" : "bad");
+      pill.textContent=it.st;
     }
-    if(it.st!=="running" && it.res && !d.querySelector(".sresult")){
-      // ZU PER DEFAULT (der Owner, 2026-08-28): der Hauptchat zeigt die Karte,
-      // der volle Output wohnt hinter dem Klick auf sie. Fuer den ganzen
-      // Text gibt es KEINEN Subtask-Chat; dieser eine Ort ist es.
-      const res=document.createElement("div"); res.className="sresult";
-      res.hidden=true; res.textContent=it.res;
-      d.appendChild(res);
-      d.classList.add("can"); d.title="click for the result";
-      d.onclick=()=>{ res.hidden=!res.hidden; };
+    d.querySelector(".sq").textContent=this.subStat(it);
+    if(it.st!=="running" && it.res && !d.querySelector(".sres")){
+      // #384: THE RESULT STANDS IN THE CARD, under its name, as the mockup
+      // shows it. It still never opens in the chat (the owner, 2026-08-28:
+      // "nicht offen in den Hauptchat") -- this is the inspector, and there is
+      // no subtask chat; this one place holds the whole text.
+      const l=document.createElement("span"); l.className="lbl"; l.textContent="Result";
+      const res=document.createElement("pre"); res.className="sres";
+      res.textContent=it.res;
+      d.append(l, res);
     }
   },
 
@@ -7780,7 +8626,11 @@ const crow = {
     chip.innerHTML="";
     if(running){ const dot=document.createElement("span");
       dot.className="sdot run"; chip.appendChild(dot); }
-    chip.appendChild(document.createTextNode("⑂ "+running));
+    // #385: the mockup's fork icon, then the count.
+    chip.insertAdjacentHTML("beforeend", RICON.fork);
+    chip.appendChild(document.createTextNode(String(running)));
+    chip.setAttribute("aria-label", running ? "Subtasks: "+running+" running"
+                                            : "Subtasks: none running");
   },
 
   subsMenu(){ const m=$("#submenu"); if(m) m.hidden=!m.hidden; },
@@ -7823,24 +8673,27 @@ const crow = {
         : box.querySelector(".sess:not([data-path])");
       if(!row) return;
       groups[parent].slice().reverse().forEach(it=>{
+        // #385: THE MOCKUP'S CHILD ROW -- fork, id, task, the state as a word.
         const b=document.createElement("button"); b.className="subchat";
-        const g=document.createElement("span"); g.className="glyph";
-        g.textContent="⑂"; b.appendChild(g);
-        const dot=document.createElement("span");
-        dot.className="sdot "+(it.st==="running"?"run":it.st==="done"?"ok":"bad");
-        b.appendChild(dot);
-        const t=document.createElement("span"); t.className="stitle";
-        t.textContent=it.task||""; b.appendChild(t);
-        const w=document.createElement("span"); w.className="who";
-        w.textContent=it.model||""; b.appendChild(w);
+        b.type="button";
+        b.innerHTML=RICON.fork+'<span class="sid mono"></span>'
+          +'<span class="stitle"></span><span class="sst"></span>';
+        b.querySelector(".sid").textContent=it.i||"";
+        b.querySelector(".stitle").textContent=it.task||"";
+        const st=b.querySelector(".sst");
+        st.textContent=it.st==="running" ? "running" : it.st==="done" ? "done"
+                       : (it.st || "failed");
+        st.dataset.st=it.st==="running" ? "run" : it.st==="done" ? "ok" : "bad";
         // A SUBCHAT IS NEVER OPENED AS A CHAT. Opening one made it the live
         // conversation, put the real chat aside and re-hung every child --
         // the exact break the owner filmed. The click goes to the CARD, which
         // already holds the task, the clock and the folded result.
-        b.dataset.open="1"; b.title="jump to its card";
+        b.dataset.open="1";
+        b.title=(it.model ? it.model+" · " : "")+"jump to its card";
         b.onclick=()=>crow.subJump(it.i);
         row.after(b); });
     });
+    this.railSubs();
   },
 
   // #255. THE PANEL'S FRAME: drop the cards that are not this chat's
@@ -7854,44 +8707,39 @@ const crow = {
     const run=p.querySelectorAll(".splive .subcard").length;
     const fin=p.querySelectorAll(".spdone .subcard").length;
     // #281. CLOSED BY ITS `×` for this chat until a NEW subtask starts
-    // (born unmarked) or a jump reopens it. `hidden` is the whole state, so
-    // the #233/#256 reserve on `#subpanel:not([hidden])` lets go with it.
+    // (born unmarked) or a jump reopens it. `hidden` is the whole state.
     const open=items.some(x=>x.here && !x.closed);
     p.hidden=!(run+fin) || !open;
     p.querySelector(".sph .st").textContent=run+" running · "+fin+" finished";
-    const fold=p.querySelector(".spfold"), done=p.querySelector(".spdone");
-    fold.hidden=!fin;
-    // THE HOUSE CARET, not U+25B8/U+25BE: neither is in the shipped Google Sans Code
-    // faces (check_gui_prereqs, 2026-09-23), while &#9654; is, and every other
-    // fold in this file turns that one by 90 degrees.
-    fold.classList.toggle("open", !done.hidden);
-    fold.innerHTML='<span class="caret">&#9654;</span>finished · '+fin;
+    // #384: the count rides the Subtasks tab, and an empty tab says why.
+    const c=$("#itab-subs .cnt");
+    if(c){ c.textContent=(run+fin) ? String(run+fin) : ""; c.hidden=!(run+fin); }
+    const none=$("#isubs .inone");
+    if(none) none.textContent=(run+fin)
+      ? "Closed for this chat -- a new subtask or a jump to one opens it again."
+      : "Nothing delegated in this chat.";
   },
-
-  subPanelFold(){ $("#subpanel").classList.toggle("shut"); },
 
   // #281. The `×`: hidden at once here, the mark in the registry. Closing is
   // not cancelling -- no subtask is touched.
   subPanelClose(ev){ if(ev) ev.stopPropagation();
     $("#subpanel").hidden=true;
     (this.subItems||[]).forEach(x=>{ if(x.here) x.closed=true; });
-    pywebview.api.close_subtasks(); },
-
-  subDoneFold(){ const p=$("#subpanel"), done=p.querySelector(".spdone");
-    done.hidden=!done.hidden; this.subPanel(this.subItems||[]); },
+    pywebview.api.close_subtasks();
+    this.subPanel(this.subItems||[]); },
 
   // A jump opens whatever hides the card and rolls it into view INSIDE the
   // panel -- the element-level jump would also scroll #main, which clips on
   // purpose, so the panel's own scrollTop is set instead.
   subReveal(d){
-    const p=$("#subpanel"); p.classList.remove("shut");
+    const p=$("#subpanel");
+    // #384: THE CARD IS IN THE SUBTASKS TAB, so the inspector shows it first
+    // -- and the panel has a size to scroll in.
+    this.inspectorShow("subs");
     // #281: a jump is the way back into a closed card.
     if(p.hidden){ p.hidden=false;
       (this.subItems||[]).forEach(x=>{ if(x.here) x.closed=false; });
-      pywebview.api.reopen_subtasks(); }
-    const done=p.querySelector(".spdone");
-    if(done.contains(d) && done.hidden){ done.hidden=false;
-      this.subPanel(this.subItems||[]); }
+      pywebview.api.reopen_subtasks(); this.subPanel(this.subItems||[]); }
     p.scrollTop=Math.max(0, d.offsetTop-p.clientHeight/2+d.offsetHeight/2);
     d.classList.remove("seen"); void d.offsetWidth; d.classList.add("seen");
   },
@@ -7925,7 +8773,7 @@ const crow = {
     b.innerHTML='<span class="edge"></span><span class="t"></span>'
                +'<span class="s"></span>';
     b.querySelector(".t").textContent=r.title || r;
-    b.querySelector(".s").textContent=r.meta || "";
+    b.querySelector(".s").textContent=this.rowSub(r);
     b.title="open · right-click for more";
     // EVERY ENTRY IS CLICKABLE, the open one included. Clicking it is a no-op in
     // Python -- and that is where the decision belongs, not in whether a handler
@@ -7937,8 +8785,9 @@ const crow = {
   projectRow(p,count){ const h=document.createElement("button");
     h.className="proj"+(p.open ? " open" : "");
     h.dataset.path=p.path;
-    h.innerHTML='<span class="caret">&#9654;</span><span class="t"></span>'
-               +'<span class="n"></span>';
+    // #385: the mockup's group head -- a folder, the name; the count shows
+    // while the head is folded (CSS).
+    h.innerHTML=RICON.folder+'<span class="t"></span><span class="n"></span>';
     h.querySelector(".t").textContent=p.name;
     // THE COUNT IS THE ONLY THING THAT SURVIVES FOLDING. A shut project with no
     // number is a heading that says nothing about what is inside it, which is
@@ -7956,6 +8805,22 @@ const crow = {
     // #143. The rail payload carries the subtasks, so a redraw cannot lose
     // their rows; the ticker's own event updates the same list between rails.
     if(e.subs!==undefined) this.subItems=e.subs||[];
+    // THE LIVE CHAT WITHOUT A FILE is drawn from the window's own copy: it has
+    // no entry in `rollovers` yet because the core writes nothing for a chat
+    // with no turn in it. It goes under its project like any other, because a
+    // new chat started inside one belongs there from its first line -- not from
+    // its first save.
+    // #162: `active` KOMMT JETZT AUS PYTHON. Fest verdrahtet war es richtig,
+    // solange der laufende Chat immer der sichtbare war.
+    // #385: built before the fast path, which redraws its second line too, and
+    // with its own goal numbers and clock (`live_goal`, `live_at`).
+    const live=unsaved ? {path:null,title:title,meta:meta,
+                          active:e.live_active!==false,
+                          running:!!e.live_running, done:!!e.live_done,
+                          root:this.liveRoot, goal:e.live_goal||null,
+                          at:e.live_at||""} : null;
+    this.railE=e; this.railLive=live;
+    this.headTitle(e); this.contDraw();
     const box=$("#sessions");
     // SAME CHATS, SAME ORDER -> MOVE THE MARK, DO NOT REBUILD. Every update used
     // to throw the list away and remake it, so a click exchanged every node under
@@ -8000,17 +8865,6 @@ const crow = {
     box.dataset.shape=shape;
     box.innerHTML="";
 
-    // THE LIVE CHAT WITHOUT A FILE is drawn from the window's own copy: it has
-    // no entry in `rollovers` yet because the core writes nothing for a chat
-    // with no turn in it. It goes under its project like any other, because a
-    // new chat started inside one belongs there from its first line -- not from
-    // its first save.
-    // #162: `active` KOMMT JETZT AUS PYTHON. Fest verdrahtet war es richtig,
-    // solange der laufende Chat immer der sichtbare war.
-    const live=unsaved ? {path:null,title:title,meta:meta,
-                          active:e.live_active!==false,
-                          running:!!e.live_running, done:!!e.live_done,
-                          root:this.liveRoot} : null;
     const all=(rollovers||[]).slice();
     const rowFor=r=>{
       if(r!==live) return this.chatRow(r,!!this.projectOf(r.root));
@@ -8035,8 +8889,10 @@ const crow = {
     if(loose.length){
       // THE HEADING ONLY MEANS SOMETHING WITH A PROJECT ABOVE IT. Without one
       // these are simply the chats, and a word over the whole list is furniture.
+      // #385: "No folder" under a struck-through folder (the mockup's group).
       if(this.projects.length){ const h=document.createElement("div");
-        h.id="railsep"; h.textContent="Chats"; box.appendChild(h); }
+        h.id="railsep"; h.innerHTML=RICON.folderOff+"<span>No folder</span>";
+        box.appendChild(h); }
       loose.forEach(r=>box.appendChild(rowFor(r)));
     }
     this.subRail();
@@ -8047,6 +8903,111 @@ const crow = {
   // chat, make a project -- are the two with no way in from here.
   railMenu(e){ if(e.target.closest(".sess,.proj")) return;
     this.menu(e,"rail",null,null); },
+
+  // ---- #385: the chat head, the rows' second line, the start screen --------
+  // THE HEAD'S TITLE IS THE MARKED ROW'S: the live chat while it is the one in
+  // view, else the saved chat the rail marks `active` (#162: the one in view).
+  headTitle(e){ const t=$("#chattitle"); if(!t) return;
+    const seen=(e.rollovers||[]).filter(r=>r.active)[0];
+    const live=e.unsaved && e.live_active!==false;
+    t.textContent=(live ? e.title : seen ? seen.title : e.title) || "new chat"; },
+
+  // A ROW'S SECOND LINE: `goal d/t · k subtask(s) · HH:MM` for a chat that ran a
+  // goal, else what it said before (#385). The chat in view with a turn in it
+  // takes the goal the page holds -- the numbers its pill shows, updated per
+  // step; every other row the numbers its own goal tools last answered
+  // (`chat_goal`, Python). Subtasks are counted from the snapshot the child
+  // rows are drawn from, by the parent they hang under.
+  rowSub(r){ if(!r || typeof r!=="object") return "";
+    const m=$("#main"), open=r.active && !(m && m.classList.contains("empty"));
+    const hg=this.headGoal;
+    const g=open && hg ? [hg.done||0, hg.total||0] : r.goal;
+    if(!g) return r.meta || "";
+    const n=(this.subItems||[]).filter(x=>(x.parent||"")===(r.path||"")).length;
+    const at=r.at || (r.active ? this.turnAt : "") || "";
+    return ["goal "+g[0]+"/"+g[1], n ? n+(n===1 ? " subtask" : " subtasks") : "", at]
+      .filter(Boolean).join(" · "); },
+
+  // The second lines again, without rebuilding the list: a goal step, a
+  // subtask, a turn's end or the start screen changes them, never the rows.
+  railSubs(){ const e=this.railE, box=$("#sessions"); if(!e || !box) return;
+    const lv=box.querySelector(".sess:not([data-path]) .s");
+    if(lv && this.railLive) lv.textContent=this.rowSub(this.railLive);
+    (e.rollovers||[]).forEach(r=>{ if(!r.path) return;
+      const s=box.querySelector('[data-path="'+CSS.escape(r.path)+'"] .s');
+      if(s) s.textContent=this.rowSub(r); }); },
+
+  // A CONTINUE CARD'S META: the folder, then the goal and its clock, or the
+  // row's own line (`crow · goal 3/3 · 16:41`, `no folder · 6 messages`).
+  contMeta(r){ const p=this.projectOf(r.root);
+    const dir=p ? p.name : (r.root ? r.root.split(/[\\/]/).filter(Boolean).pop() : "no folder");
+    return (r.goal ? [dir, "goal "+r.goal[0]+"/"+r.goal[1], r.at] : [dir, r.meta])
+      .filter(Boolean).join(" · "); },
+
+  // THE START SCREEN'S CARDS: the two newest chats that are not the one in
+  // view, in the rail's own order, each opening its chat. None, no section;
+  // only on the start screen.
+  contDraw(){ const box=$("#cont"), m=$("#main"); if(!box || !m) return;
+    const list=box.querySelector(".cards");
+    const others=((this.railE||{}).rollovers||[]).filter(r=>r.path && !r.active).slice(0,2);
+    list.textContent="";
+    others.forEach(r=>{ const b=document.createElement("button");
+      b.type="button"; b.className="cont";
+      b.innerHTML='<span class="cont-t"></span><span class="cont-s mono"></span>';
+      b.querySelector(".cont-t").textContent=r.title||"";
+      b.querySelector(".cont-s").textContent=this.contMeta(r);
+      b.onclick=()=>crow.open(r.path);
+      list.appendChild(b); });
+    box.hidden=!(m.classList.contains("empty") && others.length); },
+
+  // What the head and the rows learn from three messages the page already
+  // gets: the goal (pill, second lines), the git state (branch chip), a turn's
+  // end (the live chat's clock). Read beside the switch below, which stays
+  // with the builders that own each message.
+  headOn(e){
+    if(e.k==="goal"){ this.headGoal=e.goal||null; this.headDraw(); this.railSubs(); }
+    else if(e.k==="git"){ const st=e.state||{};
+      this.headBranch=st.ok ? (st.branch||"") : ""; this.headDraw(); }
+    else if(e.k==="idle"){ this.turnAt=this.clockNow(); this.railSubs(); } },
+
+  headDraw(){ const pill=$("#goalpill"), g=this.headGoal;
+    if(pill){ pill.hidden=!g;
+      if(g){ const d=g.done||0, t=g.total||0;
+        pill.querySelector(".gt").textContent="Goal "+d+"/"+t;
+        // THE TICK ONLY ON A FINISHED GOAL: "Goal 1/3" beside a check mark
+        // would read as done.
+        pill.classList.toggle("part", !(t>0 && d>=t)); } }
+    const br=$("#branchchip");
+    if(br){ br.hidden=!this.headBranch;
+      br.querySelector(".bt").textContent=this.headBranch||""; } },
+
+  // THE PILL OPENS THE GOAL in the inspector (#384's `inspectorShow`).
+  goalPill(){ this.inspectorShow && this.inspectorShow("goal"); },
+
+  clockNow(){ const d=new Date();
+    return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); },
+
+  // #MAIN.EMPTY WHILE #FLOW HOLDS THE GREETING (#385). `hello()` draws it into
+  // an empty chat, `turn()` takes it off with the first row -- a sent line, a
+  // replayed chat, an error alike -- and this only watches, so it agrees with
+  // both without either having to call it.
+  emptyCheck(){ const m=$("#main"); if(!m) return;
+    const now=!!flow.querySelector(":scope > #hello");
+    if(m.classList.contains("empty")===now) return;
+    m.classList.toggle("empty", now);
+    this.placeRoot(); this.railSubs(); this.contDraw(); fitFlow(); },
+
+  // THE FOLDER CHIP STANDS IN THE HEAD, and on the start screen -- where the
+  // head is hidden -- in the composer row after the subtask chip, as in the
+  // mockup. One element, moved, so its menu and its handlers are the same in
+  // both places -- and only between those two: once the phone layer has put
+  // it into its own sheet, it stays there.
+  placeRoot(){ const w=$("#rootwrap");
+    if(!w || !w.parentNode || !w.parentNode.matches("#chathead,#foot")) return;
+    if($("#main").classList.contains("empty")){ const s=$("#subwrap");
+      if(s && w.previousElementSibling!==s) s.after(w); }
+    else { const t=$("#chattitle");
+      if(t && w.previousElementSibling!==t) t.after(w); } },
 
   toggleRail(){ const el=document.body;
     const open=el.dataset.rail!=="shut";
@@ -8068,15 +9029,139 @@ const crow = {
   // Aussehen und sonst nichts. Beim Aufklappen bekommt ein leerer Browser
   // seinen ersten Reiter -- ein Panel, in dem man erst auf `+` klicken muss,
   // um irgendwas tun zu koennen, hat einen Schritt zu viel.
+  // #384: A TAB OF THE INSPECTOR NOW. On, it opens the inspector and shows
+  // the Browser tab; off, the tab goes and the one before it comes back.
   toggleBrowser(){ const el=document.body;
     const open=el.dataset.browser!=="shut";
     el.dataset.browser=open ? "shut" : "open";
     sizing.pulse();                        // #237: .16s Breitenuebergang
     pywebview.api.set_browser_open(!open);
-    if(open) return;                       // zugeklappt: `set_browser_open` versteckt
-    if(!this.tabs.length){ this.brNew(); return; }
+    if(open){ this.inspectorToggled("browser", false); return; }   // `set_browser_open` versteckt
+    // Unfolded: the tab's page again, loaded once its tab shows (`brSync`) --
+    // #279: a render made while folded loads its capture.
+    this.brOwe=true;
+    this.inspectorToggled("browser", true);
+    if(!this.tabs.length) this.brNew(); },
+
+  // -- #384: the inspector ---------------------------------------------------
+  //
+  // ONE VIEW AT A TIME behind a tab strip, the WAI-ARIA tabs pattern with
+  // automatic activation (the panels show without delay). `#side[data-tab]`
+  // is the state and CSS shows the one panel. Git and Browser have a tab only
+  // while their title-bar toggle is on.
+  // `itabPicked`: the user chose a tab in this chat -- the automatic rules (a
+  // new goal, the first call) never take it away. `itabSeen`: the tabs shown
+  // before this one, latest last -- switching Git or Browser off returns to
+  // the latest that is still there.
+  itab: "goal", itabSeen: [], itabPicked: false,
+
+  inspectorOn(tab){ const b=document.body.dataset;
+    return tab==="git" ? b.git!=="shut" : tab==="browser" ? b.browser!=="shut"
+      : (tab==="goal" || tab==="tools" || tab==="subs"); },
+
+  inspectorSelect(tab, focus){
+    if(!this.inspectorOn(tab)) tab=this.inspectorBack();
+    if(tab!==this.itab){
+      this.itabSeen=this.itabSeen.filter(t=>t!==tab && t!==this.itab)
+        .concat(this.itab).slice(-5);
+      this.itab=tab; }
+    const side=$("#side"); if(side) side.dataset.tab=tab;
+    document.querySelectorAll("#itabs .tab").forEach(b=>{
+      const on=b.dataset.tab===tab;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+      b.tabIndex = on ? 0 : -1;
+      if(on && focus) b.focus(); });
+    this.brSync(); },
+
+  // The latest tab before this one that is still there; Goal when none is.
+  inspectorBack(){
+    for(let i=this.itabSeen.length-1; i>=0; i--){ const t=this.itabSeen[i];
+      if(t!==this.itab && this.inspectorOn(t)) return t; }
+    return "goal"; },
+
+  // A click on a tab, or a key: the user's choice for this chat.
+  inspectorPick(tab){ this.itabPicked=true; this.inspectorSelect(tab); },
+
+  // The automatic rules, only while the user has not picked in this chat.
+  inspectorAuto(tab){ if(!this.itabPicked) this.inspectorSelect(tab); },
+
+  // APG keys: Left/Right move over the tabs that are there and wrap,
+  // Home/End jump to the ends; the move selects (automatic activation).
+  inspectorKey(e){
+    const tabs=Array.prototype.filter.call(document.querySelectorAll("#itabs .tab"),
+      b=>this.inspectorOn(b.dataset.tab));
+    if(!tabs.length) return;
+    let at=tabs.indexOf(e.target.closest ? e.target.closest(".tab") : null);
+    if(at<0) at=Math.max(0, tabs.findIndex(b=>b.dataset.tab===this.itab));
+    const to = e.key==="ArrowRight" ? (at+1)%tabs.length
+      : e.key==="ArrowLeft" ? (at-1+tabs.length)%tabs.length
+      : e.key==="Home" ? 0 : e.key==="End" ? tabs.length-1 : -1;
+    if(to<0) return;
+    e.preventDefault();
+    this.itabPicked=true;
+    this.inspectorSelect(tabs[to].dataset.tab, true); },
+
+  // #384. THE WAY IN FROM ELSEWHERE (#383's trace strip, #385's rail and chat
+  // head): opens the inspector if it is shut -- switching Git or Browser on
+  // when that is the tab asked for -- and selects the tab, as the user's pick.
+  // "tools": opens call `key`, the number its row shows (1 is the chat's
+  // first call), and scrolls it into view. "subs": scrolls card `key`, a
+  // subtask id, into view. "goal": shows the goal.
+  inspectorShow(tab, key){
+    const b=document.body.dataset;
+    if(tab==="git" && b.git==="shut") this.toggleGit();
+    else if(tab==="browser" && b.browser==="shut") this.toggleBrowser();
+    else if(b.code==="shut") this.toggleCode();
+    this.inspectorPick(tab);
+    if(tab==="tools" && key!=null) this.toolOpen(key);
+    if(tab==="subs" && key!=null) this.subJump(String(key)); },
+
+  // Git or Browser switched on or off by its title-bar toggle.
+  inspectorToggled(tab, on){
+    if(on){ this.inspectorOpen(); this.inspectorPick(tab); return; }
+    if(this.itab===tab) this.inspectorSelect(this.inspectorBack()); },
+
+  // Open, not toggled: a toggle that opens the inspector is one gesture with
+  // it, and on the phone (REMOTE_JS) it already runs inside its drawer's.
+  inspectorOpen(){ const el=document.body;
+    if(el.dataset.code!=="shut") return;
+    el.dataset.code="open"; sizing.pulse(); pywebview.api.set_code_open(true); },
+
+  // Whoever flipped a panel attribute (a toggle, the phone's drawers): a tab
+  // whose toggle went off gives way, and the page follows its tab.
+  inspectorSync(){
+    if(this.inspectorOn(this.itab)) this.brSync();
+    else this.inspectorSelect(this.inspectorBack()); },
+
+  // Call `n` open and in view, n as its row shows it.
+  toolOpen(n){
+    const row=$('#tclist .tool[data-n="'+Number(n)+'"]'); if(!row) return;
+    if(row.classList.contains("shut") && !row.classList.contains("flat")){
+      row.classList.remove("shut");
+      row.querySelector(".hd").setAttribute("aria-expanded", "true"); }
+    const body=$("#codebody"), r=row.getBoundingClientRect(),
+          b=body.getBoundingClientRect();
+    if(r.top<b.top || r.bottom>b.bottom) body.scrollTop += r.top-b.top-8; },
+
+  // #384. THE PAGE IS THERE ONLY WHILE ITS TAB IS. The browser page is a
+  // native view over the window (#175, #201); on any other tab, or with the
+  // inspector shut, it would lie over what that tab shows. `pane_hide` keeps
+  // the page (on GTK it parks a heavy one, #279) and `pane_show` brings it
+  // back; a send made while the tab was away is owed and loaded on return.
+  brVisible(){ const b=document.body.dataset;
+    return b.browser!=="shut" && b.code!=="shut" && this.itab==="browser"; },
+  brSync(){
+    if(!window.pywebview) return;
+    const vis=this.brVisible();
+    if(vis===this.brWas) return;
+    this.brWas=vis;
+    if(!vis){ pywebview.api.pane_hide(); return; }
     const t=this.brTab(this.tabOn);
-    if(t && t.at>=0) this.brSend(this.brShown(t)); else pywebview.api.pane_show(); },
+    if(!t || t.at<0) return;               // a blank tab shows our own panel
+    if(this.brOwe){ this.brSend(this.brShown(t)); return; }
+    this.brSent=""; this.brPlace(); pywebview.api.pane_show(); },
+  brWas: false, brOwe: false,
 
   // #279. WHAT A TAB SHOWS: the model's capture for a render tab (the PNG,
   // a still image), else the address. Unfolding a render tab that was filled
@@ -8243,6 +9328,10 @@ const crow = {
     // #279: THE ONE DOOR, SHUT WHILE FOLDED. No path loads a page into a
     // panel nobody can see; unfolding sends the tab's entry again.
     if(document.body.dataset.browser==="shut") return;
+    // #384: and while its tab is not the one shown -- owed, and loaded when
+    // the Browser tab comes back (`brSync`).
+    if(!this.brVisible()){ this.brOwe=true; return; }
+    this.brOwe=false;
     this.brPlace();
     pywebview.api.pane_go(url); },
 
@@ -8280,7 +9369,9 @@ const crow = {
   // #201. EIN LINK AUS EINER ANTWORT, im Panel statt in einem zweiten
   // Fenster. Ein neuer Reiter, weil der Link neben dem steht, was gerade
   // offen ist, und es nicht ersetzen soll.
-  brOpen(url){ if(!url) return; this.brUnfold(); this.brNew(url); },
+  // #384: and shown -- the Browser tab, in an open inspector.
+  brOpen(url){ if(!url) return; this.brUnfold();
+    this.inspectorToggled("browser", true); this.brNew(url); },
 
   // #227. DIE SEITE IST SELBST GEGANGEN (Link, Formular, Umleitung). "replace"
   // heisst: die Last kam von hier (getippt, Zurueck, Reiterwechsel) und ihre
@@ -8335,9 +9426,11 @@ const crow = {
     const open=el.dataset.git!=="shut";
     el.dataset.git=open ? "shut" : "open";
     pywebview.api.set_git_open(!open);
-    if(!open) this.gitRefresh(); },
+    if(!open) this.gitRefresh();
+    // #384: a tab of the inspector while it is on.
+    this.inspectorToggled("git", !open); },
 
-  // Eine Klappgruppe im Git-Panel. Dieselbe Mechanik wie `toolsToggle`.
+  // Eine Klappgruppe im Git-Panel. Dieselbe Mechanik wie `filesToggle`.
   gitToggle(id){
     const box=$("#"+id); if(!box) return;
     const shut=box.classList.toggle("shut");
@@ -8700,8 +9793,14 @@ const crow = {
     // Fassung desselben Textes, und die beiden koennten sich widersprechen.
     // Der Stempel kommt aus `push`, nicht aus dem Nachrichtentyp.
     if(e.bg) return;
+    this.headOn(e);                        // #385: chat head, rows, clock
+    if(e.k==="rail") finder.seen(e);   // #386: the search reads the chats from it
+    // #383: the delegate cards in the flow follow every subtask push, beside
+    // the inspector's own cards (`subs`).
+    if(e.k==="subs") this.refSubs(e.items);
     switch(e.k){
       case "up": $("#dot").className="up"; $("#state").textContent="connected";
+        $("#engine").dataset.state="up";
         // #115: kept on the page rather than asked for when the menu opens, so
         // a click answers from what the last probe SAW instead of racing it.
         if(e.models){ this.models=e.models; }
@@ -8723,13 +9822,18 @@ const crow = {
         if(e.groups!==undefined){ this.groups=e.groups; }
         this.showReason(e.level); break;
       case "down": $("#dot").className="down";
-        $("#state").textContent=e.why||"no server"; break;
+        $("#state").textContent=e.why||"no server";
+        $("#engine").dataset.state="down"; this.downWhy=e.why||""; this.showEngine(); break;
       // #125. STRAIGHT TO ABOUT. The version used to sit beside the wordmark and
       // be copied into the sheet when it opened; the ribbon is a name and three
       // window buttons now, so the number goes where somebody looks it up.
       case "meta": $("#aboutver").textContent=e.version;
         if(e.slash) this.slash=e.slash;
-        if(e.rail) $("#rail").style.setProperty("--railw", e.rail+"px");
+        if(e.slash_help) this.slashHelp=e.slash_help;   // #386: the search's lines
+        // #382: AND ON THE BAR, the other reader -- its left zone stands over
+        // the rail. Two small subtrees, never <html> (#236).
+        if(e.rail){ $("#rail").style.setProperty("--railw", e.rail+"px");
+                    $("#bar").style.setProperty("--railw", e.rail+"px"); }
         // THE TITLE, NOT A CHIP (#119). Set rather than interpolated for the same reason every
         // other name here is: it is a string that arrived over the bridge.
         $("#conn").title=e.url;
@@ -8739,7 +9843,7 @@ const crow = {
         this.tools(e.execute); break;
       case "tools": this.tools(e.on); break;
       case "mode": this.modeIs(e.name, e.modes); break;
-      case "root": this.rootIs(e.path, e.name, e.roots); break;
+      case "root": this.rootIs(e.path, e.name, e.roots, e.short); break;
       case "ask": this.ask(e.name, e.args, e.scope); break;
       // #175. Ein Render des Modells oeffnet sein Tab im Browser-Panel.
       case "page": this.brRendered(e.url, e.shot); break;
@@ -8771,7 +9875,7 @@ const crow = {
       case "user": this.user(e.t); if(e.i) this.userImages(e.i); break;
       // #211. DIE BANDGRENZE ALS KARTE -- vom Schnitt selbst oder vom Replay.
       case "roll": this.rollCard(e); break;
-      case "start": this.start(); break;
+      case "start": this.turnStart(); this.start(); break;
       case "think_open": this.thinkOpen(); break;
       case "think": this.thinkText(e.t); break;
       case "think_close": this.thinkClose(); break;
@@ -8782,10 +9886,14 @@ const crow = {
       case "engine": this.engineDone(e); break;
       case "voice": this.voice(e); break;
       case "code_close": this.codeClose(e.closed); break;
-      case "tool": this.tool(e.name,e.args,e.raw,e.code); break;
+      case "tool": this.tool(e.name,e.args,e.raw,e.code); this.traceTool(e.name,e.raw); break;
       case "toolend": this.toolEnd(e.name,e.s,e.rep); break;
-      case "toolres": this.toolRes(e.name,e.t,e.cut); break;
-      case "cost": this.cost(e.line,e.share,e.sub); this.ctx(e.tokens,e.n_ctx); break;
+      case "toolres": this.toolRes(e.name,e.t,e.cut); this.traceRes(e.name,e.t); break;
+      // #382: `stats` is the turn's numbers as numbers; the page keeps the last
+      // one (a chat switch re-sends the line without it) and the engine chip
+      // shows its decode rate. #383 draws the strip from it.
+      case "cost": this.cost(e.line,e.share,e.stats,e.cut); if(e.stats) this.stats=e.stats;
+        this.ctx(e.tokens,e.n_ctx); break;
       case "ctx": this.ctx(e.tokens,e.n_ctx); break;
       case "subs": this.subs(e.items); break;
       case "note": this.note(e.t); break;
@@ -8835,6 +9943,149 @@ input.addEventListener("keydown",e=>{
     e.preventDefault(); crow.go(); }
   if(e.key==="Escape" && crow.running) pywebview.api.stop(); });
 
+// #382. CTRL+K OPENS THE SEARCH FROM ANYWHERE, the composer included -- the
+// palette key of an editor works from inside a file too. Escape lets go of the
+// field (it folds back to the magnifier when empty) and hands the keyboard back
+// to the composer. Escape there is the field's own, so a running turn is not
+// stopped by somebody closing the search.
+const searchIn = $("#searchin");
+document.addEventListener("keydown",e=>{
+  if((e.key!=="k" && e.key!=="K") || !searchIn) return;
+  if(!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+  e.preventDefault(); searchIn.focus(); searchIn.select(); });
+if(searchIn) searchIn.addEventListener("keydown",e=>{
+  if(e.key!=="Escape") return;
+  // #386: Escape also lets go of the query, so the field folds back at once.
+  e.preventDefault(); finder.reset(); searchIn.blur(); input.focus(); });
+
+// #386. WHAT THE SEARCH FINDS: chats and slash commands, under the field.
+//
+// CHATS come from the last `{"k":"rail"}` message (`seen`, called by `crow.on`
+// before the rail is drawn), which is everything the rail holds: the live chat
+// when it has no file yet, the saved chats newest first, then the archive
+// drawer's. Folded projects are in it too -- the rail does not DRAW them, the
+// message still carries them. A chat matches by title or by its project's name,
+// case-insensitive substring.
+// COMMANDS come from the page's `crow.slash` (the shared list) with the line
+// `/help` prints for each (`crow.slashHelp`); they match by name.
+//
+// THE KEYS ARE THE COMBOBOX PATTERN of the WAI-ARIA authoring practices, list
+// autocomplete with automatic selection: DOM focus stays in the input, the first
+// result is selected as the list opens, Up/Down move (and wrap), Enter takes it,
+// Escape closes the list, drops the query and lets go of the field. The option
+// the keys stand on is named by `aria-activedescendant` and `aria-selected`.
+const finder = (() => {
+  const pop=$("#searchpop"), list=$("#searchlist"), none=$("#searchnone");
+  const MAX=8;                         // rows in all; the group labels are not rows
+  let rail=null;                       // the last rail message
+  let rows=[];                         // the options on screen, in key order
+  let at=-1;                           // the one the keys stand on
+  const el=(tag,cls,text)=>{ const n=document.createElement(tag);
+    if(cls) n.className=cls; if(text) n.textContent=text; return n; };
+  const has=(hay,q)=>String(hay||"").toLowerCase().indexOf(q)>=0;
+
+  const chats=q=>{ if(!rail) return [];
+    const all=[], seen=new Set();
+    const add=(c,extra)=>{ const key=c.path||"";   // the live chat has no file
+      if(seen.has(key)) return; seen.add(key);
+      const p=(rail.projects||[]).filter(x=>crow.sameDir(x.path,c.root))[0];
+      all.push(Object.assign({path:c.path||"", title:c.title||"", project:p ? p.name : ""}, extra)); };
+    if(rail.unsaved) add({path:"", title:rail.title||"new chat", root:rail.live_root}, {live:true});
+    (rail.rollovers||[]).forEach(r=>add(r,{}));
+    (rail.archived||[]).forEach(r=>add(r,{archived:true}));
+    return all.filter(c=>has(c.title,q) || has(c.project,q)); };
+  // The names the query starts (`del` -> /delegate) come before the ones that
+  // only contain it (/model); the list's own order holds within each.
+  const bare=s=>s.toLowerCase().replace(/^\//,"");
+  const commands=q=>(crow.slash||[]).filter(c=>has(c,q))
+    .map(c=>({cmd:c, line:(crow.slashHelp||{})[c]||"", late:bare(c).indexOf(bare(q))===0 ? 0 : 1}))
+    .sort((a,b)=>a.late-b.late);
+  // Up to MAX rows. The chats come first and may take five, or more when the
+  // commands leave room; the commands get what is left.
+  const share=(cs,ms)=>{ const n=Math.min(cs.length, Math.max(5, MAX-ms.length));
+    return {chats:cs.slice(0,n), cmds:ms.slice(0, MAX-n)}; };
+
+  const cover=()=>requestAnimationFrame(()=>crow.brCover());   // #201: a native pane under it hides
+  const mark=i=>{ at=i;
+    rows.forEach((r,k)=>{ r.node.classList.toggle("on",k===i);
+      r.node.setAttribute("aria-selected", k===i ? "true" : "false"); });
+    if(i<0){ searchIn.removeAttribute("aria-activedescendant"); return; }
+    searchIn.setAttribute("aria-activedescendant", rows[i].node.id);
+    if(rows[i].node.scrollIntoView) rows[i].node.scrollIntoView({block:"nearest"}); };
+  const close=()=>{ rows=[]; at=-1; list.textContent=""; none.textContent="";
+    pop.hidden=true; searchIn.setAttribute("aria-expanded","false");
+    searchIn.removeAttribute("aria-activedescendant"); cover(); };
+  const reset=()=>{ searchIn.value=""; close(); };
+
+  // THE COMPOSER KEEPS WHAT IS IN IT. An empty box, or a half-typed command, is
+  // replaced by the command; a draft stays, with the command in front of it.
+  const put=cmd=>{ const cur=input.value.trim();
+    input.value=(!cur || /^\/\S*$/.test(cur)) ? cmd : cmd+" "+input.value;
+    input.dispatchEvent(new Event("input"));      // the height and the Send/Stop face
+    input.focus(); input.setSelectionRange(input.value.length, input.value.length); };
+  const act=i=>{ const r=rows[i]; if(!r) return;
+    reset(); searchIn.blur(); r.run(); input.focus(); };
+
+  const option=(cls,key,main,side,tip,run)=>{
+    const i=rows.length, o=el("div","sopt "+cls);
+    o.id="searchopt-"+i; o.setAttribute("role","option"); o.setAttribute("aria-selected","false");
+    o.appendChild(el("span","st",main)); o.appendChild(el("span","ss",side));
+    if(tip) o.title=tip;
+    o.addEventListener("click",()=>act(i));
+    o.addEventListener("mousemove",()=>{ if(at!==i) mark(i); });
+    rows.push({node:o, key:key, run:run}); return o; };
+  const group=(key,label,items,build)=>{ if(!items.length) return;
+    const g=el("div"), h=el("div","lbl",label);
+    h.id="searchg-"+key; h.setAttribute("role","presentation");
+    g.setAttribute("role","group"); g.setAttribute("aria-labelledby",h.id);
+    g.appendChild(h); items.forEach(it=>g.appendChild(build(it))); list.appendChild(g); };
+
+  // `keep`: a rail message arrived while the list is open -- stay on the same
+  // result when it is still there, instead of jumping back to the first.
+  const draw=keep=>{ const q=searchIn.value.trim().toLowerCase();
+    if(!q){ close(); return; }
+    const held=keep && at>=0 ? rows[at].key : null;
+    const found=share(chats(q), commands(q));
+    list.textContent=""; rows=[]; at=-1;
+    group("chats","Chats",found.chats,c=>option("chat",c.path||"live",c.title,
+      c.archived ? (c.project ? c.project+" · archived" : "archived") : c.project,
+      c.title, ()=>{ if(c.live) pywebview.api.view_live(); else crow.open(c.path); }));
+    group("commands","Commands",found.cmds,c=>option("cmd",c.cmd,c.cmd,c.line,
+      c.cmd+(c.line ? "  "+c.line : ""), ()=>put(c.cmd)));
+    pop.hidden=false;
+    list.hidden=!rows.length;
+    none.textContent=rows.length ? "" : "Nothing matches";
+    searchIn.setAttribute("aria-expanded", rows.length ? "true" : "false");
+    const k=held ? rows.findIndex(r=>r.key===held) : -1;
+    mark(rows.length ? Math.max(k,0) : -1);
+    cover(); };
+
+  searchIn.addEventListener("input",()=>draw(false));
+  searchIn.addEventListener("focus",()=>draw(false));
+  searchIn.addEventListener("blur",close);
+  searchIn.addEventListener("keydown",e=>{
+    if(e.isComposing || e.keyCode===229) return;          // an input method's, as for the composer
+    if((e.key==="ArrowDown" || e.key==="ArrowUp") && rows.length){
+      e.preventDefault(); const n=rows.length;
+      mark(e.key==="ArrowDown" ? (at+1)%n : (at-1+n)%n); }
+    else if(e.key==="Enter" && at>=0){ e.preventDefault(); act(at); } });
+  // A PRESS IN THE FIELD OR IN ITS LIST IS NOT A WINDOW DRAG. Both stand inside
+  // #bar, and pywebview (webview/js/customize.js, `onBodyMouseDown`) starts a
+  // drag on any press under a drag region: it climbs from the target to
+  // `.pywebview-drag-region`, knows no `pywebview-no-drag`, and Crow sets neither
+  // DRAG_REGION_DIRECT_TARGET_ONLY nor easy_drag. So the window would move under
+  // a click, and under a text selection made with the mouse. The press stops
+  // here instead. The page's dismissal of open menus is a listener on the window,
+  // which a stopped press no longer reaches, so it is called from here. (The
+  // bar's own handler for Wayland asks `.pywebview-no-drag`; both carry it.)
+  const still=e=>{ e.stopPropagation(); dismissMenus(e); };
+  $("#search").addEventListener("mousedown",still);
+  // A CLICK ON A RESULT MUST NOT TAKE THE FOCUS from the field either: the blur
+  // would close the list before the click lands.
+  pop.addEventListener("mousedown",e=>{ e.preventDefault(); still(e); });
+  return {seen:e=>{ rail=e; if(!pop.hidden) draw(true); }, reset:reset};
+})();
+
 // BOTH HAVE TO BE PREVENTED, and dragover is the one people forget: without it
 // the drop never reaches a listener at all, because WebView2 has already
 // decided to navigate to the file and show it instead of the window.
@@ -8880,9 +10131,12 @@ const fitFlow = () => {
   // MEASURE FIRST, THEN GROW. Reading the scroll position after the padding
   // changed would ask whether we are at a bottom that has already moved.
   const atBottom = flow.scrollHeight - flow.scrollTop - flow.clientHeight < 4;
-  flow.style.paddingBottom = (composer.offsetHeight + 10) + "px";
-  // #233: DIESELBE ZAHL FUER DIE KARTEN. #panels endet dort, wo der
-  // Composer anfaengt, statt bei festen 70 % -- siehe die Regel an #panels.
+  // #385: ON THE START SCREEN the composer stands under the greeting, not
+  // over the flow, so there is nothing to keep clear of.
+  flow.style.paddingBottom = composer.parentNode.classList.contains("empty") ? ""
+    : (composer.offsetHeight + 10) + "px";
+  // #233: DIESELBE ZAHL FUER DIE KARTEN -- seit #384 liest sie nur noch das
+  // Telefon (REMOTE_CSS: Fluss, Menues, die festgesteckte Freigabe).
   composer.parentNode.style.setProperty("--comph", composer.offsetHeight + "px");
   // RE-PIN, or typing a third line pushes the answer you were reading up and
   // out of sight -- the padding grows downwards and the view does not follow.
@@ -9033,18 +10287,21 @@ window.addEventListener("resize", () => sizing.pulse());
 // THE WRAPPER, NOT THE PANEL, and that is the whole reason each of these has a wrapper. Guarding
 // on `#modelmenu` alone would close the menu on the mousedown that lands on its own chip, and the
 // click a moment later would find it hidden and toggle it straight back open -- so the chip could
-// open the menu and never close it. `#helpwrap` was written this way first; the other three now
-// match it.
+// open the menu and never close it. `#helpwrap` was written this way first; the others now
+// match it (#382 removed the Help menu itself; Settings sits at the rail's foot).
 //
 // `mousedown` RATHER THAN `click`, unchanged from what was here: the panel is gone before
 // whatever sits under it does its work, and a row inside a panel is caught by its own wrapper.
-const DISMISS = [["#helpwrap","#helpmenu"], ["#modelwrap","#modelmenu"],
+const DISMISS = [["#modelwrap","#modelmenu"],
                  ["#modewrap","#modemenu"], ["#rootwrap","#rootmenu"],
                  ["#subwrap","#submenu"]];
-window.addEventListener("mousedown",e=>{
+// #386: NAMED, because a press in the search field must stop before it reaches
+// the window (it is not a window drag) and calls this itself.
+const dismissMenus = e => {
   if(!e.target.closest("#menu")) crow.closeMenu();
   DISMISS.forEach(pair => {
-    if(!e.target.closest(pair[0])) $(pair[1]).hidden=true; }); });
+    if(!e.target.closest(pair[0])) $(pair[1]).hidden=true; }); };
+window.addEventListener("mousedown",dismissMenus);
 // #119. THE LIST ITSELF ANSWERS NOW, not only the rows in it. A right-click
 // on the empty space below the chats used to be swallowed by this guard --
 // which was right when the rail had nothing to offer there, and is the
@@ -9070,6 +10327,18 @@ document.addEventListener("keydown",e=>{
   if(sel){ crow.clip(sel); return; }
   const mark=a && a.closest ? a.closest("a.lnk,.pth") : null;
   if(mark){ e.preventDefault(); crow.clip(mark.dataset.path || mark.dataset.href || ""); } });
+// #385. CTRL+N STARTS A NEW CHAT FROM ANYWHERE, the composer included -- what
+// the rail's "New chat" does. It is no WebView2 browser accelerator (Microsoft's
+// list for AreBrowserAcceleratorKeysEnabled: Ctrl+F, F3, Ctrl+P, Ctrl+R, F5,
+// zoom, Ctrl+Shift+C, F12), so the page sees it; preventDefault keeps an engine
+// that binds it to a new window from doing that as well. A held key is one.
+document.addEventListener("keydown",e=>{
+  if((e.key!=="n" && e.key!=="N") || !(e.ctrlKey || e.metaKey) || e.altKey
+     || e.shiftKey) return;
+  e.preventDefault();
+  if(!e.repeat) crow.reset(); });
+// #385. THE START SCREEN FOLLOWS THE GREETING, see `crow.emptyCheck`.
+new MutationObserver(() => crow.emptyCheck()).observe(flow, {childList:true});
 
 // #131. THE TILE IS THERE BEFORE THE FIRST CALL IS, because "always present"
 // is what makes it a place to look rather than something that appears once and
@@ -9096,15 +10365,24 @@ new ResizeObserver(() => crow.brPlace()).observe($("#brbody"));
 ["#settings","#menu"].forEach(sel => { const el=$(sel); if(el)
   new MutationObserver(() => requestAnimationFrame(() => crow.brCover()))
     .observe(el, {attributes:true, attributeFilter:["hidden","class","style"]}); });
+// #384. THE INSPECTOR FOLLOWS THE PANEL STATE, whoever flips it -- a title-bar
+// toggle, the phone's drawers: a tab whose toggle went off gives way, and the
+// browser page shows only while its tab does.
+new MutationObserver(() => crow.inspectorSync())
+  .observe(document.body, {attributes:true,
+    attributeFilter:["data-code","data-git","data-browser"]});
 // KEINE STARTBREITEN-AUTOMATIK MEHR. #138c richtete eine nie gezogene Breite
 // an der halben Flaeche aus -- auf dem Fenster des Owners am 2026-08-27 war genau das
 // der zu breite Start, und die Icons standen wieder neben der Maske. Seine
-// Ansage ersetzt das Feature: die Vorgabe ist CODE_DEFAULT (das Minimum), und
-// wer mehr Panel will, zieht den Griff einmal. Dass der Composer bei KEINER
-// Breite ueberlaeuft, garantiert seitdem das Layout selbst: #code gibt nach
-// (min-width:0), #main traegt die Mindestbreite der Maske.
+// Ansage ersetzt das Feature: die Vorgabe ist CODE_DEFAULT (340 seit #384; das
+// Minimum ist CODE_MIN), und wer mehr Panel will, zieht den Griff einmal. Dass
+// der Composer bei KEINER Breite ueberlaeuft, garantiert seitdem das Layout
+// selbst: #code gibt nach (min-width:0), #main traegt die Mindestbreite der
+// Maske.
 
 window.addEventListener("pywebviewready",()=>{ pywebview.api.ready(); input.focus(); });
+// #382: the mono face, once per page, after the first paint (see `monoFace`).
+window.addEventListener("pywebviewready",()=>crow.monoFace());
 // #249: kein pywebview auf dem Telefon, also kein `pywebviewready` von aussen --
 // die Bruecke oben koppelt, oeffnet den Strom und feuert es selbst.
 /* __REMOTE_JS__ */
@@ -9211,6 +10489,8 @@ REMOTE_PROXIED = frozenset({
     "tools_cleared", "unstage_image", "update_check", "update_start",
     "engine_check", "engine_update_start",  # #367, as update_check/_start
     "view_live",
+    # #382: the mono face's bytes; the phone builds its FontFace from them too.
+    "mono_font",
     # #311: the phone sees the previews, the lightbox and its (i) panel --
     # `image_full` answers a phone with the bytes, never a `file://` URL.
     "image_thumb", "image_full", "image_info",
@@ -9302,7 +10582,7 @@ REMOTE_HEAD = ('<meta name="viewport" content="width=device-width,'
                '<meta name="theme-color" media="(prefers-color-scheme: light)"'
                ' content="#ffffff">'
                '<meta name="theme-color" media="(prefers-color-scheme: dark)"'
-               ' content="#181818">'
+               ' content="#171717">'
                # the owner's iPhone, 2026-09-24: "Add to Home Screen" drew a
                # generic "1" tile. The tile, the title and standalone mode.
                #
@@ -9328,11 +10608,11 @@ REMOTE_HEAD = ('<meta name="viewport" content="width=device-width,'
                ' content="default">')
 # (the stamped colour is THEME_BG's, the ground the window itself paints)
 REMOTE_CSS = """
-/* #249: auf dem Telefon bleibt die Titelleiste als Kopf -- sie traegt Rail,
-   Code, Git, Browser und Hilfe. Weg sind nur Fensterknoepfe, Zieh- und
-   Greifzonen und der Telefonknopf selbst. */
+/* #249: auf dem Telefon bleibt die Titelleiste als Kopf -- #387: sie traegt
+   Rail, Suche, Modell-Chip und Inspektor (#382: die Einstellungen stehen
+   seither am Fuss der Rail, also in ihrer Schublade). Weg sind
+   Fensterknoepfe, Zieh- und Greifzonen und der Telefonknopf selbst. */
 #wbtns,.grip,#remotetoggle{display:none !important}
-#remotetoggle + #codetoggle{margin-left:auto}
 #bar{-webkit-app-region:no-drag}
 #remotepair{position:fixed;inset:0;z-index:50;display:grid;place-items:center;
   background:var(--bg);color:var(--text);padding:24px;text-align:center}
@@ -9349,7 +10629,6 @@ REMOTE_CSS = """
 :root{
   --sbw:0px;           /* iOS draws overlay scrollbars */
   --colpad:14px;       /* #flow / .turn / #composer inset */
-  --reserve:0px;       /* no card column beside the chat */
   --barh:48px;
   --tap:44px;          /* Apple HIG minimum target */
   --drawer:min(86vw,340px);
@@ -9367,26 +10646,63 @@ body{padding:var(--safe-t) var(--safe-r) 0 var(--safe-l);
 /* ---- window chrome: gone ------------------------------------------------ */
 #railgrip,#codegrip{display:none!important}
 
-/* ---- the title bar becomes the app header ------------------------------
-   Same buttons, same onclick; only the window part (drag region, min/max/
-   close) is hidden. The rail button opens the rail drawer, the three on the
-   right open the code / git / browser drawers. */
-#bar{height:var(--barh);padding:0 4px;gap:0;background:var(--bg);
+/* ---- the title bar becomes the app header (#387) ------------------------
+   The desktop's three zones (#382) in phone form, one 48 px row: the rail
+   toggle and CROW; the search magnifier and the model chip; the inspector
+   toggle. Same buttons, same onclick, every target 44 x 44 (WCAG 2.2 SC
+   2.5.5). Git is a tab of the inspector here, and a phone gets no live
+   browser pane (`pane_*` are no-ops), so their toggles stay off with the
+   window part (drag region, min/max/close). `#bar #barl` and not `#barl`:
+   the desktop sizes the zones under body[data-rail]/[data-code]. */
+#bar{position:relative;height:var(--barh);padding:0 2px;gap:0;background:var(--bg);
   border-bottom:1px solid var(--line-soft)}
-#railtoggle,#codetoggle,#gittoggle,#browsertoggle,#help{
-  min-width:var(--tap);min-height:var(--tap);justify-content:center;
-  margin:0;border-radius:10px}
-#railtoggle svg,#codetoggle svg,#gittoggle svg,#browsertoggle svg{
-  width:19px;height:19px}
-#mark{font-size:12.5px;margin:0 4px}
-#bar #codetoggle{margin-left:auto}
-#help{font-size:12.5px;padding:0 10px}
-#helpmenu button{min-height:var(--tap);font-size:14px}
+#bar #barl,#bar #barm,#bar #barr{width:auto;min-width:0;padding:0;margin:0;gap:0}
+#bar #barl,#bar #barr{flex:none}
+#bar #barm{flex:1 1 auto}
+#gittoggle,#browsertoggle,#barr>.vsep{display:none!important}
+#railtoggle,#codetoggle{width:var(--tap);height:var(--tap);border-radius:10px}
+#railtoggle svg,#codetoggle svg{width:19px;height:19px}
+#mark{font-size:12.5px;padding:0 4px}
+/* #382: the desktop hides the wordmark while the rail is folded; here the
+   rail is a drawer and "shut" is its resting state, so the name stays. */
+body[data-rail="shut"] #mark{display:inline}
 /* The toggles light when their drawer is open (page rule), not per setting. */
+/* THE SEARCH (#382/#386): a 44 px magnifier at rest. While the field has the
+   focus it lies over the whole header and the results drop under it,
+   header-wide (#searchbox is static, so both are placed against #bar). It
+   folds on blur even with a query in it -- a phone has no Escape, and the
+   header's buttons have to come back. 16 px: iOS zooms on focus below it. */
+#searchbox{position:static}
+#search{width:var(--tap);height:var(--tap);border:0;border-radius:10px;
+  background:transparent}
+#search .s-ico{width:var(--tap);height:var(--tap)}
+#search .s-ico svg{width:19px;height:19px}
+#search .s-kbd{display:none}
+#search input{width:0;font-size:16px}
+#searchbox:focus-within #search{position:absolute;z-index:61;top:2px;left:6px;
+  right:6px;width:auto;border:1px solid var(--accent);border-radius:12px;
+  background:var(--bg)}
+#searchbox:focus-within #search input{flex:1 1 auto;width:auto;padding-right:12px}
+#searchpop{left:6px;right:6px;top:calc(var(--barh) + 2px);
+  max-height:calc(100dvh - var(--barh) - var(--safe-t) - 16px)}
+.sopt{min-height:var(--tap);align-items:center;font-size:14px}
+.sopt .ss{font-size:12px}
+/* THE MODEL CHIP (#382's engine chip): the dot and the family name
+   (REMOTE_JS `shortModel`), at the header's right end. A tap slides out the
+   decode rate and the context; CROW and the magnifier make room for it, and
+   come back with the next tap. No level, as on the composer's chip. The 44 px
+   box is a pill of 32 drawn inside a transparent 6 px border. */
+#engine{height:var(--tap);margin-left:auto;padding:0 12px;
+  border:6px solid transparent;background-clip:padding-box;
+  box-shadow:inset 0 0 0 1px var(--line-soft)}
+#engine.open{box-shadow:inset 0 0 0 1px var(--line)}
+#engine .elvl{display:none!important}
+#bar:has(#engine.open) #mark{display:none}
+#bar:has(#engine.open) #searchbox{display:none}
 
 /* ---- the chat fills the screen ------------------------------------------ */
 #body{position:relative;background:var(--bg)}
-#main{min-width:0;border-radius:0;
+#main,body[data-rail="shut"] #main{min-width:0;border-radius:0;border:0;margin:0;
   container-type:normal}          /* fixed children anchor to the viewport */
 #flow{padding-top:14px;
   /* fitFlow writes padding-bottom inline; the pinned card adds its height */
@@ -9397,9 +10713,70 @@ body{padding:var(--safe-t) var(--safe-r) 0 var(--safe-l);
 .code pre,.cost{max-width:100%}
 .turn{min-width:0}
 
-/* ---- drawers: rail left, code / browser / git right ---------------------
+/* ---- the chat head (#385) in phone form: one 44 px row ------------------
+   The title, the folder chip (REMOTE_JS keeps it here, as on the desktop;
+   on the start screen, which has no head, it is in the + sheet), the branch,
+   and the goal pill -- the phone's goal strip, which the old `#panels` bar
+   was: a tap opens the inspector drawer on its Goal tab (`goalPill`). The
+   chips shrink with an ellipsis and the row never wraps. Each chip's hit
+   area is 44 px high (`::after`), without the row growing to it. */
+#chathead{flex-wrap:nowrap;gap:8px;min-height:var(--tap);padding:0 var(--colpad)}
+#chathead h1{flex:1 1 0;min-width:3em;margin:0;font-size:14px}
+#chathead .sp{display:none}
+#chathead #rootwrap{flex:0 1 auto;min-width:0;max-width:42%}
+#chathead #root{max-width:100%;overflow:visible}
+#chathead #root .rt{min-width:0}
+#branchchip{flex:0 1 auto;min-width:0;max-width:28%}
+#branchchip .bt{min-width:0;overflow:hidden;text-overflow:ellipsis}
+#goalpill{flex:none;height:26px;padding:0 10px;font-size:12px}
+#chathead #root,#goalpill{position:relative}
+#chathead #root::after,#goalpill::after{content:"";position:absolute;inset:-9px -4px}
+/* the folder menu drops from the head (#rootwrap static, so it is placed
+   against #chathead), the column's width, as the composer's menus are */
+#chathead #rootwrap{position:static}
+#chathead #rootmenu{position:absolute;top:calc(100% + 4px);bottom:auto;
+  left:var(--colpad);right:var(--colpad);width:auto;max-height:60dvh}
+
+/* ---- the turn (#383) in phone form --------------------------------------
+   The head's model name gives way first; the trace strip runs the column's
+   full width, each 6 px segment with a 20 px band to tap (`::after`); the
+   delegate card leaves the model out; the telemetry strip is a 3-column
+   grid, two rows of three, so it fits the column without a scrollbar. */
+.trace{padding:10px 12px}
+.trh{min-height:32px}
+.leg{gap:2px 12px}
+.segs>.seg{position:relative}
+.segs>.seg::after{content:"";position:absolute;inset:-7px 0}
+.subref .smd{display:none}
+.cost.tele{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.tele .m{min-width:0;padding:8px 10px;
+  box-shadow:1px 0 0 var(--line-soft),0 1px 0 var(--line-soft)}
+.tele .mv{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---- the start screen (#385) in phone form: one stacked group -----------
+   The mark 120 px, the greeting 20 px, the composer under it, then
+   "Continue" and its cards one under the other. The desktop's two equal
+   spacers centre it, and a short screen scrolls instead of cutting the
+   mark off. */
+#main.empty{overflow-y:auto;padding:24px 0 calc(16px + var(--safe-b))}
+#main.empty::before,#main.empty::after{content:"";flex:1 0 0}
+#main.empty #flow{flex:none;overflow:visible;padding:0!important;scrollbar-gutter:auto}
+#main.empty #hello{min-height:0;gap:20px}
+.mk{width:120px;margin-bottom:-11px}
+.hellotext{font-size:20px}
+#main.empty #composer{position:relative;left:auto;right:auto;bottom:auto;
+  padding:20px var(--colpad) 0;background:none}
+#main.empty #cont:not([hidden]){display:flex}
+#cont{margin-top:24px;padding:0 var(--colpad)}
+.cont{flex-basis:100%;min-height:var(--tap)}
+
+/* ---- drawers: rail left, the inspector right ----------------------------
    transform, never width: a panel parked at width 0 in a flex row, or pushed
-   off-canvas with `left`, still widens the layout box and iOS zooms out. */
+   off-canvas with `left`, still widens the layout box and iOS zooms out.
+   #387: the inspector (#384's #side) is the right drawer, with its tab
+   strip -- Goal, Tools, Subtasks and Git. Git is a tab, not a drawer of its
+   own (REMOTE_JS keeps data-git on); Browser stays off, a phone gets no live
+   pane. */
 #rail,#side{position:fixed;top:0;bottom:0;z-index:90;
   width:var(--drawer)!important;overflow:hidden;
   padding-top:var(--safe-t);padding-bottom:var(--safe-b);
@@ -9420,7 +10797,9 @@ body:not([data-browser="shut"]) #side{transform:none;visibility:visible}
 .sess .s{font-size:12px}
 .proj{min-height:var(--tap);padding:8px 10px}
 .proj .t{font-size:13px}
-#archbar{min-height:var(--tap);padding:0 12px}
+#archbar,#settingsbtn{min-height:var(--tap);padding:0 12px}
+#itabs{margin:10px 12px 6px}
+#itabs .tab{height:var(--tap);font-size:13px}
 #toolcalls .tchd,#codefiles .tchd,.gitgrp .tchd{min-height:var(--tap);font-size:13px}
 #toolcalls .tool .hd{min-height:40px;font-size:12.5px}
 .cwcopy{min-height:36px;padding:0 14px}
@@ -9467,69 +10846,34 @@ body.m-auto.m-hid #mnudge{display:flex;position:fixed;z-index:70;
 #mnudge::after{content:"";width:36px;height:5px;border-radius:3px;
   background:var(--dim);box-shadow:0 0 0 4px var(--bg)}
 @keyframes mnudge-in{from{opacity:0}to{opacity:1}}
-/* The goal/sub bars sit at the top of #main; while the header is out of
-   the layout they move down below the pill (the owner: the pill lay on the goal
-   bar), and #flow's padding follows. Also while revealed, so they don't jump. */
-body.m-auto:is(.m-hid,.m-rev) #panels{padding-top:40px}
-body.m-auto:is(.m-hid,.m-rev) #main:has(#goalpanel:not([hidden])) #flow,
-body.m-auto:is(.m-hid,.m-rev) #main:has(#subpanel:not([hidden])) #flow{padding-top:96px}
-body.m-auto:is(.m-hid,.m-rev) #main:has(#goalpanel:not([hidden])):has(#subpanel:not([hidden])) #flow{padding-top:148px}
+/* The chat head sits at the top of #main; while the header is out of the
+   layout it moves down below the pill (the owner: the pill lay on the goal
+   bar, #387: the head and its goal pill took that bar's place). Also while
+   revealed, so it does not jump. */
+body.m-auto:is(.m-hid,.m-rev) #chathead{padding-top:40px}
 @media (prefers-reduced-motion:reduce){body.m-auto #bar{transition:none}
   body.m-auto.m-hid #mnudge{animation:none}}
 
-/* git: the card from #panels becomes a right drawer of its own */
-body[data-git="shut"] #git{display:none}
-body:not([data-git="shut"]) #git{position:fixed;top:0;bottom:0;right:0;z-index:90;
-  width:min(94vw,440px);border-radius:0;border:0;
-  padding-top:var(--safe-t);padding-bottom:var(--safe-b)}
-body:not([data-git="shut"]) #panels{z-index:95}   /* out of #panels' stacking context */
+/* git: a tab of the inspector drawer (#384), its controls at touch size */
 #githead{min-height:var(--barh);padding:0 15px}
 #gituser{min-height:var(--tap);padding:0 6px;font-size:12px}
 .gline,.grow{min-height:36px;font-size:12.5px}
 .gcommit input{font-size:16px;min-height:var(--tap)}
 .gcommit button{min-height:var(--tap)}
 
-/* ---- goal: a thin bar under the header; tap expands it ------------------ */
-#panels{top:0;left:0;right:0;width:auto;height:auto;max-height:78%;
-  padding:8px var(--colpad) 0;gap:8px}
-#main:has(#goalpanel:not([hidden])) #panels{padding-bottom:10px;
-  background:linear-gradient(var(--bg) 70%,transparent)}
-#main:has(#goalpanel:not([hidden])) #flow,
-#main:has(#subpanel:not([hidden])) #flow{padding-top:64px}
-#main:has(#goalpanel:not([hidden])):has(#subpanel:not([hidden])) #flow{padding-top:116px}
-#goalpanel{border-radius:12px;font-size:12.5px;max-height:100%}
-#goalpanel .gh{min-height:var(--tap);padding:0 6px 0 14px}
+/* the goal and subtasks cards are inspector tabs (#384); their X at touch size */
 #goalpanel .gx,#subpanel .gx{min-width:var(--tap);min-height:var(--tap);
   font-size:20px;padding:0}
-#goalpanel .gt .tx{font-size:14px}
-#goalpanel li{padding:9px 0 11px}
-/* collapsed: one 44 px row -- icon, title, n/m, state (#289), close */
-#goalpanel.shut:not([hidden]){display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto;
-  align-items:center;cursor:pointer}
-#goalpanel.shut .gh{display:contents}
-#goalpanel.shut .gh b{display:none}
-#goalpanel.shut .gh .st{grid-column:4;grid-row:1;margin:0;padding-left:8px;
-  font-variant-numeric:tabular-nums;white-space:nowrap}   /* #289: beside n/m */
-#goalpanel.shut .gh .gx{grid-column:5;grid-row:1}
-#goalpanel.shut .gt{display:contents}
-#goalpanel.shut .gi{grid-column:1;grid-row:1;padding-left:14px;margin:0 9px 0 0}
-#goalpanel.shut .gt .tx{grid-column:2;grid-row:1;font-size:13px;font-weight:600;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#goalpanel.shut .gm{grid-column:3;grid-row:1;padding:0 0 0 8px;font-size:12px;
-  white-space:nowrap}
-#goalpanel.shut .gm{max-width:5.2em;overflow:hidden}     /* "2/5 · …" -> "2/5" */
-#goalpanel.shut .gh .st:empty{display:none}
-#subpanel{border-radius:12px}
-#subpanel .sph{min-height:var(--tap);padding:0 0 0 5px;
-  margin-right:-10px}     /* over #subpanel's 10 px: its X lines up with the goal's */
-#subpanel.shut{max-height:var(--tap)}
 
 /* ---- composer (the owner, 2026-09-24): ONE row, like iMessage ----------------
    One frame (#box), one 44 pt row:  [+ 44][input, grows up to 5 lines][send/Stop 44]
    The context is the frame's top 2 px (a background layer, clipped by the
-   radius). Everything else -- attach, dictate, mode, model, folder, the
-   stats and the hint -- is in #mtools, which the + opens ABOVE the composer.
-   A dot on the + shows the mode's colour. Staged images: a strip above the row. */
+   radius). Everything else -- attach, dictate, mode, model, the stats and
+   the hint, and on the start screen the folder -- is in #mtools, which the +
+   opens ABOVE the composer. A dot on the + shows the mode's colour. Staged
+   images: a strip above the row. #387: the desktop's tokens -- --panel on a
+   --line frame, the accent frame on focus, the round send in --accent with
+   its arrow in --on-accent, drawn from the desktop's own stroke. */
 #composer{left:0;right:0;padding:10px var(--colpad) calc(8px + var(--safe-b));
   background:linear-gradient(to bottom,transparent,var(--bg) 10px)}
 #viewbar,#pendbar{margin-bottom:-12px;font-size:12.5px}
@@ -9554,17 +10898,17 @@ body:not([data-git="shut"]) #panels{z-index:95}   /* out of #panels' stacking co
   font-size:14px;border:8px solid transparent;background-clip:padding-box;
   box-shadow:inset 0 0 0 1px var(--bevel)}
 #line{align-items:flex-end;gap:4px;margin:0}
-#in{font-size:16px;line-height:22px;max-height:calc(5 * 22px + 22px);
+#in{font-size:16px;line-height:22px;max-height:calc(5 * 22px + 22px);min-height:0;
   padding:11px 6px;align-self:center}  /* 16px: iOS zooms on focus below it */
 #in:placeholder-shown{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #mplus,#go{flex:none;width:var(--tap);height:var(--tap);padding:0!important;margin:0;
   border-radius:50%;box-sizing:border-box;border:1px solid;display:grid;
   place-items:center;cursor:pointer;position:relative}
-#go{font-size:0!important;color:var(--on-solid);background:var(--accent);
+#go{font-size:0!important;color:var(--on-accent);background:var(--accent);
   border-color:var(--accent)}
 #go::before{content:"";position:absolute;inset:0;margin:auto;width:20px;height:20px;background:currentColor;
-  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M10 16V4M4.5 9.5 10 4l5.5 5.5' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
-  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M10 16V4M4.5 9.5 10 4l5.5 5.5' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 19V5M6 11l6-6 6 6' fill='none' stroke='%23000' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 19V5M6 11l6-6 6 6' fill='none' stroke='%23000' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
 #go.stop{color:var(--bad-text);background:rgba(240,101,90,.16);
   border-color:rgba(240,101,90,.55)}
 #go.stop::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Crect x='5' y='5' width='10' height='10' rx='2'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Crect x='5' y='5' width='10' height='10' rx='2'/%3E%3C/svg%3E")}
@@ -9594,6 +10938,7 @@ body.m-tools #mplus::before{transform:rotate(45deg)}
 body.m-tools #mtools{transform:none;opacity:1;visibility:visible;transition-delay:0s}
 @media (prefers-reduced-motion:reduce){#mtools{transition:none}}
 .mr2,.mr3{display:flex;gap:8px;align-items:center;min-width:0}
+.mr3:empty{display:none}
 .mr4{display:flex;flex-wrap:wrap;column-gap:0;row-gap:2px;padding:2px 6px 0;
   font-size:11.5px;line-height:16px;color:var(--dimmer);font-variant-numeric:tabular-nums}
 .mr4>*:not(:empty)~*:not(:empty)::before{content:" · ";white-space:pre}
@@ -9624,16 +10969,18 @@ body.m-tools #mtools{transform:none;opacity:1;visibility:visible;transition-dela
 #in.partial{color:var(--dim)}
 #modewrap{flex:none}
 #modelwrap{flex:1 1 0;min-width:0;display:flex}
-#rootwrap{flex:1 1 0;min-width:0;display:flex}
+#mtools #rootwrap{flex:1 1 0;min-width:0;display:flex}
 #subwrap{display:none!important}
-#mode,#model,#root{height:var(--tap);box-sizing:border-box;margin:0;
+/* the sheet's chips: the word, not the desktop's dot, icon or meter bar */
+#model .dot,#model svg,#mtools #root svg,#ctx .ctxbar{display:none}
+#mode,#model,#mtools #root{height:var(--tap);box-sizing:border-box;margin:0;
   border:1px solid var(--line);border-radius:22px;padding:0 14px;
   display:flex;align-items:center;gap:6px;font-size:13px;line-height:1;
   white-space:nowrap;min-width:0}
 #model{width:100%}
-#root{width:100%;max-width:none;overflow:hidden;text-overflow:ellipsis;display:block;
+#mtools #root{width:100%;max-width:none;overflow:hidden;text-overflow:ellipsis;display:block;
   line-height:42px;text-align:left}
-#root::before{content:"folder  ";color:var(--dimmer);white-space:pre}
+#mtools #root::before{content:"folder  ";color:var(--dimmer);white-space:pre}
 #model::before{content:"model";color:var(--dimmer);margin-right:2px}
 #model b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   font-weight:500;line-height:1}
@@ -9646,8 +10993,8 @@ body.m-tools #mtools{transform:none;opacity:1;visibility:visible;transition-dela
   min-height:var(--tap);padding:9px 12px;font-size:13px}
 #menu button{min-height:var(--tap);font-size:13.5px}
 
-/* ---- trace, thinking, cards --------------------------------------------- */
-details.trace>summary,details.think>summary,details.rollcard summary{
+/* ---- thinking, cards (the trace strip: "the turn" above) ---------------- */
+details.think>summary,details.rollcard summary{
   min-height:36px;font-size:12.5px}
 .tbody{font-size:13px}
 .say{font-size:14.5px;line-height:1.6}
@@ -9746,8 +11093,9 @@ details.trace>summary,details.think>summary,details.rollcard summary{
 }
 """
 # #249. DIE TELEFONHAKEN, nur in der Telefonfassung (`stamped_page(remote=True)`):
-# Schubladen, Zielleiste, festgesteckte Freigaben, die einzeilige Eingabe mit
-# dem +-Blatt, die gehaltene Zeile. Die Desktopseite bekommt davon nichts.
+# Schubladen (#387: der Inspektor ist die rechte), der Modell-Chip im Kopf,
+# festgesteckte Freigaben, die einzeilige Eingabe mit dem +-Blatt, die
+# gehaltene Zeile. Die Desktopseite bekommt davon nichts.
 REMOTE_JS = r"""
 // #249 THE PHONE HOOKS. Runs after PAGE's own script, only in the phone variant of PAGE.
 // Nothing here draws content; it only decides which drawer is out, keeps the
@@ -9755,7 +11103,9 @@ REMOTE_JS = r"""
 (function(){
   const phone = window.matchMedia("(max-width:700px)");
   const body = document.body, main = document.getElementById("main");
-  const DRAWERS = ["rail","code","git","browser"];
+  // #387: the inspector (#384) is the right drawer; git is a tab in it, not a
+  // drawer of its own.
+  const DRAWERS = ["rail","code","browser"];
 
   // 1. LAYOUT IS PER DEVICE (decision 3). The shim answers set_*_open and
   //    set_theme on the phone itself; the theme is remembered here, per device.
@@ -9773,6 +11123,8 @@ REMOTE_JS = r"""
 
   // 2. DRAWERS. The page stamps data-rail/-code/-git/-browser from the desktop's
   //    settings; on the phone every drawer starts closed and one is out at most.
+  //    data-git stays on (#387): the Git tab is always in the inspector drawer,
+  //    whatever the desktop's git toggle says.
   //
   //    CLOSED MEANS GONE (the owner's iPhone, iOS 26, 2026-09-24): after a drawer
   //    had been open, Safari's bars kept a different tint and a vertical swipe
@@ -9807,7 +11159,11 @@ REMOTE_JS = r"""
       x.classList.remove("m-gone"); void x.offsetWidth; } });
   }
   function shutAll(){ DRAWERS.forEach(d => { body.dataset[d] = "shut"; }); settle(false); }
-  if(phone.matches){ DRAWERS.forEach(d => { body.dataset[d] = "shut"; }); settle(true); }
+  // A Browser tab picked before the page narrowed gives way (`inspectorSync`).
+  function phoneLayout(){ DRAWERS.forEach(d => { body.dataset[d] = "shut"; });
+    body.dataset.git = "open"; settle(true);
+    if(crow.inspectorSync) crow.inspectorSync(); }
+  if(phone.matches) phoneLayout();
   const wrap = (fn, name) => function(){
     if(!phone.matches) return fn.apply(this, arguments);
     DRAWERS.forEach(d => { if(d!==name) body.dataset[d] = "shut"; });
@@ -9818,8 +11174,14 @@ REMOTE_JS = r"""
   };
   crow.toggleRail = wrap(crow.toggleRail, "rail");
   crow.toggleCode = wrap(crow.toggleCode, "code");
-  crow.toggleGit = wrap(crow.toggleGit, "git");
   crow.toggleBrowser = wrap(crow.toggleBrowser, "browser");
+  // GIT IS READ WHEN ITS TAB SHOWS: on the desktop that is the moment its
+  // toggle goes on (`toggleGit`); here the tab is always there.
+  const select = crow.inspectorSelect;
+  if(select) crow.inspectorSelect = function(){ const was = this.itab;
+    const r = select.apply(this, arguments);
+    if(phone.matches && this.itab === "git" && was !== "git") this.gitRefresh();
+    return r; };
   scrim.addEventListener("click", () => shutAll());
   // Picking a chat or "new" closes the rail: the chat is what you came for.
   ["open","reset"].forEach(k => { const f = crow[k];
@@ -9832,8 +11194,8 @@ REMOTE_JS = r"""
     if(phone.matches && on) on.scrollIntoView({inline:"center", block:"nearest"});
     return r; };
 
-  // Swipe: from the left edge opens the rail, from the right edge the code
-  // drawer; a swipe the other way on an open drawer closes it.
+  // Swipe: from the left edge opens the rail, from the right edge the
+  // inspector; a swipe the other way on an open drawer closes it.
   let t0 = null;
   window.addEventListener("touchstart", e => {
     if(!phone.matches || e.touches.length!==1) return;
@@ -9862,7 +11224,8 @@ REMOTE_JS = r"""
     body.classList.add("m-auto");
     const shown = id => { const e = document.getElementById(id); return !!e && !e.hidden; };
     const busy = () => DRAWERS.some(isOpen) || body.classList.contains("m-tools")
-      || ["helpmenu","modemenu","modelmenu","rootmenu","submenu","settings"].some(shown)
+      || (document.activeElement || {}).id === "searchin"
+      || ["modemenu","modelmenu","rootmenu","submenu","settings"].some(shown)
       || (document.getElementById("menu") || {classList:{contains:()=>false}}).classList.contains("on");
     const arm = ms => { clearTimeout(timer);
       timer = setTimeout(() => { timer = null;
@@ -9901,23 +11264,7 @@ REMOTE_JS = r"""
     window.crowHeader = {reveal, busy};
   })();
 
-  // 3. THE GOAL STARTS AS A THIN BAR. goalPanel keeps `shut` across redraws,
-  //    so the first draw on this device sets it once. In the bar the head is
-  //    `display:contents`, so a tap on the title has to open it here.
-  const gp = document.getElementById("goalpanel");
-  const goalPanel = crow.goalPanel;
-  crow.goalPanel = function(g){
-    if(phone.matches && !gp.dataset.m){ gp.dataset.m = "1"; gp.classList.add("shut"); }
-    return goalPanel.apply(this, arguments);
-  };
-  gp.addEventListener("click", e => {
-    if(!phone.matches || e.target.closest(".gh")) return;   // the page's own
-    if(gp.classList.contains("shut")) gp.classList.remove("shut");
-  });
-  document.getElementById("flow").addEventListener("click", () => {
-    if(phone.matches && !gp.hidden) gp.classList.add("shut"); });
-
-  // 4. THE PINNED CARD'S HEIGHT goes into #flow's bottom padding (mobile.css),
+  // 3. THE PINNED CARD'S HEIGHT goes into #flow's bottom padding (mobile.css),
   //    so the last line of the transcript is never under it.
   const ro = new ResizeObserver(measure);
   let watched = null;
@@ -9931,8 +11278,19 @@ REMOTE_JS = r"""
   }
   new MutationObserver(measure).observe(document.getElementById("flow"),
     {childList:true, subtree:true});
-  // 5. THE COMPOSER (the owner: remove nothing, shorten). Only on a phone.
-  if(phone.matches) composer();
+  // THE MODEL CHIP IN THE HEADER (#382's engine chip, #387): the family name,
+  // as on the composer's chip (`shortModel`); the full one in its title.
+  const showEngine = crow.showEngine;
+  if(showEngine) crow.showEngine = function(){ const r = showEngine.apply(this, arguments);
+    const n = document.querySelector("#engine .ename");
+    if(phone.matches && n && this.modelName){ n.textContent = shortModel(this.modelName);
+      document.getElementById("engine").title = this.modelName; }
+    return r; };
+  // 4. THE COMPOSER (the owner: remove nothing, shorten). Only on a phone --
+  //    at load, or (#387) the first time the page narrows to one.
+  let composed = false;
+  const composeOnce = () => { if(!composed){ composed = true; composer(); } };
+  if(phone.matches) composeOnce();
   function composer(){
     const box = document.getElementById("box"), line = document.getElementById("line"),
           go = document.getElementById("go"), foot = document.getElementById("foot"),
@@ -9975,8 +11333,16 @@ REMOTE_JS = r"""
       + 'l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg>';
     $id("remotefile").multiple = false;
     r2.append(att, $id("mic"), $id("modewrap"), $id("modelwrap"));
-    r3.append($id("rootwrap"));
     r4.append($id("turnstate"), ctx, $id("hint"));
+    // THE FOLDER CHIP (#387) stays in the chat head, as on the desktop; on the
+    // start screen, which has no head, it is in the sheet's middle row.
+    const placeRoot = crow.placeRoot;
+    crow.placeRoot = function(){
+      if(!phone.matches) return placeRoot && placeRoot.apply(this, arguments);
+      const w = $id("rootwrap"), t = $id("chattitle");
+      if(main.classList.contains("empty")){ if(w.parentNode !== r3) r3.append(w); }
+      else if(t && w.previousElementSibling !== t) t.after(w); };
+    crow.placeRoot();
     // THE HELD LINE (#264 + #249): the queued bubble above the input, drawn
     // from crow.held, which queuedLine fills from the pushed text.
     const composerEl = $id("composer");
@@ -10030,7 +11396,7 @@ REMOTE_JS = r"""
     return cap.length > 8 ? cap.slice(0, 7) + "…" : cap;
   }
 
-  // 6. THE MICROPHONE (#290), on every phone width. The desktop's microphone
+  // 5. THE MICROPHONE (#290), on every phone width. The desktop's microphone
   //    is not the phone's, and the desktop's dictation (its "mic" pushes) is
   //    not this phone's either: its state and its text stay on the desktop.
   //    HTTPS (Tailscale): the phone records itself -- MediaRecorder, first tap
@@ -10191,10 +11557,55 @@ REMOTE_JS = r"""
   micIdle();
 
   phone.addEventListener("change", () => { measure();
-    if(phone.matches){ DRAWERS.forEach(d => { body.dataset[d] = "shut"; }); settle(true); }
+    if(phone.matches){ composeOnce(); phoneLayout(); }
     else [railEl, sideEl, scrim].forEach(x => x && x.classList.remove("m-gone")); });
 })();
 """
+
+
+# #382. THE MONO FACE COMES THROUGH THE BRIDGE, NOT IN THE PAGE. The page is
+# handed over as a string (WebView2: NavigateToString, origin about:blank, at
+# most 2 MB), so a relative URL has nothing to resolve against, a `file:///`
+# one stayed `unloaded` on WebKitGTK (measured 2026-09-16, see the note in
+# `main`), and the font inlined as a `data:` URL took 358 kB of the 2 MB the
+# page may have. So the page asks for the bytes after load (`Api.mono_font`)
+# and builds a FontFace from them -- on the phone through the same `/api`
+# call. Read once per process. The upright file only: italic code is rare
+# enough for the engine's slant.
+MONO_FONT_FILE = os.path.join(HERE, "fonts", "GoogleSansCode[MONO,wght].ttf")
+_MONO_FONT: "str | None" = None
+
+
+# #382. WHAT THE PAGE GETS OF A TURN'S BALANCE (`crow_core.TurnCost.record()`), as
+# numbers rather than as the line it would have to take apart again. `line`
+# stays: the core still assembles it, and the page still prints it. The seeds
+# stay in the archive; the page has no use for them.
+TURN_STATS = ("rounds", "decoded", "decode_rate", "prefilled", "prefill_rate",
+              "prefill_s", "cached", "cached_of", "tool_calls", "tool_errors",
+              "tool_declined", "waited_s", "model_s", "tool_s", "finish")
+
+
+def turn_stats(record: "dict | None") -> "dict | None":
+    """The page's share of a turn's record: the TURN_STATS keys it has. A
+    rate without a denominator is absent in the record and stays absent here.
+    None for a turn without rounds -- the page then keeps its last numbers."""
+    if not record:
+        return None
+    return {key: record[key] for key in TURN_STATS if key in record}
+
+
+def mono_font_data() -> str:
+    """The TTF behind `--mono` as base64, read once. Empty when the file is
+    missing: the stack's next names (ui-monospace, Cascadia Mono, Consolas)
+    then set the code, which is what the page did before #382."""
+    global _MONO_FONT
+    if _MONO_FONT is None:
+        try:
+            with open(MONO_FONT_FILE, "rb") as fh:
+                _MONO_FONT = base64.b64encode(fh.read()).decode("ascii")
+        except OSError:
+            _MONO_FONT = ""
+    return _MONO_FONT
 
 
 def stamped_page(remote: bool = False) -> str:
@@ -12341,6 +13752,11 @@ class Api:
             if m.get("role") == "assistant")
         return self._tools_cleared
 
+    def mono_font(self) -> str:
+        """#382: the mono face's bytes as base64, for the page's FontFace.
+        The same answer for the window and a phone; "" when the file is gone."""
+        return mono_font_data()
+
     def ready(self) -> None:
         # #249. EIN TELEFON, DAS SEINE SEITE GELADEN HAT, bekommt den Stand --
         # und nur es. Kein zweiter Start: `adopt_root`, `_probe` und der
@@ -12437,7 +13853,10 @@ class Api:
                 "url": self._args.base_url, "tools": len(TOOLS),
                 "execute": bool(self._args.execute_tools),
                 # #264: the page tells a command from a path mid-turn.
-                "slash": list(crow_core.SLASH_COMMANDS)}
+                "slash": list(crow_core.SLASH_COMMANDS),
+                # #386: and the search offers them with the line /help prints
+                # for each -- the same text, not a second list.
+                "slash_help": dict(self.WHAT_THEY_DO)}
 
     # ---- #249: the state a fresh phone page needs
 
@@ -12532,6 +13951,8 @@ class Api:
         return {"k": "root",
                 "path": root or "",
                 "name": os.path.basename(root) if root else "",
+                # #385: what the folder chip prints, `~` for the home folder.
+                "short": tilde_path(root or ""),
                 "roots": [{"path": p, "name": os.path.basename(p) or p}
                           for p in crow_core.known_roots()]}
 
@@ -12935,6 +14356,10 @@ class Api:
         self.push({"k": "cost",
                    "line": (kept or {}).get("line", ""),
                    "share": (kept or {}).get("share"),
+                   # #383: the strip is drawn from the numbers, so they come
+                   # back with the line.
+                   "stats": (kept or {}).get("stats"),
+                   "cut": (kept or {}).get("cut", ""),
                    "tokens": tokens, "n_ctx": self._n_ctx})
 
     def _say_where(self, clients=None) -> None:
@@ -13140,7 +14565,13 @@ class Api:
                 # would part company the first time either was written alone.
                 "root": data.get("crow_root") or "",
                 "meta": ("%d messages · %s" % (len(messages), kind)
-                         if messages else kind)}
+                         if messages else kind),
+                # #385. THE ROW'S SECOND LINE when the chat ran a goal
+                # ("goal 3/3 · 1 subtask · 16:41") and the continue cards'
+                # meta: the numbers its own goal tools last answered, and the
+                # clock of its last write. Same single read of the file.
+                "goal": chat_goal(messages),
+                "at": clock_of(path)}
 
     def _endpoint(self) -> dict:
         """Where a turn goes. ONE resolution, read by every path that sends.
@@ -15547,6 +16978,12 @@ class Api:
                    "live_active": self._view_path is None,
                    "live_running": bool(self._busy) and self._current_path is None,
                    "live_done": "" in self._done_paths,
+                   # #385. The live chat's own goal numbers and clock, read the
+                   # way `_entry_of` reads them off a file: its messages, and
+                   # the session file the core writes after each turn.
+                   "live_goal": chat_goal(self._conversation.payload())
+                   if turns > 0 else None,
+                   "live_at": clock_of(SESSION_FILE) if turns > 0 else "",
                    "rollovers": self._archives(),
                    "archived": self._archived(),
                    # #119. THE PROJECTS TRAVEL WITH THE RAIL, not on their own
@@ -18698,20 +20135,28 @@ class Api:
         self._promised_warm = getattr(result, "promised_warm", self._promised_warm)
         cost = getattr(result, "cost", None)
         line = cost.line() if cost is not None and getattr(cost, "rounds", 0) else ""
-        if line:
+        # #382: ONE `record()` for the archive and the page, so both carry the
+        # same `waited_s` (it is read off the clock inside the call).
+        record = cost.record() if line else None
+        if record is not None:
             # #171. DIESELBE BILANZ, DIE DIE ZEILE ZEIGT, als Zahlen ins Band --
             # `at` sagt, nach wievielen Nachrichten der Zug endete, damit ein
             # Auswerter sie im Archiv den Zuegen zuordnen kann. Ein Zug ohne
             # Runden hat keine Bilanz; deshalb haengt es an derselben Bedingung
             # wie die Zeile und nicht an einer zweiten.
-            self._timings.append(dict(cost.record(),
-                                      at=len(self._conversation)))
+            self._timings.append(dict(record, at=len(self._conversation)))
             del self._timings[:-crow_core.SESSION_TIMINGS_MAX]
         self.push({"k": "cost", "line": "[" + line + "]" if line else "",
                    "share": events.share, "tokens": self._context_tokens,
                    "n_ctx": self._n_ctx,
                    # #143. This turn's delegation share, token counts only.
-                   "sub": self._sub_share(sub_before) if line else ""})
+                   "sub": self._sub_share(sub_before) if line else "",
+                   # #382. The same balance as numbers, for the page.
+                   "stats": turn_stats(record),
+                   # #383. The cut-off warning under the strip, in the
+                   # core's words (the line carries it as its last bit).
+                   "cut": (crow_core.CUT_OFF_NOTE
+                           if (record or {}).get("finish") == "length" else "")})
         self._persist_live()
         # THE RAIL FOLLOWS THE TURN. A chat that had just been given its first
         # message went on calling itself "new chat" until something else

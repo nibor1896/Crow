@@ -12,18 +12,18 @@ Everything else is in this folder.
 | [Overview](user-guide/overview.md) | start, the window part by part, features, tools, licences: what the front page used to carry |
 | [Install](user-guide/install.md) | requirements, both installers, `CrowSetup.exe` (the Windows window: Crow, engine, operating points, resume), the model download, updating, where everything lands; optional `--voice`, `--tailscale` / `-Tailscale`, `--pathtracer` / `-PathTracer` |
 | [Boot menu](user-guide/boot.md) | `cli\crow_boot.py`: start one of the operating points (or an optional llama.cpp line), then Crow; one point at a time, stop, flags, the shortcut, where the logs go |
-| [Window](user-guide/window.md) | the client, panel by panel: pinned cards, selection and links, layout |
+| [Window](user-guide/window.md) | the client, part by part: title bar and search, rail, chat head, turn and telemetry strip, the inspector's tabs, composer, selection and links, layout |
 | [Linux](user-guide/linux.md) | install, the paths table, the engine build, memory scopes for server, render and command, optional helpers, the window on Wayland, troubleshooting |
 | [Memory](user-guide/memory.md) | what is written, by whom, and the gate |
 | [Skills](user-guide/skills.md) | using and writing one |
 | [Voxel kit](user-guide/voxel-kit.md) | path-traced voxel dioramas as one offline page: the vendored three-gpu-pathtracer, the voxel API, live/photo modes and animation, props and coverage, `check_diorama.py`, the measured rules, `--pathtracer` / `-PathTracer` |
 | [Goals and subagents](user-guide/goals-and-subagents.md) | the plan a model writes for itself, what `done` has to prove, and the tasks it hands out |
-| [Browser panel](user-guide/browser.md) | the in-window panel on Linux, tabs, the address bar, `render_page`, what is unverified on Windows |
+| [Browser tab](user-guide/browser.md) | the inspector's Browser tab, inside the window on Linux, tabs, the address bar, `render_page`, what is unverified on Windows |
 | [Session search](user-guide/session-search.md) | the index over every archived conversation |
 | [MCP servers](user-guide/mcp.md) | stdio, elicitation, commands |
 | [MCP over HTTP](user-guide/mcp-http.md) | headers, OAuth, sessions |
 | [Remote models](user-guide/remote-models.md) | subscriptions, keys, dialects, routing |
-| [Phone (remote)](user-guide/remote.md) | `/remote`, pairing, the two addresses, the phone microphone |
+| [Phone (remote)](user-guide/remote.md) | `/remote`, pairing, the page on the phone, the two addresses, the phone microphone |
 | [Phone over Tailscale](user-guide/remote-tailscale.md) | HTTPS from anywhere: `install.sh --tailscale` / `install.ps1 -Tailscale`, [download](https://tailscale.com/download), [iPhone](https://apps.apple.com/app/tailscale/id1470499037), [Android](https://play.google.com/store/apps/details?id=com.tailscale.ipn), admin console, the one `tailscale serve` line, checks, undo |
 
 ## Reference

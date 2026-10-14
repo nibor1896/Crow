@@ -76,4 +76,4 @@ never a rendering. Crow draws the fields, so nothing on screen came off the wire
 | `/mcp use <server> <tool> <class>` | `reading`, `writing` or `executing` |
 | `/mcp drop <server> <tool>` | take it out of the tool list |
 
-Removing a server: `Help → Settings → MCPs`.
+Removing a server: `Settings → MCPs`.

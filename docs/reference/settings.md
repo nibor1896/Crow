@@ -2,7 +2,7 @@
 
 # Settings
 
-`Help → Settings` in the window.
+**Settings** at the foot of the window's chat rail (#382).
 
 | pane | |
 |---|---|

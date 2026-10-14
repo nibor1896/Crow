@@ -400,7 +400,7 @@ the file's basename directly under it.
 
 ## Updating
 
-`Help → Settings → About` in the window: the version, the release check, and the button that
+`Settings → About` in the window (Settings at the foot of the rail): the version, the release check, and the button that
 installs it. A restart is needed afterwards. The button runs the same installer as a fresh
 install does — PowerShell with `install.ps1 -NoPause` on Windows, `bash install.sh` on Linux —
 so re-running the command at the top of this page by hand is the same update.
