@@ -30069,19 +30069,20 @@ class TheEngineFollowsItsPinTests(unittest.TestCase):
         with open(os.path.join(self.bin, name), "rb") as fh:
             return fh.read()
 
-    def test_the_shipped_pin_is_crow_nest_0_13_0(self):
+    def test_the_shipped_pin_is_crow_nest_0_13_2(self):
         pin = crow_core.engine_pin()
         if not crow_core.crow_platform.IS_WINDOWS:
-            self.assertIsNone(pin, "v0.13.0 publishes no Linux engine")
+            self.assertIsNone(pin, "v0.13.2 publishes no Linux engine")
             return
-        self.assertEqual(pin["version"], "0.13.0")
-        self.assertEqual(pin["sha256"], "4b3d2e4b33be78e54d5aa2b5622996cd53d22b8f7c38a6e560a54272d1b285a8")
-        self.assertEqual(pin["serve_sha256"], "7d73f8de681bed915bfd02242a7e618428ca22136898d7e4ed6677038dfd8cd3")
+        self.assertEqual(pin["version"], "0.13.2")
+        self.assertEqual(pin["sha256"], "54454734a4d0c3dc26d0e4bc379c21bd692f35560febfe29fe38a50776bde732")
+        self.assertEqual(pin["serve_sha256"], "ef439127375df747d8f3bae9f62d85ea5723b82a30d14f546c187bf0d58de0c9")
 
-    def test_the_shipped_table_names_0_12_0_and_0_13_0(self):
+    def test_the_shipped_table_names_0_12_0_to_0_13_2(self):
         known = crow_core._engine_known()
         self.assertEqual(known["670a93f9101d3896b4f70df5e9bae88e90df68bb422fc429e37320d297196200"], "0.12.0")
         self.assertEqual(known["7d73f8de681bed915bfd02242a7e618428ca22136898d7e4ed6677038dfd8cd3"], "0.13.0")
+        self.assertEqual(known["ef439127375df747d8f3bae9f62d85ea5723b82a30d14f546c187bf0d58de0c9"], "0.13.2")
 
     def test_a_newer_release_is_out_and_offered_as_install(self):
         # robin 2026-10-12: installed v0.12.0, crow-nest v0.13.0 released, and
