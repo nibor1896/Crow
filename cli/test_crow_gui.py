@@ -6755,7 +6755,7 @@ class TheTelemetryStripTests(_TurnPage):
         for rule in (tele, cost):
             self.assertNotIn("nowrap", rule)
             self.assertNotIn("overflow-x", rule)
-        self.assertIn("flex:1 1 112px", self._rule(".tele .m{"))
+        self.assertIn("flex:1 1 auto", self._rule(".tele .m{"))
         self.assertIn("font-size:10.5px", self._rule(".tele .ml{"))
         self.assertIn("text-transform:uppercase", self._rule(".tele .ml{"))
         self.assertIn("font-size:15px", self._rule(".tele .mv{"))
@@ -6973,6 +6973,138 @@ class TheStripsNumbersTravelTests(ApiCase):
         cost.add_round({"predicted_n": 20, "predicted_ms": 1000.0,
                         "_finish_reason": "stop"})
         self.assertEqual(self._turn(cost)["cut"], "")
+
+
+class TheAnswerHeadingsSitOnTheBodyTests(unittest.TestCase):
+    """#383, from the acceptance review of #380: in the render the answer's
+    section headings stood visibly above the prose. The heading WAS the mockup's
+    h3 already (14.5 px, 650) -- what was off is the prose under it, which
+    inherited `body{font:13px}` where the mockup's `.md` is 14.5 px, so the
+    heading was 1.5 px taller than the text it heads. The answer is set in the
+    mockup's 14.5 px, every level from h3 down is the mockup's heading, and
+    h1/h2 keep a step above it (16 and 15 px) in the same weight."""
+
+    @classmethod
+    def setUpClass(cls):
+        source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        css = source[source.index("<style>"):source.index("</style>")]
+        cls.css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+    def _style(self, *selectors: str) -> dict:
+        """The declarations that reach an element named by `selectors`, a later
+        rule over an earlier one (the rules here share their specificity)."""
+        out = {}
+        for names, body in re.findall(r"([^{}]+)\{([^{}]*)\}", self.css):
+            if {n.strip() for n in names.split(",")} & set(selectors):
+                for decl in body.split(";"):
+                    if ":" in decl:
+                        prop, _, value = decl.partition(":")
+                        out[prop.strip()] = value.strip()
+        return out
+
+    def test_a_heading_is_the_mockups_and_no_larger_than_the_prose_it_heads(self):
+        body = self._style(".say")
+        self.assertEqual(body.get("font-size"), "14.5px", "the answer prose is the mockup's 14.5 px")
+        sizes = {}
+        for level in range(1, 7):
+            heading = self._style(".md .mdh", ".md .mdh%d" % level)
+            sizes[level] = heading.get("font-size")
+            for prop, value in (("font-weight", "650"), ("color", "var(--text)"),
+                                ("line-height", "1.4"), ("margin", "16px 0 6px")):
+                self.assertEqual(heading.get(prop), value, "h%d %s" % (level, prop))
+        for level in (3, 4, 5, 6):
+            self.assertEqual(sizes[level], "14.5px", "h%d is the mockup's 14.5 px" % level)
+        self.assertEqual(sizes[2], "15px")
+        self.assertEqual(sizes[1], "16px")
+
+
+class TheGoalStepRowSaysItsStatusTests(unittest.TestCase):
+    """#384, from the acceptance review of #380: the Tools tab's `goal_step` row
+    read "step 3"; the mockup reads "step 3 · done", the status taken from the
+    call's arguments. Every other tool keeps the generic rule (the first
+    argument's value, a number or a flag with its name)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.node = _node()
+        cls.source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+
+    def summaries(self, calls: list) -> list:
+        if not self.node:
+            self.skipTest("no node on this machine")
+        head = re.search(r"(?m)^  toolSum\(", self.source)
+        self.assertIsNotNone(head, "toolSum is gone from the page")
+        method = self.source[head.start():self.source.index("  toolEnd(", head.start())]
+        prog = ("const o={" + method + "};\nconsole.log(JSON.stringify("
+                + json.dumps(calls) + ".map(([name, raw]) => o.toolSum(raw, name))));\n")
+        done = subprocess.run([self.node], input=prog, capture_output=True, text=True,
+                              encoding="utf-8", timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_a_goal_step_says_its_status_and_other_tools_keep_the_first_argument(self):
+        got = self.summaries([
+            ["goal_step", '{"step": 3, "status": "done", "note": "returned 42"}'],
+            ["goal_step", '{"step": 2, "status": "skipped"}'],
+            ["goal_step", '{"step": 3, "note": "no status given"}'],
+            ["goal_step", ""],
+            ["not_goal_step", '{"step": 3, "status": "done"}'],
+            ["run_command", '{"command": "ls -la", "status": "done"}']])
+        self.assertEqual(got, ["step 3 · done", "step 2 · skipped", "step 3", "",
+                               "step 3", "ls -la"])
+        # The row hands its tool's name over -- the summary cannot know it else.
+        self.assertIn("this.toolSum(raw || args, name)", self.source)
+
+
+class TheInspectorStartsAt340Tests(unittest.TestCase):
+    """#384, robin 2026-10-14 ("340 px"): the inspector's start width on a fresh
+    install is 340 px, as in the mockup. A width somebody saved is not touched."""
+
+    def setUp(self) -> None:
+        self._real = crow_gui.read_settings
+        self.addCleanup(setattr, crow_gui, "read_settings", self._real)
+
+    def _settings(self, **values):
+        crow_gui.read_settings = lambda: values
+
+    def test_a_fresh_install_starts_at_340_and_a_saved_width_stays(self):
+        self._settings()
+        self.assertEqual(crow_gui.code_width_setting(), 340)
+        self.assertIn("--codew:340px", crow_gui.stamped_page())
+        for saved in (260, 300, 340, 520):
+            self._settings(code_width=saved)
+            self.assertEqual(crow_gui.code_width_setting(), saved)
+            self.assertIn("--codew:%dpx" % saved, crow_gui.stamped_page())
+
+
+class TheTelemetryCellNeverBreaksInsideItselfTests(unittest.TestCase):
+    """#383, from the render at 1440x960 with the 340 px inspector: the
+    Delegated cell's sub-line broke as "subtask · 65 / tok". A cell's label,
+    value and sub-line never break inside themselves; the row is too narrow ->
+    whole cells wrap onto a second row (still no scrollbar). The cells are
+    sized by their content, not by a fixed 112 px basis that a phrase could
+    outgrow."""
+
+    @classmethod
+    def setUpClass(cls):
+        source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        css = source[source.index("<style>"):source.index("</style>")]
+        cls.css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+    def _rule(self, selector: str) -> str:
+        found = self.css[self.css.index(selector):]
+        return found[:found.index(chr(125))]
+
+    def test_a_cell_is_sized_by_its_content_and_its_lines_do_not_break(self):
+        cell = self._rule(".tele .m{")
+        self.assertIn("flex:1 1 auto", cell)
+        self.assertNotRegex(cell, r"flex:[^;]*\d+px")
+        for part in (".tele .ml{", ".tele .mv{", ".tele .ms{"):
+            self.assertIn("white-space:nowrap", self._rule(part), part)
+        # NEGATIVE: the strip itself still wraps, and still never scrolls.
+        tele = self._rule(".cost.tele{")
+        self.assertIn("flex-wrap:wrap", tele)
+        self.assertNotIn("overflow-x", tele)
 
 
 class TheTraceFoldsFinishedRoundsTests(unittest.TestCase):
@@ -9185,7 +9317,7 @@ out.more = $('#tclist .tool[data-n="13"] .tsmore').textContent;
                                    "Compute 21 multiplied by 2 and state the numeric result.",
                                    False])
         self.assertEqual(rows[9][:3], ["10", "ico k-sub", "collect"])
-        self.assertEqual(rows[10][:4], ["11", "ico k-goal", "goal_step", "step 3"])
+        self.assertEqual(rows[10][:4], ["11", "ico k-goal", "goal_step", "step 3 · done"])
         self.assertEqual(out["four"], [False, "true", ["arguments", "result"],
                                        "[exit 0]\nrecursive excluding .git/.ruff_cache:\n282\n"
                                        "directories recursive:\n61"])
@@ -10152,11 +10284,14 @@ class TheCodePanelStartsNarrowTests(unittest.TestCase):
         found = self.css[self.css.index(selector):]
         return found[:found.index(chr(125))]
 
-    def test_the_default_is_the_minimum_robin_chose(self):
-        self.assertEqual(crow_gui.CODE_DEFAULT, 260)
-        self.assertEqual(crow_gui.CODE_DEFAULT, crow_gui.CODE_MIN)
+    def test_the_default_is_340_and_the_minimum_stays_260(self):
+        """robin 2026-10-14: default 340 as in the mockup. This replaces the
+        2026-08-27 reading above ("the default IS the minimum"): the narrowest
+        the grip goes is still 260, a fresh install starts wider."""
+        self.assertEqual(crow_gui.CODE_DEFAULT, 340)
+        self.assertEqual(crow_gui.CODE_MIN, 260)
         self._settings()
-        self.assertEqual(crow_gui.code_width_setting(), 260)
+        self.assertEqual(crow_gui.code_width_setting(), 340)
 
     def test_no_start_width_automation_remains(self):
         """NEGATIV-WAECHTER gegen den Wiedereinbau: weder die halbe-Flaeche-
@@ -10174,9 +10309,9 @@ class TheCodePanelStartsNarrowTests(unittest.TestCase):
         """NEGATIV: ein Wert, den die Maus nie erzeugen konnte, wird zur
         Vorgabe und nicht zur Grenze."""
         self._settings(code_width=5000)
-        self.assertEqual(crow_gui.code_width_setting(), 260)
+        self.assertEqual(crow_gui.code_width_setting(), crow_gui.CODE_DEFAULT)
         self._settings(code_width=True)
-        self.assertEqual(crow_gui.code_width_setting(), 260)
+        self.assertEqual(crow_gui.code_width_setting(), crow_gui.CODE_DEFAULT)
 
     def test_the_panel_gives_way_before_the_composer(self):
         """Die Garantie hinter "niemals rausgucken": #138c laesst die Knoepfe

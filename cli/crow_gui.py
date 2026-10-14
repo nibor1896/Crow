@@ -704,15 +704,19 @@ def rail_width_setting() -> int:
 # DIE GRENZEN DES CODE-PANELS, gespiegelt zur Rail und aus demselben Grund in
 # Python geklemmt: der Wert kommt aus einer Maus.
 #
-# DIE VORGABE IST DAS MINIMUM, der Owner am 2026-08-27: "der codepanel ist viel zu
+# DIE VORGABE WAR DAS MINIMUM, der Owner am 2026-08-27: "der codepanel ist viel zu
 # breit. Default werte bitte wie in Screenshot 2" -- und sein gespeicherter
 # Zug stand auf exakt 260. Der Vorgaenger (380, dann #138c "halbe Flaeche")
 # entschied die Startbreite fuer ihn und lag zweimal daneben; wer mehr Panel
 # will, zieht den Griff, und DIESE Entscheidung bleibt gespeichert.
+# #384, robin 2026-10-14: "340 px" -- the inspector starts at 340 px on a fresh
+# install, as in the approved mockup. CODE_MIN stays 260 (the narrowest the grip
+# goes), and a width somebody saved is read back as it is, so nobody's panel
+# moves.
 # CODE_MAX war 720; der Owner am 2026-08-27: "Codepanel maximale Breite -15%" --
 # 720 * 0,85 = 612. Die Seite klemmt dieselbe Geste ein zweites Mal, siehe
 # codeDrag; beide Kopien tragen denselben Wert.
-CODE_MIN, CODE_MAX, CODE_DEFAULT = 260, 612, 260
+CODE_MIN, CODE_MAX, CODE_DEFAULT = 260, 612, 340
 # #175. UND EINE ZWEITE DECKE, SOBALD DER BROWSER IN DER SPALTE STEHT. Die 612
 # sind die Decke fuer ein CODE-Panel -- eine Aufrufliste und ein Quelltext
 # brauchen nicht mehr, und der Owner hat sie 2026-08-27 selbst auf diesen Wert
@@ -2513,7 +2517,11 @@ details.think .dur{color:var(--text-soft)}
 .tbody{margin:8px 0 2px;padding:10px 13px;border-left:2px solid var(--line);
   color:var(--think);font-size:12px;line-height:1.65;background:var(--think-bg);
   border-radius:0 6px 6px 0;white-space:pre-wrap}
-.say{color:var(--model);line-height:1.62;white-space:pre-wrap}
+/* #383: THE ANSWER IS SET IN THE MOCKUP'S 14.5 px (its `.md`), on `.say` and not
+   on `.md` so the text does not change size when `format()` swaps the streamed
+   paragraph for the blocks. Inheriting `body{font:13px}` left every heading
+   1.5 px above the prose it heads. */
+.say{color:var(--model);font-size:14.5px;line-height:1.62;white-space:pre-wrap}
 /* THE FORMATTED ANSWER. `pre-wrap` moves off the box and onto the paragraph:
    inside one, a single newline is still a line break -- this client has never
    folded them and folding them now would reflow every answer the owner has read --
@@ -2522,12 +2530,14 @@ details.think .dur{color:var(--text-soft)}
 .md p{margin:0 0 9px;white-space:pre-wrap}
 .md p:last-child,.md ul:last-child,.md ol:last-child,.md table:last-child{
   margin-bottom:0}
-.md .mdh{color:var(--text-hi);font-weight:600;margin:13px 0 6px;line-height:1.3}
+/* #383: THE MOCKUP'S HEADING, every level -- weight and colour set it off, not
+   size. h3 and below are the prose's own 14.5 px; h1 and h2 keep one step above
+   it (16, 15 px) so a hierarchy remains. */
+.md .mdh{color:var(--text);font-weight:650;margin:16px 0 6px;line-height:1.4}
 .md .mdh:first-child{margin-top:0}
 .md .mdh1{font-size:16px}
-.md .mdh2{font-size:14.5px}
-.md .mdh4,.md .mdh5,.md .mdh6{font-size:13px}
-/* #383: the mockup's h3 -- the size of its prose, set off by weight. */
+.md .mdh2{font-size:15px}
+.md .mdh4,.md .mdh5,.md .mdh6,
 .md .mdh3{font-size:14.5px;line-height:1.4;margin:16px 0 6px;font-weight:650;
   color:var(--text)}
 .md ul,.md ol{margin:0 0 9px;padding-left:21px}
@@ -2742,19 +2752,24 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
 .cost{margin-top:11px;font-size:10.5px;color:var(--dimmer);
   border-top:1px dashed var(--line);padding-top:7px}
 /* #383. THE TELEMETRY STRIP, the mockup's `.tele`: labelled cells that wrap
-   (a 112 px basis each) instead of one line that scrolled sideways -- no
-   nowrap, nothing to scroll. Two classes, so it wins over `.cost` above. */
+   instead of one line that scrolled sideways -- nothing to scroll. A CELL IS
+   SIZED BY ITS CONTENT and its label, value and sub-line never break inside
+   themselves (nowrap on those three, not on the strip): when the row is too
+   narrow whole cells go to a second row. A fixed 112 px basis let a phrase
+   outgrow its cell and break ("subtask . 65 / tok"). Two classes, so it wins
+   over `.cost` above. */
 .cost.tele{display:flex;flex-wrap:wrap;margin-top:12px;padding:0;
   border:1px solid var(--line-soft);border-radius:12px;background:var(--panel);
   overflow:hidden;overflow-wrap:normal;font-family:var(--ui);font-size:13px;
   color:var(--dim)}
-.tele .m{flex:1 1 112px;display:flex;flex-direction:column;gap:1px;
+.tele .m{flex:1 1 auto;display:flex;flex-direction:column;gap:1px;
   padding:9px 13px;box-shadow:1px 0 0 var(--line-soft)}
 .tele .ml{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
-  color:var(--dim);font-weight:600}
-.tele .mv{font-size:15px;color:var(--text);font-weight:500;line-height:1.35}
+  color:var(--dim);font-weight:600;white-space:nowrap}
+.tele .mv{font-size:15px;color:var(--text);font-weight:500;line-height:1.35;
+  white-space:nowrap}
 .tele .mv small{font-size:11px;color:var(--dim);margin-left:3px;font-weight:400}
-.tele .ms{font-size:11px;color:var(--dim)}
+.tele .ms{font-size:11px;color:var(--dim);white-space:nowrap}
 .tele .m.dlg .mv{color:var(--sub)}
 .tcut{margin-top:6px;font-size:11.5px;color:var(--warn)}
 .fail{color:var(--bad);font-size:11.5px;margin-top:8px;
@@ -5901,7 +5916,7 @@ const crow = {
     const k=this.toolSeq=(this.toolSeq||0)+1;
     d.dataset.n=String(k);
     d.querySelector(".num").textContent=String(k).padStart(2,"0");
-    d.querySelector(".su").textContent=this.toolSum(raw || args);
+    d.querySelector(".su").textContent=this.toolSum(raw || args, name);
     // DIE ARGUMENTE IN VOLLER LAENGE, in den Rumpf. Die Kopfzeile traegt die
     // gekuerzte Fassung, weil sie eine Zeile ist; wer aufklappt, will das,
     // was das Werkzeug wirklich bekommen hat.
@@ -6007,13 +6022,17 @@ const crow = {
 
   // #384. THE ROW'S SUMMARY: the first argument's value -- the command, the
   // path, the query -- on one line. A number or a flag says its name with it
-  // ("step 3"); text that is no JSON object is shown as it came.
-  toolSum(raw){
+  // ("step 3"); text that is no JSON object is shown as it came. A goal_step
+  // adds the status it reports, the mockup's "step 3 · done" -- the one tool
+  // whose first argument alone says too little.
+  toolSum(raw,name){
     const s=String(raw||"").trim(); if(!s) return "";
     const line=x=>String(x).replace(/\s+/g," ").trim();
     let got; try{ got=JSON.parse(s); }catch(err){ return line(s); }
     if(!got || typeof got!=="object" || Array.isArray(got)) return line(s);
     const keys=Object.keys(got); if(!keys.length) return "";
+    if(name==="goal_step" && got.step!=null && typeof got.status==="string"
+       && line(got.status)) return "step "+got.step+" · "+line(got.status);
     const v=got[keys[0]];
     if(typeof v==="string") return line(v);
     if(typeof v==="number" || typeof v==="boolean") return keys[0]+" "+v;
@@ -10371,10 +10390,11 @@ new MutationObserver(() => crow.inspectorSync())
 // KEINE STARTBREITEN-AUTOMATIK MEHR. #138c richtete eine nie gezogene Breite
 // an der halben Flaeche aus -- auf dem Fenster des Owners am 2026-08-27 war genau das
 // der zu breite Start, und die Icons standen wieder neben der Maske. Seine
-// Ansage ersetzt das Feature: die Vorgabe ist CODE_DEFAULT (das Minimum), und
-// wer mehr Panel will, zieht den Griff einmal. Dass der Composer bei KEINER
-// Breite ueberlaeuft, garantiert seitdem das Layout selbst: #code gibt nach
-// (min-width:0), #main traegt die Mindestbreite der Maske.
+// Ansage ersetzt das Feature: die Vorgabe ist CODE_DEFAULT (340 seit #384; das
+// Minimum ist CODE_MIN), und wer mehr Panel will, zieht den Griff einmal. Dass
+// der Composer bei KEINER Breite ueberlaeuft, garantiert seitdem das Layout
+// selbst: #code gibt nach (min-width:0), #main traegt die Mindestbreite der
+// Maske.
 
 window.addEventListener("pywebviewready",()=>{ pywebview.api.ready(); input.focus(); });
 // #382: the mono face, once per page, after the first paint (see `monoFace`).
