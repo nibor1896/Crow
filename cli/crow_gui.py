@@ -2513,7 +2513,11 @@ details.think .dur{color:var(--text-soft)}
 .tbody{margin:8px 0 2px;padding:10px 13px;border-left:2px solid var(--line);
   color:var(--think);font-size:12px;line-height:1.65;background:var(--think-bg);
   border-radius:0 6px 6px 0;white-space:pre-wrap}
-.say{color:var(--model);line-height:1.62;white-space:pre-wrap}
+/* #383: THE ANSWER IS SET IN THE MOCKUP'S 14.5 px (its `.md`), on `.say` and not
+   on `.md` so the text does not change size when `format()` swaps the streamed
+   paragraph for the blocks. Inheriting `body{font:13px}` left every heading
+   1.5 px above the prose it heads. */
+.say{color:var(--model);font-size:14.5px;line-height:1.62;white-space:pre-wrap}
 /* THE FORMATTED ANSWER. `pre-wrap` moves off the box and onto the paragraph:
    inside one, a single newline is still a line break -- this client has never
    folded them and folding them now would reflow every answer the owner has read --
@@ -2522,12 +2526,14 @@ details.think .dur{color:var(--text-soft)}
 .md p{margin:0 0 9px;white-space:pre-wrap}
 .md p:last-child,.md ul:last-child,.md ol:last-child,.md table:last-child{
   margin-bottom:0}
-.md .mdh{color:var(--text-hi);font-weight:600;margin:13px 0 6px;line-height:1.3}
+/* #383: THE MOCKUP'S HEADING, every level -- weight and colour set it off, not
+   size. h3 and below are the prose's own 14.5 px; h1 and h2 keep one step above
+   it (16, 15 px) so a hierarchy remains. */
+.md .mdh{color:var(--text);font-weight:650;margin:16px 0 6px;line-height:1.4}
 .md .mdh:first-child{margin-top:0}
 .md .mdh1{font-size:16px}
-.md .mdh2{font-size:14.5px}
-.md .mdh4,.md .mdh5,.md .mdh6{font-size:13px}
-/* #383: the mockup's h3 -- the size of its prose, set off by weight. */
+.md .mdh2{font-size:15px}
+.md .mdh4,.md .mdh5,.md .mdh6,
 .md .mdh3{font-size:14.5px;line-height:1.4;margin:16px 0 6px;font-weight:650;
   color:var(--text)}
 .md ul,.md ol{margin:0 0 9px;padding-left:21px}

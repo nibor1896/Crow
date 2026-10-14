@@ -6975,6 +6975,49 @@ class TheStripsNumbersTravelTests(ApiCase):
         self.assertEqual(self._turn(cost)["cut"], "")
 
 
+class TheAnswerHeadingsSitOnTheBodyTests(unittest.TestCase):
+    """#383, from the acceptance review of #380: in the render the answer's
+    section headings stood visibly above the prose. The heading WAS the mockup's
+    h3 already (14.5 px, 650) -- what was off is the prose under it, which
+    inherited `body{font:13px}` where the mockup's `.md` is 14.5 px, so the
+    heading was 1.5 px taller than the text it heads. The answer is set in the
+    mockup's 14.5 px, every level from h3 down is the mockup's heading, and
+    h1/h2 keep a step above it (16 and 15 px) in the same weight."""
+
+    @classmethod
+    def setUpClass(cls):
+        source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        css = source[source.index("<style>"):source.index("</style>")]
+        cls.css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+    def _style(self, *selectors: str) -> dict:
+        """The declarations that reach an element named by `selectors`, a later
+        rule over an earlier one (the rules here share their specificity)."""
+        out = {}
+        for names, body in re.findall(r"([^{}]+)\{([^{}]*)\}", self.css):
+            if {n.strip() for n in names.split(",")} & set(selectors):
+                for decl in body.split(";"):
+                    if ":" in decl:
+                        prop, _, value = decl.partition(":")
+                        out[prop.strip()] = value.strip()
+        return out
+
+    def test_a_heading_is_the_mockups_and_no_larger_than_the_prose_it_heads(self):
+        body = self._style(".say")
+        self.assertEqual(body.get("font-size"), "14.5px", "the answer prose is the mockup's 14.5 px")
+        sizes = {}
+        for level in range(1, 7):
+            heading = self._style(".md .mdh", ".md .mdh%d" % level)
+            sizes[level] = heading.get("font-size")
+            for prop, value in (("font-weight", "650"), ("color", "var(--text)"),
+                                ("line-height", "1.4"), ("margin", "16px 0 6px")):
+                self.assertEqual(heading.get(prop), value, "h%d %s" % (level, prop))
+        for level in (3, 4, 5, 6):
+            self.assertEqual(sizes[level], "14.5px", "h%d is the mockup's 14.5 px" % level)
+        self.assertEqual(sizes[2], "15px")
+        self.assertEqual(sizes[1], "16px")
+
+
 class TheTraceFoldsFinishedRoundsTests(unittest.TestCase):
     """#131, variant A. `reply_started` fires once per ROUND, so a 24-round turn
     drew 24 blocks of thoughts and running commentary -- and the answer, which is
