@@ -1353,7 +1353,6 @@ body.closing::after{content:"saving the chat and the cache...";position:fixed;
   background:transparent;color:var(--text);font:inherit;font-size:12.5px;
   transition:width .25s ease}
 .search input::placeholder{color:var(--dim)}
-.search input::-webkit-search-cancel-button{display:none}
 .s-kbd{max-width:0;opacity:0;overflow:hidden;padding:0;border-width:0;margin:0;
   transition:max-width .25s ease,opacity .2s ease,margin .25s ease}
 /* TWO RULES, NOT ONE LIST. An engine that does not know `:has()` drops the
@@ -1367,6 +1366,34 @@ body.closing::after{content:"saving the chat and the cache...";position:fixed;
   margin:0 6px 0 4px}
 .search:has(input:not(:placeholder-shown)) .s-kbd{max-width:64px;opacity:1;
   padding:0 5px;border-width:1px;margin:0 6px 0 4px}
+
+/* -- #386: the results under the field ------------------------------------ */
+/* THE BOX IS AS WIDE AS THE FIELD (it shrink-wraps `.search`, which grows from
+   32 px to ~300 px), and the popup takes that width with `left:0;right:0`, so
+   nothing measures anything. `z-index:60` puts it over the panel, the inspector
+   and the composer (all lower, most of them in stacking contexts of their own)
+   and under the dialogs (80) and the context menu (200). At most 8 rows, as
+   the ticket says; the group label is the mockup's `.lbl`, scoped here because
+   the label class itself is not defined by this ticket. */
+.searchbox{position:relative;display:flex;flex:none}
+#searchpop{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:60;
+  padding:5px;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;box-shadow:0 10px 26px var(--shadow);
+  max-height:calc(100vh - 80px);overflow-y:auto}
+#searchpop[hidden]{display:none}
+#searchlist[hidden]{display:none}
+#searchpop .lbl{padding:7px 9px 3px;font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--dim);font-weight:600}
+.sopt{display:flex;align-items:baseline;gap:10px;padding:6px 9px;border-radius:7px;
+  font-size:12.5px;color:var(--text-soft);cursor:pointer}
+.sopt.on{background:var(--hover);color:var(--text)}
+.sopt .st{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;
+  text-overflow:ellipsis}
+.sopt .ss{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;
+  text-overflow:ellipsis;font-size:11.5px;color:var(--dim)}
+.sopt.cmd .st{flex:none;font-family:var(--mono);font-size:12px;color:var(--text)}
+.sopt.cmd .ss{flex:1 1 auto}
+#searchnone:not(:empty){padding:9px;font-size:12px;color:var(--dim)}
 
 /* -- #382: the engine chip over the panel's right edge --------------------- */
 /* NARROW UNTIL CLICKED: a status dot and the model's name. A click (or Enter /
@@ -3558,16 +3585,31 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
   <div id="barm" class="hz">
     <!-- #382. THE SEARCH: a magnifier label for the field, so a click on it
          focuses the field and CSS alone opens it. Ctrl+K focuses it, Escape
-         lets go. What it finds is #386. A double-click in it is a word
-         selection, not a maximise, so it stops here. -->
-    <div id="search" class="search pywebview-no-drag" ondblclick="event.stopPropagation()">
-      <label class="s-ico" for="searchin"><svg viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
-          stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path
-          d="m20 20-3.5-3.5"></path></svg><span class="sr">Search chats and commands</span></label>
-      <input id="searchin" type="search" placeholder="Search chats and commands"
-             autocomplete="off" spellcheck="false">
-      <span class="kbd s-kbd">Ctrl K</span>
+         lets go. A double-click in it is a word selection, not a maximise, so
+         it stops here.
+         #386. WHAT IT FINDS is the popup under it, a sibling of the field and
+         not a child: the field clips its own overflow. The box around both is
+         as wide as the field, so the list follows it. The input is the
+         combobox (WAI-ARIA APG) -- `type="text"`, because HTML-ARIA lets a
+         `type="search"` without a `list` carry no role but searchbox -- and
+         keeps the DOM focus; the option the keys stand on is named by
+         `aria-activedescendant` (see `finder`). -->
+    <div id="searchbox" class="searchbox">
+      <div id="search" class="search pywebview-no-drag" ondblclick="event.stopPropagation()">
+        <label class="s-ico" for="searchin"><svg viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path
+            d="m20 20-3.5-3.5"></path></svg><span class="sr">Search chats and commands</span></label>
+        <input id="searchin" type="text" role="combobox" aria-autocomplete="list"
+               aria-expanded="false" aria-controls="searchlist"
+               placeholder="Search chats and commands" autocomplete="off" spellcheck="false">
+        <span class="kbd s-kbd">Ctrl K</span>
+      </div>
+      <div id="searchpop" class="pywebview-no-drag" hidden
+           ondblclick="event.stopPropagation()">
+        <div id="searchlist" role="listbox" aria-label="Chats and commands"></div>
+        <div id="searchnone" role="status"></div>
+      </div>
     </div>
     <!-- #382. THE ENGINE CHIP: the server's state as a dot and the model's
          name; a click slides out the level, the last turn's decode rate and
@@ -8899,6 +8941,7 @@ const crow = {
     // Fassung desselben Textes, und die beiden koennten sich widersprechen.
     // Der Stempel kommt aus `push`, nicht aus dem Nachrichtentyp.
     if(e.bg) return;
+    if(e.k==="rail") finder.seen(e);   // #386: the search reads the chats from it
     switch(e.k){
       case "up": $("#dot").className="up"; $("#state").textContent="connected";
         $("#engine").dataset.state="up";
@@ -8930,6 +8973,7 @@ const crow = {
       // window buttons now, so the number goes where somebody looks it up.
       case "meta": $("#aboutver").textContent=e.version;
         if(e.slash) this.slash=e.slash;
+        if(e.slash_help) this.slashHelp=e.slash_help;   // #386: the search's lines
         // #382: AND ON THE BAR, the other reader -- its left zone stands over
         // the rail. Two small subtrees, never <html> (#236).
         if(e.rail){ $("#rail").style.setProperty("--railw", e.rail+"px");
@@ -9055,7 +9099,136 @@ document.addEventListener("keydown",e=>{
   e.preventDefault(); searchIn.focus(); searchIn.select(); });
 if(searchIn) searchIn.addEventListener("keydown",e=>{
   if(e.key!=="Escape") return;
-  e.preventDefault(); searchIn.blur(); input.focus(); });
+  // #386: Escape also lets go of the query, so the field folds back at once.
+  e.preventDefault(); finder.reset(); searchIn.blur(); input.focus(); });
+
+// #386. WHAT THE SEARCH FINDS: chats and slash commands, under the field.
+//
+// CHATS come from the last `{"k":"rail"}` message (`seen`, called by `crow.on`
+// before the rail is drawn), which is everything the rail holds: the live chat
+// when it has no file yet, the saved chats newest first, then the archive
+// drawer's. Folded projects are in it too -- the rail does not DRAW them, the
+// message still carries them. A chat matches by title or by its project's name,
+// case-insensitive substring.
+// COMMANDS come from the page's `crow.slash` (the shared list) with the line
+// `/help` prints for each (`crow.slashHelp`); they match by name.
+//
+// THE KEYS ARE THE COMBOBOX PATTERN of the WAI-ARIA authoring practices, list
+// autocomplete with automatic selection: DOM focus stays in the input, the first
+// result is selected as the list opens, Up/Down move (and wrap), Enter takes it,
+// Escape closes the list, drops the query and lets go of the field. The option
+// the keys stand on is named by `aria-activedescendant` and `aria-selected`.
+const finder = (() => {
+  const pop=$("#searchpop"), list=$("#searchlist"), none=$("#searchnone");
+  const MAX=8;                         // rows in all; the group labels are not rows
+  let rail=null;                       // the last rail message
+  let rows=[];                         // the options on screen, in key order
+  let at=-1;                           // the one the keys stand on
+  const el=(tag,cls,text)=>{ const n=document.createElement(tag);
+    if(cls) n.className=cls; if(text) n.textContent=text; return n; };
+  const has=(hay,q)=>String(hay||"").toLowerCase().indexOf(q)>=0;
+
+  const chats=q=>{ if(!rail) return [];
+    const all=[], seen=new Set();
+    const add=(c,extra)=>{ const key=c.path||"";   // the live chat has no file
+      if(seen.has(key)) return; seen.add(key);
+      const p=(rail.projects||[]).filter(x=>crow.sameDir(x.path,c.root))[0];
+      all.push(Object.assign({path:c.path||"", title:c.title||"", project:p ? p.name : ""}, extra)); };
+    if(rail.unsaved) add({path:"", title:rail.title||"new chat", root:rail.live_root}, {live:true});
+    (rail.rollovers||[]).forEach(r=>add(r,{}));
+    (rail.archived||[]).forEach(r=>add(r,{archived:true}));
+    return all.filter(c=>has(c.title,q) || has(c.project,q)); };
+  // The names the query starts (`del` -> /delegate) come before the ones that
+  // only contain it (/model); the list's own order holds within each.
+  const bare=s=>s.toLowerCase().replace(/^\//,"");
+  const commands=q=>(crow.slash||[]).filter(c=>has(c,q))
+    .map(c=>({cmd:c, line:(crow.slashHelp||{})[c]||"", late:bare(c).indexOf(bare(q))===0 ? 0 : 1}))
+    .sort((a,b)=>a.late-b.late);
+  // Up to MAX rows. The chats come first and may take five, or more when the
+  // commands leave room; the commands get what is left.
+  const share=(cs,ms)=>{ const n=Math.min(cs.length, Math.max(5, MAX-ms.length));
+    return {chats:cs.slice(0,n), cmds:ms.slice(0, MAX-n)}; };
+
+  const cover=()=>requestAnimationFrame(()=>crow.brCover());   // #201: a native pane under it hides
+  const mark=i=>{ at=i;
+    rows.forEach((r,k)=>{ r.node.classList.toggle("on",k===i);
+      r.node.setAttribute("aria-selected", k===i ? "true" : "false"); });
+    if(i<0){ searchIn.removeAttribute("aria-activedescendant"); return; }
+    searchIn.setAttribute("aria-activedescendant", rows[i].node.id);
+    if(rows[i].node.scrollIntoView) rows[i].node.scrollIntoView({block:"nearest"}); };
+  const close=()=>{ rows=[]; at=-1; list.textContent=""; none.textContent="";
+    pop.hidden=true; searchIn.setAttribute("aria-expanded","false");
+    searchIn.removeAttribute("aria-activedescendant"); cover(); };
+  const reset=()=>{ searchIn.value=""; close(); };
+
+  // THE COMPOSER KEEPS WHAT IS IN IT. An empty box, or a half-typed command, is
+  // replaced by the command; a draft stays, with the command in front of it.
+  const put=cmd=>{ const cur=input.value.trim();
+    input.value=(!cur || /^\/\S*$/.test(cur)) ? cmd : cmd+" "+input.value;
+    input.dispatchEvent(new Event("input"));      // the height and the Send/Stop face
+    input.focus(); input.setSelectionRange(input.value.length, input.value.length); };
+  const act=i=>{ const r=rows[i]; if(!r) return;
+    reset(); searchIn.blur(); r.run(); input.focus(); };
+
+  const option=(cls,key,main,side,tip,run)=>{
+    const i=rows.length, o=el("div","sopt "+cls);
+    o.id="searchopt-"+i; o.setAttribute("role","option"); o.setAttribute("aria-selected","false");
+    o.appendChild(el("span","st",main)); o.appendChild(el("span","ss",side));
+    if(tip) o.title=tip;
+    o.addEventListener("click",()=>act(i));
+    o.addEventListener("mousemove",()=>{ if(at!==i) mark(i); });
+    rows.push({node:o, key:key, run:run}); return o; };
+  const group=(key,label,items,build)=>{ if(!items.length) return;
+    const g=el("div"), h=el("div","lbl",label);
+    h.id="searchg-"+key; h.setAttribute("role","presentation");
+    g.setAttribute("role","group"); g.setAttribute("aria-labelledby",h.id);
+    g.appendChild(h); items.forEach(it=>g.appendChild(build(it))); list.appendChild(g); };
+
+  // `keep`: a rail message arrived while the list is open -- stay on the same
+  // result when it is still there, instead of jumping back to the first.
+  const draw=keep=>{ const q=searchIn.value.trim().toLowerCase();
+    if(!q){ close(); return; }
+    const held=keep && at>=0 ? rows[at].key : null;
+    const found=share(chats(q), commands(q));
+    list.textContent=""; rows=[]; at=-1;
+    group("chats","Chats",found.chats,c=>option("chat",c.path||"live",c.title,
+      c.archived ? (c.project ? c.project+" · archived" : "archived") : c.project,
+      c.title, ()=>{ if(c.live) pywebview.api.view_live(); else crow.open(c.path); }));
+    group("commands","Commands",found.cmds,c=>option("cmd",c.cmd,c.cmd,c.line,
+      c.cmd+(c.line ? "  "+c.line : ""), ()=>put(c.cmd)));
+    pop.hidden=false;
+    list.hidden=!rows.length;
+    none.textContent=rows.length ? "" : "Nothing matches";
+    searchIn.setAttribute("aria-expanded", rows.length ? "true" : "false");
+    const k=held ? rows.findIndex(r=>r.key===held) : -1;
+    mark(rows.length ? Math.max(k,0) : -1);
+    cover(); };
+
+  searchIn.addEventListener("input",()=>draw(false));
+  searchIn.addEventListener("focus",()=>draw(false));
+  searchIn.addEventListener("blur",close);
+  searchIn.addEventListener("keydown",e=>{
+    if(e.isComposing || e.keyCode===229) return;          // an input method's, as for the composer
+    if((e.key==="ArrowDown" || e.key==="ArrowUp") && rows.length){
+      e.preventDefault(); const n=rows.length;
+      mark(e.key==="ArrowDown" ? (at+1)%n : (at-1+n)%n); }
+    else if(e.key==="Enter" && at>=0){ e.preventDefault(); act(at); } });
+  // A PRESS IN THE FIELD OR IN ITS LIST IS NOT A WINDOW DRAG. Both stand inside
+  // #bar, and pywebview (webview/js/customize.js, `onBodyMouseDown`) starts a
+  // drag on any press under a drag region: it climbs from the target to
+  // `.pywebview-drag-region`, knows no `pywebview-no-drag`, and Crow sets neither
+  // DRAG_REGION_DIRECT_TARGET_ONLY nor easy_drag. So the window would move under
+  // a click, and under a text selection made with the mouse. The press stops
+  // here instead. The page's dismissal of open menus is a listener on the window,
+  // which a stopped press no longer reaches, so it is called from here. (The
+  // bar's own handler for Wayland asks `.pywebview-no-drag`; both carry it.)
+  const still=e=>{ e.stopPropagation(); dismissMenus(e); };
+  $("#search").addEventListener("mousedown",still);
+  // A CLICK ON A RESULT MUST NOT TAKE THE FOCUS from the field either: the blur
+  // would close the list before the click lands.
+  pop.addEventListener("mousedown",e=>{ e.preventDefault(); still(e); });
+  return {seen:e=>{ rail=e; if(!pop.hidden) draw(true); }, reset:reset};
+})();
 
 // BOTH HAVE TO BE PREVENTED, and dragover is the one people forget: without it
 // the drop never reaches a listener at all, because WebView2 has already
@@ -9263,10 +9436,13 @@ window.addEventListener("resize", () => sizing.pulse());
 const DISMISS = [["#modelwrap","#modelmenu"],
                  ["#modewrap","#modemenu"], ["#rootwrap","#rootmenu"],
                  ["#subwrap","#submenu"]];
-window.addEventListener("mousedown",e=>{
+// #386: NAMED, because a press in the search field must stop before it reaches
+// the window (it is not a window drag) and calls this itself.
+const dismissMenus = e => {
   if(!e.target.closest("#menu")) crow.closeMenu();
   DISMISS.forEach(pair => {
-    if(!e.target.closest(pair[0])) $(pair[1]).hidden=true; }); });
+    if(!e.target.closest(pair[0])) $(pair[1]).hidden=true; }); };
+window.addEventListener("mousedown",dismissMenus);
 // #119. THE LIST ITSELF ANSWERS NOW, not only the rows in it. A right-click
 // on the empty space below the chats used to be swallowed by this guard --
 // which was right when the rail had nothing to offer there, and is the
@@ -9604,7 +9780,7 @@ body{padding:var(--safe-t) var(--safe-r) 0 var(--safe-l);
    the zones dissolve into the bar's own row, the middle one's two controls
    stay off -- until #387 redraws the phone. */
 #barl,#barm,#barr{display:contents}
-#search,#engine,#barr>.vsep{display:none!important}
+#searchbox,#search,#engine,#barr>.vsep{display:none!important}
 #railtoggle,#codetoggle,#gittoggle,#browsertoggle{
   min-width:var(--tap);min-height:var(--tap);justify-content:center;
   margin:0;border-radius:10px}
@@ -12720,7 +12896,10 @@ class Api:
                 "url": self._args.base_url, "tools": len(TOOLS),
                 "execute": bool(self._args.execute_tools),
                 # #264: the page tells a command from a path mid-turn.
-                "slash": list(crow_core.SLASH_COMMANDS)}
+                "slash": list(crow_core.SLASH_COMMANDS),
+                # #386: and the search offers them with the line /help prints
+                # for each -- the same text, not a second list.
+                "slash_help": dict(self.WHAT_THEY_DO)}
 
     # ---- #249: the state a fresh phone page needs
 

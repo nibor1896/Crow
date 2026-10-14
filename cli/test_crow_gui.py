@@ -17354,7 +17354,9 @@ class TheWindowShellTests(unittest.TestCase):
 
     def test_the_search_is_a_magnifier_that_opens_into_a_field(self):
         self.assertIn('<label class="s-ico" for="searchin">', self.bar)
-        self.assertIn('<input id="searchin" type="search"', self.bar)
+        # #386: type="text" -- the field is a combobox, and HTML-ARIA gives a
+        # type="search" without a `list` no role but searchbox.
+        self.assertIn('<input id="searchin" type="text"', self.bar)
         self.assertIn('<span class="kbd s-kbd">Ctrl K</span>', self.bar)
         self.assertIn("height:32px", self._rule(".search{"))
         self.assertIn("width:0", self._rule(".search input{"))
@@ -17557,6 +17559,519 @@ const crow = {
         self.assertIn("width:32px", self._rule(".ib{"))
         # The phone's rail is a drawer whose resting state is "shut": the name stays.
         self.assertIn('body[data-rail="shut"] #mark{display:inline}', crow_gui.REMOTE_CSS)
+
+
+class TheSearchFindsChatsAndCommandsTests(ApiCase):
+    """#386. The title-bar field (#382) finds chats and slash commands: the
+    popup under it, its combobox roles and its keys. The behaviour is RUN in
+    node over a small fake DOM -- the block `finder` is cut out of the page
+    with the Ctrl+K and Escape handlers beside it -- and the markup, the
+    styles and the wiring are read as text. The page itself, in a browser, is
+    `tools/render_window.py --type ... --press ...`."""
+
+    NODE_HEAD = r"""
+const log = [];
+let focused = null;
+class El {
+  constructor(tag) { this.tag = tag; this.children = []; this.attrs = {}; this.on = {};
+    this.className = ""; this.classes = new Set(); this._text = ""; this.hidden = false;
+    this.value = ""; this.id = ""; this.title = ""; this.parentNode = null; this.nodeType = 1; }
+  get classList() { const c = this.classes;
+    return {toggle(n, on) { if (on) c.add(n); else c.delete(n); }, contains: n => c.has(n)}; }
+  set textContent(v) { this._text = v; this.children = []; }
+  get textContent() { return this._text + this.children.map(c => c.textContent).join(""); }
+  appendChild(c) { this.children.push(c); return c; }
+  setAttribute(k, v) { this.attrs[k] = String(v); }
+  getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+  removeAttribute(k) { delete this.attrs[k]; }
+  addEventListener(t, f) { (this.on[t] = this.on[t] || []).push(f); }
+  dispatchEvent(ev) { (this.on[ev.type] || []).forEach(f => f(ev)); return true; }
+  // The event goes up the parents the way the DOM's does, and a listener may stop it.
+  bubble(ev) { ev.target = this; ev.cancelBubble = false;
+    ev.stopPropagation = () => { ev.cancelBubble = true; }; ev.preventDefault = () => {};
+    for (let n = this; n && !ev.cancelBubble; n = n.parentNode) n.dispatchEvent(ev);
+    return ev; }
+  closest(sel) { const name = sel.replace(/^[.#]/, "");
+    for (let n = this; n; n = n.parentNode)
+      if (sel[0] === "#" ? n.id === name : n.classes.has(name)) return n;
+    return null; }
+  fire(t) { this.dispatchEvent({type: t}); }
+  focus() { if (focused === this) return; const was = focused; focused = this;
+    if (was) was.fire("blur"); this.fire("focus"); }
+  blur() { if (focused !== this) return; focused = null; this.fire("blur"); }
+  select() {}
+  scrollIntoView() {}
+  setSelectionRange(a, b) { this.sel = [a, b]; }
+}
+const pop = new El("div"), list = new El("div"), none = new El("div");
+pop.hidden = true;
+const field = new El("input"), composer = new El("textarea");
+field.setAttribute("aria-expanded", "false");
+// #bar is a drag region; the field, its label and key cap sit in #search, the
+// list in #searchpop, both under it -- the markup's own tree, as far as it matters.
+const bar = new El("div"), barm = new El("div"), box = new El("div"), searchEl = new El("div");
+const kbd = new El("span"), label = new El("label"), row = new El("div");
+const bodyEl = new El("body"), window = new El("window");
+bar.id = "bar"; bar.classes.add("pywebview-drag-region");
+searchEl.classes.add("pywebview-no-drag"); pop.classes.add("pywebview-no-drag");
+[[field, searchEl], [kbd, searchEl], [label, searchEl], [searchEl, box], [pop, box],
+ [row, pop], [box, barm], [barm, bar], [bar, bodyEl], [bodyEl, window]]
+  .forEach(([child, parent]) => { child.parentNode = parent; });
+window.pywebview = {platform: "edgechromium",
+  _jsApiCallback(name) { log.push(["jsapi", name]); }};
+const ids = {"#searchpop": pop, "#searchlist": list, "#searchnone": none, "#searchin": field,
+  "#search": searchEl, "#bar": bar};
+const $ = sel => ids[sel] || null;
+const input = composer;
+const NATIVEDRAG = true;
+const dismissMenus = e => log.push(["dismiss"]);
+const document = new El("document");
+document.createElement = tag => new El(tag);
+document.body = bodyEl; document.documentElement = new El("html");
+document.querySelectorAll = sel => sel === ".pywebview-drag-region" ? [bar] : [];
+const requestAnimationFrame = f => f();
+const crow = {slash: __SLASH__, slashHelp: __HELP__,
+  sameDir: (a, b) => !!a && a === b,
+  open(p) { log.push(["open", p]); }, brCover() { log.push(["cover"]); }};
+const pywebview = {api: {view_live() { log.push(["view_live"]); },
+  begin_move() { log.push(["begin_move"]); }}};
+composer.addEventListener("input", () => log.push(["composer-input"]));
+"""
+    NODE_TAIL = r"""
+const rail = extra => Object.assign({k: "rail", title: "Count files, delegate 21x2",
+  unsaved: true, live_root: "/p/crow",
+  rollovers: [{path: "n8n.json", title: "Latest n8n news", root: ""},
+              {path: "hello.json", title: "Hello Crow", root: ""}],
+  archived: [{path: "notes.json", title: "Draft the release notes", root: "/p/crow"}],
+  projects: [{path: "/p/crow", name: "crow", open: true}]}, extra || {});
+const type = text => { field.focus(); field.value = text; field.fire("input"); };
+const key = (k, extra) => { const e = Object.assign({type: "keydown", key: k, prevented: false,
+  isComposing: false, keyCode: 0, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false},
+  extra || {}); e.preventDefault = () => { e.prevented = true; };
+  (extra && extra.onDocument ? document : field).dispatchEvent(e); return e; };
+const view = () => ({
+  open: !pop.hidden, listShown: !list.hidden, expanded: field.getAttribute("aria-expanded"),
+  active: field.getAttribute("aria-activedescendant"), none: none.textContent,
+  value: field.value, focus: focused ? focused.tag : null, composer: composer.value,
+  groups: list.children.map(g => ({label: g.children[0].textContent,
+    role: g.getAttribute("role"), labelledby: g.getAttribute("aria-labelledby"),
+    labelId: g.children[0].id,
+    options: g.children.slice(1).map(o => ({id: o.id, role: o.getAttribute("role"),
+      selected: o.getAttribute("aria-selected"), main: o.children[0].textContent,
+      side: o.children[1].textContent, title: o.title, on: o.classList.contains("on")}))}))});
+"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.node = _node()
+        cls.source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+
+    @staticmethod
+    def _block() -> str:
+        """The Ctrl+K and Escape handlers and `finder`, cut out of the page."""
+        page = crow_gui.PAGE
+        start = page.index('const searchIn = $("#searchin");')
+        end = page.index("\n})();", page.index("const finder = (() => {")) + len("\n})();")
+        return page[start:end]
+
+    def setUp(self) -> None:
+        super().setUp()
+        body = self.source[self.source.index("</style>"):]
+        self.bar = body[body.index('<div id="bar"'):body.index('<div id="remotedlg"')]
+        self.css = self.source[self.source.index("<style>"):self.source.index("</style>")]
+
+    @staticmethod
+    def _pywebview_dir():
+        import importlib.util
+        spec = importlib.util.find_spec("webview")
+        if not spec or not spec.submodule_search_locations:
+            return None
+        return Path(list(spec.submodule_search_locations)[0])
+
+    def _customize_js(self) -> str:
+        """pywebview's own page script, as util.py parameterises it for the
+        Windows engine and a frameless window with `easy_drag=False` (Crow's),
+        and the settings at their defaults (`__init__.py` DRAG_REGION_*)."""
+        folder = self._pywebview_dir()
+        if folder is None or not (folder / "js" / "customize.js").is_file():
+            self.skipTest("pywebview is not installed here")
+        text = (folder / "js" / "customize.js").read_text(encoding="utf-8")
+        return text % {"text_select": "True", "drag_selector": ".pywebview-drag-region",
+                       "drag_region_direct_target_only": "False", "zoomable": "True",
+                       "draggable": "True", "easy_drag": "False"}
+
+    def _run(self, script: str, pywebview: bool = False) -> dict:
+        """The block over the fake DOM, then `script`; what it prints as JSON.
+        `pywebview`: pywebview's customize.js is injected after the page's
+        script, as it is in the window."""
+        if not self.node:
+            self.skipTest("no node on this machine")
+        head = (self.NODE_HEAD
+                .replace("__SLASH__", json.dumps(list(crow_core.SLASH_COMMANDS)))
+                .replace("__HELP__", json.dumps(crow_gui.Api.WHAT_THEY_DO)))
+        js = (head + self._block() + (self._customize_js() if pywebview else "")
+              + self.NODE_TAIL + script)
+        done = subprocess.run([self.node, "-e", js], capture_output=True, text=True,
+                              encoding="utf-8", timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    # -- the combobox: markup, styles, wiring ------------------------------------
+
+    def test_the_field_is_a_combobox_over_a_listbox(self):
+        field = self.bar[self.bar.index('<input id="searchin"'):]
+        field = field[:field.index(">")]
+        for part in ('role="combobox"', 'aria-expanded="false"', 'aria-controls="searchlist"',
+                     'aria-autocomplete="list"'):
+            self.assertIn(part, field)
+        # HTML-ARIA: a type=search without a `list` carries no role but searchbox.
+        self.assertIn('type="text"', field)
+        self.assertNotIn('type="search"', field)
+        self.assertIn('<div id="searchlist" role="listbox"', self.bar)
+        # The popup is the field's sibling: `.search` clips its own overflow.
+        shut = self.bar.index("</div>", self.bar.index('<div id="search"'))
+        self.assertGreater(self.bar.index('id="searchpop"'), shut)
+        self.assertIn("pywebview-no-drag", self.bar[self.bar.index('id="searchpop"'):][:80])
+
+    def test_the_popup_is_the_tickets_panel(self):
+        pop = self.css[self.css.index("#searchpop{"):]
+        pop = pop[:pop.index("}")]
+        for part in ("background:var(--panel)", "border:1px solid var(--line)",
+                     "border-radius:10px", "left:0;right:0", "position:absolute"):
+            self.assertIn(part, pop)
+        label = self.css[self.css.index("#searchpop .lbl{"):]
+        label = label[:label.index("}")]
+        for part in ("font-size:10.5px", "text-transform:uppercase", "color:var(--dim)",
+                     "font-weight:600"):
+            self.assertIn(part, label)
+
+    def test_the_popup_stands_over_the_inspector_and_under_the_dialogs(self):
+        def z(selector):
+            return int(re.search(re.escape(selector) + r"\{[^}]*?z-index:(\d+)", self.css).group(1))
+        mine = z("#searchpop")
+        # The inspector's cards (#panels) and the composer are the page's
+        # highest in-panel layers; the settings sheet and the menu are above.
+        for below in ("#panels", "#composer"):
+            self.assertGreater(mine, z(below), below)
+        for above in ("#settings", "#menu"):
+            self.assertLess(mine, z(above), above)
+
+    def test_the_phone_header_keeps_its_field_off_until_387(self):
+        self.assertIn("#searchbox,#search,#engine,#barr>.vsep{display:none!important}",
+                      crow_gui.REMOTE_CSS)
+
+    def test_the_page_hands_the_search_the_rail_and_the_help_lines(self):
+        page = crow_gui.PAGE
+        on = page[page.index("  on(msg){"):page.index("    switch(e.k){", page.index("  on(msg){"))]
+        self.assertIn('if(e.k==="rail") finder.seen(e);', on)
+        self.assertIn("if(e.slash_help) this.slashHelp=e.slash_help;", page)
+
+    def test_the_meta_message_carries_a_line_for_every_command(self):
+        meta = self.api()._meta_message()
+        self.assertEqual(meta["slash"], list(crow_core.SLASH_COMMANDS))
+        for command in crow_core.SLASH_COMMANDS:
+            self.assertTrue(meta["slash_help"].get(command), command + " has no line")
+        self.assertEqual(meta["slash_help"], crow_gui.Api.WHAT_THEY_DO)
+
+    def test_the_render_fixture_sends_the_same_meta(self):
+        fixture = json.loads((HERE.parent / "tools" / "fixtures"
+                              / "goal-run-2026-09-16.json").read_text(encoding="utf-8"))
+        meta = [m for m in fixture["messages"] if m["k"] == "meta"][0]
+        self.assertEqual(meta["slash"], list(crow_core.SLASH_COMMANDS))
+        self.assertEqual(meta["slash_help"], crow_gui.Api.WHAT_THEY_DO)
+
+    # -- what it finds ---------------------------------------------------------
+
+    def test_count_lists_the_live_chat_first_under_chats(self):
+        out = self._run("finder.seen(rail()); type('count');"
+                        "console.log(JSON.stringify(view()));")
+        self.assertTrue(out["open"])
+        self.assertEqual(out["expanded"], "true")
+        self.assertEqual([g["label"] for g in out["groups"]], ["Chats"])
+        first = out["groups"][0]["options"][0]
+        self.assertEqual(first["main"], "Count files, delegate 21x2")
+        self.assertEqual(first["side"], "crow")           # its project, so the match is explainable
+        self.assertEqual(first["role"], "option")
+
+    def test_a_chat_matches_by_title_or_project_in_any_case_newest_first(self):
+        out = self._run("finder.seen(rail()); type('CROW');"
+                        "console.log(JSON.stringify(view()));")
+        # The live chat (project crow), "Hello Crow" (title), and the archived
+        # notes of project crow: the rail's order, the archive last.
+        self.assertEqual([o["main"] for o in out["groups"][0]["options"]],
+                         ["Count files, delegate 21x2", "Hello Crow", "Draft the release notes"])
+        self.assertEqual(out["groups"][0]["options"][2]["side"], "crow · archived")
+        out = self._run("finder.seen(rail()); type('n8n'); console.log(JSON.stringify(view()));")
+        self.assertEqual([o["main"] for o in out["groups"][0]["options"]], ["Latest n8n news"])
+
+    def test_a_chat_with_a_file_is_not_listed_twice(self):
+        out = self._run("finder.seen(rail({unsaved: false, rollovers: [{path: 'a.json', title: 'Same', "
+                        "root: ''}], archived: [{path: 'a.json', title: 'Same', root: ''}]}));"
+                        "type('same'); console.log(JSON.stringify(view()));")
+        self.assertEqual(len(out["groups"][0]["options"]), 1)
+
+    def test_commands_match_by_name_and_say_their_line(self):
+        out = self._run("finder.seen(rail()); type('/go'); console.log(JSON.stringify(view()));")
+        self.assertEqual([g["label"] for g in out["groups"]], ["Commands"])
+        option = out["groups"][0]["options"][0]
+        self.assertEqual(option["main"], "/goal")
+        self.assertEqual(option["side"], crow_gui.Api.WHAT_THEY_DO["/goal"])
+        out = self._run("type('/DEL'); console.log(JSON.stringify(view()));")
+        self.assertEqual([o["main"] for o in out["groups"][0]["options"]], ["/delegate"])
+        # Without the slash "del" is also inside "/model"; the one it starts
+        # comes first.
+        out = self._run("type('del'); console.log(JSON.stringify(view()));")
+        self.assertEqual([o["main"] for o in out["groups"][0]["options"]],
+                         ["/delegate", "/model"])
+
+    def test_both_groups_when_both_match_chats_first(self):
+        out = self._run("finder.seen(rail({rollovers: [{path: 'g.json', title: 'About goals', "
+                        "root: ''}]})); type('goal'); console.log(JSON.stringify(view()));")
+        self.assertEqual([g["label"] for g in out["groups"]], ["Chats", "Commands"])
+        self.assertEqual(out["groups"][0]["options"][0]["main"], "About goals")
+        self.assertEqual(out["groups"][1]["options"][0]["main"], "/goal")
+
+    def test_there_are_never_more_than_eight_rows(self):
+        many = ("finder.seen(rail({rollovers: Array.from({length: 12}, (_, i) => "
+                "({path: 'c' + i + '.json', title: 'e chat ' + i, root: ''})), archived: []}));")
+        # chats alone: all eight rows
+        out = self._run(many + "type('chat'); console.log(JSON.stringify(view()));")
+        self.assertEqual(sum(len(g["options"]) for g in out["groups"]), 8)
+        # both overflow: five chats, three commands
+        out = self._run(many + "type('e'); console.log(JSON.stringify(view()));")
+        self.assertEqual(len(out["groups"][0]["options"]), 5)
+        self.assertEqual(len(out["groups"][1]["options"]), 3)
+        # few chats leave the room to the commands
+        out = self._run("finder.seen(rail({unsaved: false, rollovers: [{path: 'c.json', title: 'e', "
+                        "root: ''}], archived: []})); type('e'); console.log(JSON.stringify(view()));")
+        self.assertEqual(len(out["groups"][0]["options"]), 1)
+        self.assertEqual(len(out["groups"][1]["options"]), 7)
+
+    def test_nothing_matches_is_said_and_no_option_is_offered(self):
+        out = self._run("finder.seen(rail()); type('zzzz'); console.log(JSON.stringify(view()));")
+        self.assertTrue(out["open"])
+        self.assertFalse(out["listShown"])
+        self.assertEqual(out["none"], "Nothing matches")
+        self.assertEqual(out["expanded"], "false")
+        self.assertIsNone(out["active"])
+
+    def test_an_empty_query_shows_nothing(self):
+        out = self._run("finder.seen(rail()); type('count'); type('   ');"
+                        "console.log(JSON.stringify(view()));")
+        self.assertFalse(out["open"])
+        self.assertEqual(out["expanded"], "false")
+        self.assertIsNone(out["active"])
+
+    # -- the keys --------------------------------------------------------------
+
+    def test_the_first_result_is_selected_as_the_list_opens(self):
+        out = self._run("finder.seen(rail()); type('crow'); console.log(JSON.stringify(view()));")
+        options = out["groups"][0]["options"]
+        self.assertEqual(out["active"], options[0]["id"])
+        self.assertEqual([o["selected"] for o in options], ["true", "false", "false"])
+        self.assertTrue(options[0]["on"])
+        self.assertEqual(out["focus"], "input")          # the DOM focus stays in the field
+        label = out["groups"][0]
+        self.assertEqual(label["role"], "group")
+        self.assertEqual(label["labelledby"], label["labelId"])
+
+    def test_arrow_down_enter_opens_the_second_result(self):
+        out = self._run("finder.seen(rail()); type('crow'); const d = key('ArrowDown');"
+                        "const mid = view(); const e = key('Enter');"
+                        "console.log(JSON.stringify({mid, d: d.prevented, e: e.prevented, "
+                        "log, end: view()}));")
+        self.assertTrue(out["d"] and out["e"])
+        self.assertEqual(out["mid"]["active"], out["mid"]["groups"][0]["options"][1]["id"])
+        self.assertEqual([o["selected"] for o in out["mid"]["groups"][0]["options"]],
+                         ["false", "true", "false"])
+        self.assertIn(["open", "hello.json"], out["log"])
+        self.assertNotIn(["view_live"], out["log"])
+        end = out["end"]
+        self.assertFalse(end["open"])
+        self.assertEqual(end["value"], "")                # the field folds back (#382)
+        self.assertEqual(end["expanded"], "false")
+        self.assertEqual(end["focus"], "textarea")        # and the composer has the keyboard
+
+    def test_enter_on_the_live_chat_goes_back_to_it_and_opens_no_file(self):
+        out = self._run("finder.seen(rail()); type('count'); key('Enter');"
+                        "console.log(JSON.stringify(log));")
+        self.assertIn(["view_live"], out)
+        self.assertFalse([c for c in out if c[0] == "open"])
+
+    def test_the_arrows_wrap_both_ways(self):
+        out = self._run("finder.seen(rail()); type('crow'); key('ArrowUp'); const up = view().active;"
+                        "key('ArrowDown'); const down = view().active;"
+                        "console.log(JSON.stringify({up, down, ids: view().groups[0].options"
+                        ".map(o => o.id)}));")
+        self.assertEqual(out["up"], out["ids"][2])
+        self.assertEqual(out["down"], out["ids"][0])
+
+    def test_enter_on_a_command_puts_it_in_the_composer_and_focuses_it(self):
+        out = self._run("finder.seen(rail()); type('/del'); key('Enter');"
+                        "console.log(JSON.stringify({v: view(), sel: composer.sel, log}));")
+        self.assertEqual(out["v"]["composer"], "/delegate")
+        self.assertEqual(out["v"]["focus"], "textarea")
+        self.assertEqual(out["v"]["value"], "")
+        self.assertFalse(out["v"]["open"])
+        self.assertEqual(out["sel"], [9, 9])                  # the caret behind it
+        self.assertIn(["composer-input"], out["log"])         # the box resizes and relabels
+        self.assertFalse([c for c in out["log"] if c[0] in ("open", "view_live")])
+
+    def test_the_composer_keeps_a_draft_and_replaces_a_half_typed_command(self):
+        out = self._run("composer.value = 'fix the bug'; type('/goal'); key('Enter');"
+                        "console.log(JSON.stringify(composer.value));")
+        self.assertEqual(out, "/goal fix the bug")
+        out = self._run("composer.value = '/go'; type('/delegate'); key('Enter');"
+                        "console.log(JSON.stringify(composer.value));")
+        self.assertEqual(out, "/delegate")
+
+    def test_a_click_is_an_enter(self):
+        out = self._run("finder.seen(rail()); type('crow');"
+                        "list.children[0].children[2].fire('click');"
+                        "console.log(JSON.stringify({log, v: view()}));")
+        self.assertIn(["open", "hello.json"], out["log"])
+        self.assertFalse(out["v"]["open"])
+
+    def test_a_press_on_a_result_keeps_the_field_focused_and_the_window_still(self):
+        """The mousedown on the popup is prevented -- a blur would close the list
+        before the click landed -- and stops before the bar, whose drag region
+        would move the window under a click (pywebview, Windows)."""
+        out = self._run("const seen = []; pop.dispatchEvent({type: 'mousedown', "
+                        "preventDefault() { seen.push('prevent'); }, "
+                        "stopPropagation() { seen.push('stop'); }});"
+                        "console.log(JSON.stringify(seen));")
+        self.assertEqual(sorted(out), ["prevent", "stop"])
+
+    def test_pywebview_drags_the_window_from_a_press_on_the_bare_bar(self):
+        """CONTROL for the two cases below: pywebview's own script, run over the
+        same tree, starts a drag from a press on the bar -- so a press that
+        starts none is the page's doing."""
+        out = self._run("const e = bar.bubble({type: 'mousedown', button: 0, clientX: 4, "
+                        "clientY: 4}); window.dispatchEvent({type: 'mousemove', screenX: 9, "
+                        "screenY: 9}); console.log(JSON.stringify(log.filter(c => "
+                        "c[0] === 'jsapi')));", pywebview=True)
+        self.assertEqual(out, [["jsapi", "pywebviewMoveWindow"]])
+
+    def test_a_press_in_the_field_or_its_list_does_not_move_the_window(self):
+        """#386. pywebview (webview/js/customize.js:69-89) starts a drag on any
+        press under `.pywebview-drag-region`: it climbs from the target to the
+        region and has no `pywebview-no-drag`. A click, or a text selection made
+        with the mouse, inside the search field moved the window. The press
+        stops at #search / #searchpop, and the menus' dismissal -- a listener on
+        the window the press no longer reaches -- is called from there."""
+        for target in ("field", "kbd", "label", "row"):
+            out = self._run("const e = %s.bubble({type: 'mousedown', button: 0, clientX: 4, "
+                            "clientY: 4}); window.dispatchEvent({type: 'mousemove', screenX: 9, "
+                            "screenY: 9}); window.dispatchEvent({type: 'mousemove', screenX: 14, "
+                            "screenY: 9}); console.log(JSON.stringify({moves: log.filter(c => "
+                            "c[0] === 'jsapi').length, stopped: e.cancelBubble, "
+                            "dismissed: log.filter(c => c[0] === 'dismiss').length}));" % target,
+                            pywebview=True)
+            self.assertEqual(out, {"moves": 0, "stopped": True, "dismissed": 1}, target)
+
+    def test_the_bars_own_handler_for_wayland_leaves_the_field_alone_too(self):
+        """Crow's `bardrag` (4 px threshold, `xdg_toplevel.move`) skips a press
+        whose target is inside `.pywebview-no-drag`; the field and its list are."""
+        page = crow_gui.PAGE
+        start = page.index("(function bardrag(){")
+        bardrag = page[start:page.index("\n})();", start) + len("\n})();")]
+        script = ("%s\nconst go = target => { log.length = 0; bar.dispatchEvent({type: 'mousedown', "
+                  "button: 0, target, screenX: 0, screenY: 0}); window.dispatchEvent({type: "
+                  "'mousemove', screenX: 20, screenY: 20}); return log.filter(c => c[0] === "
+                  "'begin_move').length; };\nconsole.log(JSON.stringify({field: go(field), "
+                  "kbd: go(kbd), row: go(row), bare: go(bar)}));" % bardrag)
+        out = self._run(script)
+        self.assertEqual(out, {"field": 0, "kbd": 0, "row": 0, "bare": 1})
+        self.assertIn('<div id="search" class="search pywebview-no-drag"', self.bar)
+
+    def test_what_the_drag_fix_rests_on_in_pywebview_and_in_crow(self):
+        folder = self._pywebview_dir()
+        if folder is None:
+            self.skipTest("pywebview is not installed here")
+        self.assertIn("'DRAG_REGION_DIRECT_TARGET_ONLY': False",
+                      (folder / "__init__.py").read_text(encoding="utf-8"))
+        self.assertNotIn("pywebview-no-drag",
+                         (folder / "js" / "customize.js").read_text(encoding="utf-8"))
+        self.assertNotIn("settings['DRAG_REGION", self.source)
+        self.assertNotIn('settings["DRAG_REGION', self.source)
+        self.assertIn("easy_drag=False, background_color=theme_bg(current_theme()))", self.source)
+
+    def test_escape_closes_clears_and_lets_go(self):
+        out = self._run("finder.seen(rail()); type('crow'); const e = key('Escape');"
+                        "console.log(JSON.stringify({v: view(), p: e.prevented, log}));")
+        v = out["v"]
+        self.assertTrue(out["p"])
+        self.assertFalse(v["open"])
+        self.assertEqual(v["expanded"], "false")
+        self.assertIsNone(v["active"])
+        self.assertEqual(v["value"], "")                     # empty, so it folds back
+        self.assertEqual(v["focus"], "textarea")
+        self.assertFalse([c for c in out["log"] if c[0] in ("open", "view_live")])
+
+    def test_a_blur_closes_the_list_and_a_focus_brings_it_back_with_the_query(self):
+        out = self._run("finder.seen(rail()); type('crow'); field.blur(); const shut = view();"
+                        "field.focus(); console.log(JSON.stringify({shut, back: view()}));")
+        self.assertFalse(out["shut"]["open"])
+        self.assertEqual(out["shut"]["value"], "crow")       # the text stays, the field stays open
+        self.assertTrue(out["back"]["open"])
+        self.assertEqual(len(out["back"]["groups"][0]["options"]), 3)
+
+    def test_ctrl_k_still_opens_the_field_from_anywhere(self):
+        out = self._run("finder.seen(rail()); type('crow'); field.blur(); composer.focus();"
+                        "const e = key('k', {ctrlKey: true, onDocument: true});"
+                        "console.log(JSON.stringify({p: e.prevented, v: view()}));")
+        self.assertTrue(out["p"])
+        self.assertEqual(out["v"]["focus"], "input")
+        self.assertTrue(out["v"]["open"])
+
+    def test_an_input_methods_enter_picks_nothing(self):
+        out = self._run("finder.seen(rail()); type('crow'); key('Enter', {isComposing: true});"
+                        "key('Enter', {keyCode: 229});"
+                        "console.log(JSON.stringify({log, open: view().open}));")
+        self.assertFalse([c for c in out["log"] if c[0] in ("open", "view_live")])
+        self.assertTrue(out["open"])
+
+    def test_a_new_rail_keeps_the_result_the_keys_stand_on(self):
+        out = self._run("finder.seen(rail()); type('crow'); key('ArrowDown');"
+                        "finder.seen(rail({title: 'Count files, again'}));"
+                        "const v = view(); console.log(JSON.stringify({a: v.active, "
+                        "ids: v.groups[0].options.map(o => o.id), n: v.groups[0].options.length}));")
+        self.assertEqual(out["n"], 3)
+        self.assertEqual(out["a"], out["ids"][1])
+        # typing, though, starts again at the first result
+        out = self._run("finder.seen(rail()); type('crow'); key('ArrowDown'); type('crow ');"
+                        "const v = view(); console.log(JSON.stringify(v.active === "
+                        "v.groups[0].options[0].id));")
+        self.assertTrue(out)
+
+    def test_a_closed_list_does_not_take_the_arrows_or_enter(self):
+        out = self._run("finder.seen(rail()); const d = key('ArrowDown'); const e = key('Enter');"
+                        "console.log(JSON.stringify({d: d.prevented, e: e.prevented, log}));")
+        self.assertFalse(out["d"] or out["e"])
+        self.assertFalse([c for c in out["log"] if c[0] in ("open", "view_live")])
+
+    def test_the_native_pane_is_asked_again_whenever_the_list_opens_or_shuts(self):
+        """#201: the browser pane is a window of its own over `#brbody`; the list
+        can reach it, and `brCover` samples `elementFromPoint`."""
+        out = self._run("finder.seen(rail()); field.focus(); log.length = 0;"
+                        "field.value = 'crow'; field.fire('input');"
+                        "const opened = log.filter(c => c[0] === 'cover').length;"
+                        "key('Escape'); const shut = log.filter(c => c[0] === 'cover').length;"
+                        "console.log(JSON.stringify({opened, shut}));")
+        self.assertGreaterEqual(out["opened"], 1)
+        self.assertGreater(out["shut"], out["opened"])
+
+    def test_the_list_is_in_the_bar_and_not_in_the_pane(self):
+        """`brCovered` takes the element under nine points of `#brbody`; a point
+        under the open list gives an element outside `#browser`, so the pane
+        steps aside -- the page's rule, and the list is in it because it is a
+        child of the bar, not of the pane."""
+        page = crow_gui.PAGE
+        probe = page[page.index("  brCovered(r){"):page.index("  brCover(){")]
+        self.assertIn("!box.contains(el)", probe)
+        self.assertIn('id="searchpop"', self.bar)
+        pane = page[page.index('<aside id="browser">'):]
+        self.assertNotIn('id="searchpop"', pane)
 
 
 class TheTurnStatsReachThePageTests(ApiCase):

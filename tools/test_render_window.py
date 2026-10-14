@@ -53,6 +53,15 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(R.split_selectors(""), [])
         self.assertEqual(R.split_selectors(" , ,"), [])
 
+    def test_type_splits_at_the_first_equals_outside_brackets(self):
+        self.assertEqual(R.split_type("#searchin=count"), ("#searchin", "count"))
+        self.assertEqual(R.split_type("input[type=text]=a=b"), ("input[type=text]", "a=b"))
+        self.assertEqual(R.split_type("#q= two words "), ("#q", " two words "))
+        self.assertEqual(R.split_type("#q=/go"), ("#q", "/go"))
+        for bad in ("no-equals", "=text", "", "[a=b]"):
+            with self.assertRaises(ValueError, msg=bad):
+                R.split_type(bad)
+
     def test_crow_chrome_wins_and_is_never_second_guessed(self):
         with tempfile.TemporaryDirectory() as tmp:
             exe = os.path.join(tmp, "browser")
@@ -87,6 +96,8 @@ class ArgumentTests(unittest.TestCase):
     def test_budget_grows_with_the_steps(self):
         self.assertEqual(R.virtual_budget(), R.VIRTUAL_BASE_MS)
         self.assertEqual(R.virtual_budget(["#a", "#b"], "#in"), R.VIRTUAL_BASE_MS + 3 * R.VIRTUAL_STEP_MS)
+        self.assertEqual(R.virtual_budget(["#a"], "#in", [("#q", "x")], ["Enter", "Escape"]),
+                         R.VIRTUAL_BASE_MS + 5 * R.VIRTUAL_STEP_MS)
 
     def test_main_refuses_without_a_browser_or_a_fixture(self):
         err = io.StringIO()
@@ -96,6 +107,7 @@ class ArgumentTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(R.main(["--fixture", str(HERE / "no-such.json")]), 2)
             self.assertEqual(R.main(["--fixture", str(FIXTURE), "--size", "wide"]), 2)
+            self.assertEqual(R.main(["--fixture", str(FIXTURE), "--type", "no-equals"]), 2)
 
 
 class FixtureTests(unittest.TestCase):
@@ -193,6 +205,10 @@ class BuildTests(unittest.TestCase):
         self.assertIn('["#go"]', page)
         self.assertIn('"#in"', page)
         self.assertIn('["#main"]', page)
+        typed = R.build_page(self.fixture, False, "dark", types=[("#searchin", "/go")],
+                             presses=["ArrowDown", "Enter"])
+        self.assertIn('[["#searchin", "/go"]]', typed)
+        self.assertIn('["ArrowDown", "Enter"]', typed)
         self.assertIn('data-theme="dark"', page)
         self.assertIn("if (false) {", page)
         self.assertIn("window.CROW_REMOTE = false;", page)
@@ -244,10 +260,10 @@ class BrowserTests(unittest.TestCase):
         cls.addClassCleanup(R.remove_tree, cls.tmp.name)
 
     def render(self, name, size, remote=False, rects=("#bar", "#main", "#box"), fixture=None,
-               clicks=(), focus=""):
+               clicks=(), focus="", types=(), presses=()):
         out = os.path.join(self.tmp.name, name + ".png")
         result = R.render(fixture or self.fixture, size, "dark", remote, clicks, focus,
-                          list(rects), out, BROWSER)
+                          list(rects), out, BROWSER, types, presses)
         return result, out
 
     def test_desktop_render_is_the_size_asked_for_and_repeats(self):
@@ -281,6 +297,23 @@ class BrowserTests(unittest.TestCase):
         missed, _ = self.render("missed", (1440, 960), clicks=["#no-such-button"], focus="#no-such")
         self.assertEqual(len(missed["errors"]), 2)
         self.assertIn("nothing matches #no-such-button", missed["errors"][0])
+
+    def test_typing_and_keys_run_on_the_focused_field(self):
+        """--type sets the value and sends `input`; --press sends keydown and
+        keyup to whatever has the focus (#386's list under the search field)."""
+        typed, _ = self.render("typed", (1440, 960), rects=("#searchpop", "#searchin"),
+                               types=[("#searchin", "count")])
+        self.assertEqual(typed["errors"], [])
+        self.assertGreater(typed["rects"]["#searchpop"]["h"], 40)       # the list opened
+        self.assertGreater(typed["rects"]["#searchin"]["w"], 100)       # the field is open
+        shut, _ = self.render("pressed", (1440, 960), rects=("#searchpop", "#searchin"),
+                              types=[("#searchin", "count")], presses=["Escape"])
+        self.assertEqual(shut["errors"], [])
+        self.assertEqual(shut["rects"]["#searchpop"]["h"], 0)           # Escape closed it
+        self.assertEqual(shut["rects"]["#searchin"]["w"], 0)            # and the field folded
+        missed, _ = self.render("type-missed", (1440, 960), types=[("#no-such-field", "x")])
+        self.assertEqual(len(missed["errors"]), 1)
+        self.assertIn("nothing matches #no-such-field", missed["errors"][0])
 
     def test_a_message_the_page_throws_on_is_reported(self):
         broken = {"messages": [{"k": "rail", "title": "t", "meta": "m", "unsaved": True,
