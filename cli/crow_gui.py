@@ -2442,10 +2442,8 @@ details.rollcard pre.rtp{max-height:220px;overflow:auto;white-space:pre-wrap;
    above the round under them -- the mockup's article gap. */
 .turn.crowturn{display:flex;flex-direction:column;gap:12px}
 #flow > .turn.crowturn + .turn{margin-top:12px}
-.thd{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dim)}
-.thd .thw{font-weight:650;color:var(--text);letter-spacing:.02em}
-.thd .thm,.thd .tht{font-size:11.5px}
-.thd .thsp{flex:1 1 auto}
+.tacts{display:flex;align-items:center;gap:4px;margin-top:6px}
+.tacts .ib{width:28px;height:28px}
 /* #131 / #383. THE TRACE STRIP. It still holds the finished ROUNDS, folded
    (`.tb`, opened by its head); above them one segment per tool call of the
    turn in call order, coloured by kind, and a legend. */
@@ -2517,11 +2515,11 @@ details.think .dur{color:var(--text-soft)}
 .tbody{margin:8px 0 2px;padding:10px 13px;border-left:2px solid var(--line);
   color:var(--think);font-size:12px;line-height:1.65;background:var(--think-bg);
   border-radius:0 6px 6px 0;white-space:pre-wrap}
-/* #383: THE ANSWER IS SET IN THE MOCKUP'S 14.5 px (its `.md`), on `.say` and not
-   on `.md` so the text does not change size when `format()` swaps the streamed
-   paragraph for the blocks. Inheriting `body{font:13px}` left every heading
-   1.5 px above the prose it heads. */
-.say{color:var(--model);font-size:14.5px;line-height:1.62;white-space:pre-wrap}
+/* #383: THE ANSWER IS SET IN THE USER'S SIZE (the owner, 2026-10-14: the
+   mockup's 14.5 px made Crow's text larger than his own bubble, which inherits
+   `body{font:13px}`), on `.say` and not on `.md` so the text does not change
+   size when `format()` swaps the streamed paragraph for the blocks. */
+.say{color:var(--model);font-size:13px;line-height:1.62;white-space:pre-wrap}
 /* THE FORMATTED ANSWER. `pre-wrap` moves off the box and onto the paragraph:
    inside one, a single newline is still a line break -- this client has never
    folded them and folding them now would reflow every answer the owner has read --
@@ -2531,14 +2529,15 @@ details.think .dur{color:var(--text-soft)}
 .md p:last-child,.md ul:last-child,.md ol:last-child,.md table:last-child{
   margin-bottom:0}
 /* #383: THE MOCKUP'S HEADING, every level -- weight and colour set it off, not
-   size. h3 and below are the prose's own 14.5 px; h1 and h2 keep one step above
-   it (16, 15 px) so a hierarchy remains. */
+   size. h3 and below are the prose's own size; h1 and h2 keep one step above
+   it so a hierarchy remains. The prose is the user's 13 px (the owner,
+   2026-10-14: "Crows output ist groesser") -- 15 / 14 / 13 px. */
 .md .mdh{color:var(--text);font-weight:650;margin:16px 0 6px;line-height:1.4}
 .md .mdh:first-child{margin-top:0}
-.md .mdh1{font-size:16px}
-.md .mdh2{font-size:15px}
+.md .mdh1{font-size:15px}
+.md .mdh2{font-size:14px}
 .md .mdh4,.md .mdh5,.md .mdh6,
-.md .mdh3{font-size:14.5px;line-height:1.4;margin:16px 0 6px;font-weight:650;
+.md .mdh3{font-size:13px;line-height:1.4;margin:16px 0 6px;font-weight:650;
   color:var(--text)}
 .md ul,.md ol{margin:0 0 9px;padding-left:21px}
 .md li{margin:2px 0}
@@ -5287,26 +5286,10 @@ const crow = {
   turnFrame(){
     if(this.frameEl && this.frameEl.isConnected) return this.frameEl;
     const f=this.turn("crowturn");
-    const hd=document.createElement("div"); hd.className="thd";
-    const who=document.createElement("span"); who.className="thw";
-    who.textContent="Crow"; hd.appendChild(who);
-    // A LIVE TURN SAYS WHAT ANSWERS AND WHEN, stamped here, at its first
-    // round. A replayed one does not: the chip's model and the clock now are
-    // not the ones it ran with.
-    if(this.running){ const now=new Date();
-      this.headParts(this.modelName, this.levelLabel().replace(/^ · /,""), now)
-        .forEach(([cls, text])=>{
-          const el=document.createElement(cls==="tht" ? "time" : "span");
-          el.className="mono "+cls; el.textContent=text;
-          if(cls==="tht") el.dateTime=now.toISOString();
-          hd.appendChild(el); }); }
-    const gap=document.createElement("span"); gap.className="thsp"; hd.appendChild(gap);
-    const cp=document.createElement("button"); cp.type="button"; cp.className="ib thcopy";
-    cp.setAttribute("aria-label","Copy answer"); cp.title="Copy answer";
-    cp.innerHTML=this.turnIcon('<rect x="9" y="9" width="11" height="11" rx="2"></rect>'
-      +'<path d="M5 15V6a2 2 0 0 1 2-2h8"></path>');
-    cp.onclick=()=>this.turnCopy(f, cp);
-    hd.appendChild(cp);
+    // NO HEAD LINE (the owner, 2026-10-14). "Crow · model · time" told what the
+    // title-bar chip already says, and its copy button, beside the model
+    // name, read as "copy the model name". The copy button sits under the
+    // answer now (`cost`).
     // THE TRACE STRIP: its head is the disclosure of the folded rounds (APG
     // disclosure: a button with aria-expanded), hidden until the turn has a
     // call or a folded round.
@@ -5320,17 +5303,8 @@ const crow = {
     const head=tr.querySelector(".trh"), tb=tr.querySelector(".tb");
     head.onclick=()=>{ tb.hidden=!tb.hidden;
       head.setAttribute("aria-expanded", String(!tb.hidden)); };
-    f.append(hd, tr);
+    f.append(tr);
     this.frameEl=f; return f; },
-
-  // THE HEAD'S STAMP, pure (the suite runs it): model · level in mono, then
-  // the local time as HH:MM. No model, no model part.
-  headParts(model, level, now){
-    const out=[];
-    if(model) out.push(["thm", String(model)+(level ? " · "+level : "")]);
-    out.push(["tht", String(now.getHours()).padStart(2,"0")+":"
-                     +String(now.getMinutes()).padStart(2,"0")]);
-    return out; },
 
   // FROM THE `start` CASE, before `start` opens the round: the block goes
   // above round one, and every round of the turn is counted.
@@ -6215,6 +6189,16 @@ const crow = {
         w.textContent=cut; (this.col||flow).appendChild(w); } }
     else if(line){ const d=document.createElement("div"); d.className="cost";
       d.textContent=line; (this.col||flow).appendChild(d); }
+    // THE COPY BUTTON UNDER THE ANSWER (the owner, 2026-10-14), where a reader
+    // looks for it -- live and replayed turns alike, since both end here.
+    const f=this.frameEl;
+    if(f && f.isConnected){ const a=document.createElement("div"); a.className="tacts";
+      const cp=document.createElement("button"); cp.type="button"; cp.className="ib thcopy";
+      cp.setAttribute("aria-label","Copy answer"); cp.title="Copy answer";
+      cp.innerHTML=this.turnIcon('<rect x="9" y="9" width="11" height="11" rx="2"></rect>'
+        +'<path d="M5 15V6a2 2 0 0 1 2-2h8"></path>');
+      cp.onclick=()=>this.turnCopy(f, cp);
+      a.appendChild(cp); (this.col||flow).appendChild(a); }
     this.bottom();
   },
 
@@ -10758,7 +10742,6 @@ body[data-rail="shut"] #mark{display:inline}
    full width, each 6 px segment with a 20 px band to tap (`::after`); the
    delegate card leaves the model out; the telemetry strip is a 3-column
    grid, two rows of three, so it fits the column without a scrollbar. */
-.thd .thm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .trace{padding:10px 12px}
 .trh{min-height:32px}
 .leg{gap:2px 12px}

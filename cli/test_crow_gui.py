@@ -6664,7 +6664,6 @@ class _TurnPage(unittest.TestCase):
     rest is held against the source and the stylesheet."""
 
     PURE = (("  toolKind(name){", "  tool(name,args,raw,code){"),
-            ("  headParts(model, level, now){", "  // FROM THE `start` CASE"),
             ("  traceLegend(calls){", "  // THE SUBTASK'S CARD"),
             ("  refBind(heads, items, taken){", "  // THE CARD'S LINE, pure"),
             ("  refParts(it, task){", "  // DRAWN AGAIN ON EVERY PUSH"),
@@ -6881,30 +6880,28 @@ class TheDelegateCardTests(_TurnPage):
         self.assertIn("@media (max-width:760px){.subref .smd{display:none}}", self.css)
 
 
-class TheTurnHeadTests(_TurnPage):
-    """#383: Crow · model · level · HH:MM, and a copy button for the answer."""
+class TheCopyButtonSitsUnderTheAnswerTests(_TurnPage):
+    """#383, the owner on 2026-10-14: the head line "Crow · model · time" told
+    what the title-bar chip already says, and its copy button, beside the
+    model name, read as "copy the model name". The line is gone (it replaces
+    the head tests of #383); the copy button sits under the answer, drawn
+    where every turn ends (`cost`), live and replayed."""
 
-    def test_the_stamp(self):
-        self.assertEqual(self.run_js(
-            'o.headParts("Qwen3.8-Flash-Next", "high", new Date(2026, 9, 14, 16, 41))'),
-            [["thm", "Qwen3.8-Flash-Next · high"], ["tht", "16:41"]])
-        self.assertEqual(self.run_js('o.headParts("", "", new Date(2026, 9, 14, 9, 5))'),
-                         [["tht", "09:05"]])
-
-    def test_only_a_live_turn_is_stamped_and_the_block_comes_first(self):
-        """A replayed turn would carry today's model and clock as its own."""
-        frame = self._js("  turnFrame(){", "  // THE HEAD'S STAMP")
-        self.assertIn('who.textContent="Crow"', frame)
-        self.assertIn("if(this.running){ const now=new Date();", frame)
-        self.assertIn('this.headParts(this.modelName, this.levelLabel()', frame)
+    def test_the_turn_has_no_head_line(self):
+        frame = self._js("  turnFrame(){", "  // FROM THE `start` CASE")
+        self.assertNotIn('className="thd"', frame)
+        self.assertIn("f.append(tr);", frame)
+        self.assertNotIn("headParts", self.source)
+        self.assertNotIn(".thd", self.css)
         self.assertIn('case "start": this.turnStart(); this.start(); break;', self.source)
-        self.assertIn("font-weight:650", self._rule(".thd .thw{"))
 
-    def test_the_copy_button_copies_the_answer_through_clip(self):
-        frame = self._js("  turnFrame(){", "  // THE HEAD'S STAMP")
-        self.assertIn('cp.className="ib thcopy"', frame)
-        self.assertIn('cp.setAttribute("aria-label","Copy answer")', frame)
-        self.assertIn("cp.onclick=()=>this.turnCopy(f, cp);", frame)
+    def test_the_copy_button_comes_after_the_answer(self):
+        cost = self._js("  cost(line,share,stats,cut){", "  fail(msg){")
+        self.assertIn('a.className="tacts"', cost)
+        self.assertIn('cp.setAttribute("aria-label","Copy answer")', cost)
+        self.assertIn("cp.onclick=()=>this.turnCopy(f, cp);", cost)
+        self.assertLess(cost.index("cost tele"), cost.index('a.className="tacts"'))
+        self.assertIn("display:flex", self._rule(".tacts{"))
         copy = self._js("  turnCopy(f, btn){", "  turnText(f){")
         self.assertIn("this.clip(this.turnText(f))", copy)
 
@@ -6926,7 +6923,7 @@ class TheThoughtFoldAndAnswerTypeTests(_TurnPage):
 
     def test_the_answer_type(self):
         h3 = self._rule(".md .mdh3{")
-        self.assertIn("font-size:14.5px", h3)
+        self.assertIn("font-size:13px", h3)   # the user's size, the owner 2026-10-14
         self.assertIn("font-weight:650", h3)
         self.assertIn(".md li::marker{color:var(--dim)}", self.css)
         code = self._rule(".md code{")
@@ -7014,7 +7011,10 @@ class TheAnswerHeadingsSitOnTheBodyTests(unittest.TestCase):
 
     def test_a_heading_is_the_mockups_and_no_larger_than_the_prose_it_heads(self):
         body = self._style(".say")
-        self.assertEqual(body.get("font-size"), "14.5px", "the answer prose is the mockup's 14.5 px")
+        # The owner, 2026-10-14: Crow's text in the user's size -- the bubble
+        # inherits body's 13 px (it replaces the mockup's 14.5 px pin).
+        self.assertEqual(body.get("font-size"), "13px", "the answer prose is the user's 13 px")
+        self.assertNotIn("font-size", self._style(".you .txt"), "the bubble keeps body's size")
         sizes = {}
         for level in range(1, 7):
             heading = self._style(".md .mdh", ".md .mdh%d" % level)
@@ -7023,9 +7023,9 @@ class TheAnswerHeadingsSitOnTheBodyTests(unittest.TestCase):
                                 ("line-height", "1.4"), ("margin", "16px 0 6px")):
                 self.assertEqual(heading.get(prop), value, "h%d %s" % (level, prop))
         for level in (3, 4, 5, 6):
-            self.assertEqual(sizes[level], "14.5px", "h%d is the mockup's 14.5 px" % level)
-        self.assertEqual(sizes[2], "15px")
-        self.assertEqual(sizes[1], "16px")
+            self.assertEqual(sizes[level], "13px", "h%d is the prose's 13 px" % level)
+        self.assertEqual(sizes[2], "14px")
+        self.assertEqual(sizes[1], "15px")
 
 
 class TheGoalStepRowSaysItsStatusTests(unittest.TestCase):
@@ -16703,7 +16703,6 @@ console.log(JSON.stringify(out));
         self.assertIn("min-width:0", self.rule(".tele .m{"))
         self.assertIn("text-overflow:ellipsis", self.rule(".tele .mv{"))
         self.assertIn(".subref .smd{display:none}", css)
-        self.assertIn("min-width:0;overflow:hidden;text-overflow:ellipsis", self.rule(".thd .thm{"))
         self.assertIn('.segs>.seg::after{content:"";position:absolute;inset:-7px 0}', css)
         # NEGATIVE: nothing in the turn scrolls sideways.
         for sel in (".cost{", ".cost.tele{", ".tele .m{"):
