@@ -5,6 +5,8 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 3.6.0 — 2026-10-14
+
 The window as in the October mockup (#380). Every render named below is `tools/render_window.py` (#381) in headless Chrome on Windows 11, dark, from a fixture; none is a screenshot of a live window.
 
 ### Added
@@ -25,6 +27,7 @@ The window as in the October mockup (#380). Every render named below is `tools/r
 - **Crow's answer is the size of the user's bubble** (#383, `2460c13`, 2026-10-14): 13 px, as the bubble, which inherits the window's 13 px; headings 15 / 14 / 13 px, inline code as a small chip, and the Thought fold a chevron, `Thought` and `82 % of the turn` without its border bar. The mockup's 14.5 px (`66203cc`) set Crow's text larger than the owner's own; he asked for one size.
 - **The rail and the composer as in the mockup** (#385, `08e6c24`, 2026-10-14). Rail: a full-width **New chat** with `Ctrl N`, chats under their folders and loose ones under **No folder** instead of "Chats", each row a title and a second line (`goal 3/3 · 1 subtask · 16:41` for a chat with a goal), no accent bar, subtask rows with a fork, id, task and state, and **Archive** and **Settings** at the foot. Composer: one row with the context meter, the model chip, the subtask chip, the release level, the microphone and a round send. Rendered with the goal-run fixture at 1440×960: your bubble's right edge on the box's right border (1120 = 1120) and the answer's left edge on its left border (294 = 294), 0 px as #280 asks.
 - **The phone mirror wears the redesign** (#387, `5bb9073`, 2026-10-14). Header: rail, CROW, a search that opens across the header, the model chip (short name; a tap adds decode rate and context), the inspector toggle. The inspector is the right drawer with Goal, Tools, Subtasks and Git tabs; Git is no longer a drawer of its own, and there is no Browser tab (a phone has no live page). The chat head's goal pill replaces the goal bar, the telemetry is a 3-column grid, the subtask card drops the model, and the start screen stacks; on the start screen the `+` sheet holds the folder chip, Settings in the rail is a 44 px row, and trace segments get a 20 px tap band. The desktop page is byte-identical (`stamped_page()` compared). Rendered with `--remote` at 390×844, goal-run fixture: `scrollWidth` 390 in the chat, the open drawer, the open search, the start screen and the light theme; header targets 44×44 (model chip 84×44); drawer tabs 44 px high; telemetry 3 × 120 px, `scrollWidth` 360 = `clientWidth` 360; start screen mark 120 px, greeting 20 px, 2 cards.
+- **Version 3.6.0** in `cli/crow_core.py`, `install.ps1` and `manifests/operating-point.json`; the README image's version pill.
 
 ### Fixed
 
@@ -36,6 +39,7 @@ The window as in the October mockup (#380). Every render named below is `tools/r
 - **Rendered in headless Chrome only.** WebKitGTK (the Linux window) and WebView2 (the Windows window) did not render any of #382–#388; the phone layout was not run on a phone. The owner's live replay of each ticket is open: the title bar against the canvas, dark, crow and light readable, the goal run filling the Goal tab, the globe's tab hiding and showing the page, a dragged width surviving a restart, and on the phone the magnifier focusing the field on iOS, dictation, image upload and rotation.
 - **The minimum window size (1130×520) is not audited again** after the redesign; the 2026-09-23 audit of #231–#235 was made on the earlier layout.
 
+## 3.5.0 — 2026-10-14
 
 **CrowSetup installs crow-nest engine v0.13.2; old file bodies join the context clearing; cut tool results keep both ends.** Windows assets only, as for v3.4.x.
 
