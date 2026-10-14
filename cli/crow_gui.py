@@ -704,15 +704,19 @@ def rail_width_setting() -> int:
 # DIE GRENZEN DES CODE-PANELS, gespiegelt zur Rail und aus demselben Grund in
 # Python geklemmt: der Wert kommt aus einer Maus.
 #
-# DIE VORGABE IST DAS MINIMUM, der Owner am 2026-08-27: "der codepanel ist viel zu
+# DIE VORGABE WAR DAS MINIMUM, der Owner am 2026-08-27: "der codepanel ist viel zu
 # breit. Default werte bitte wie in Screenshot 2" -- und sein gespeicherter
 # Zug stand auf exakt 260. Der Vorgaenger (380, dann #138c "halbe Flaeche")
 # entschied die Startbreite fuer ihn und lag zweimal daneben; wer mehr Panel
 # will, zieht den Griff, und DIESE Entscheidung bleibt gespeichert.
+# #384, robin 2026-10-14: "340 px" -- the inspector starts at 340 px on a fresh
+# install, as in the approved mockup. CODE_MIN stays 260 (the narrowest the grip
+# goes), and a width somebody saved is read back as it is, so nobody's panel
+# moves.
 # CODE_MAX war 720; der Owner am 2026-08-27: "Codepanel maximale Breite -15%" --
 # 720 * 0,85 = 612. Die Seite klemmt dieselbe Geste ein zweites Mal, siehe
 # codeDrag; beide Kopien tragen denselben Wert.
-CODE_MIN, CODE_MAX, CODE_DEFAULT = 260, 612, 260
+CODE_MIN, CODE_MAX, CODE_DEFAULT = 260, 612, 340
 # #175. UND EINE ZWEITE DECKE, SOBALD DER BROWSER IN DER SPALTE STEHT. Die 612
 # sind die Decke fuer ein CODE-Panel -- eine Aufrufliste und ein Quelltext
 # brauchen nicht mehr, und der Owner hat sie 2026-08-27 selbst auf diesen Wert
@@ -10381,10 +10385,11 @@ new MutationObserver(() => crow.inspectorSync())
 // KEINE STARTBREITEN-AUTOMATIK MEHR. #138c richtete eine nie gezogene Breite
 // an der halben Flaeche aus -- auf dem Fenster des Owners am 2026-08-27 war genau das
 // der zu breite Start, und die Icons standen wieder neben der Maske. Seine
-// Ansage ersetzt das Feature: die Vorgabe ist CODE_DEFAULT (das Minimum), und
-// wer mehr Panel will, zieht den Griff einmal. Dass der Composer bei KEINER
-// Breite ueberlaeuft, garantiert seitdem das Layout selbst: #code gibt nach
-// (min-width:0), #main traegt die Mindestbreite der Maske.
+// Ansage ersetzt das Feature: die Vorgabe ist CODE_DEFAULT (340 seit #384; das
+// Minimum ist CODE_MIN), und wer mehr Panel will, zieht den Griff einmal. Dass
+// der Composer bei KEINER Breite ueberlaeuft, garantiert seitdem das Layout
+// selbst: #code gibt nach (min-width:0), #main traegt die Mindestbreite der
+// Maske.
 
 window.addEventListener("pywebviewready",()=>{ pywebview.api.ready(); input.focus(); });
 // #382: the mono face, once per page, after the first paint (see `monoFace`).

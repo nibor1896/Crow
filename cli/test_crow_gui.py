@@ -7056,6 +7056,27 @@ class TheGoalStepRowSaysItsStatusTests(unittest.TestCase):
         self.assertIn("this.toolSum(raw || args, name)", self.source)
 
 
+class TheInspectorStartsAt340Tests(unittest.TestCase):
+    """#384, robin 2026-10-14 ("340 px"): the inspector's start width on a fresh
+    install is 340 px, as in the mockup. A width somebody saved is not touched."""
+
+    def setUp(self) -> None:
+        self._real = crow_gui.read_settings
+        self.addCleanup(setattr, crow_gui, "read_settings", self._real)
+
+    def _settings(self, **values):
+        crow_gui.read_settings = lambda: values
+
+    def test_a_fresh_install_starts_at_340_and_a_saved_width_stays(self):
+        self._settings()
+        self.assertEqual(crow_gui.code_width_setting(), 340)
+        self.assertIn("--codew:340px", crow_gui.stamped_page())
+        for saved in (260, 300, 340, 520):
+            self._settings(code_width=saved)
+            self.assertEqual(crow_gui.code_width_setting(), saved)
+            self.assertIn("--codew:%dpx" % saved, crow_gui.stamped_page())
+
+
 class TheTraceFoldsFinishedRoundsTests(unittest.TestCase):
     """#131, variant A. `reply_started` fires once per ROUND, so a 24-round turn
     drew 24 blocks of thoughts and running commentary -- and the answer, which is
@@ -10233,11 +10254,14 @@ class TheCodePanelStartsNarrowTests(unittest.TestCase):
         found = self.css[self.css.index(selector):]
         return found[:found.index(chr(125))]
 
-    def test_the_default_is_the_minimum_robin_chose(self):
-        self.assertEqual(crow_gui.CODE_DEFAULT, 260)
-        self.assertEqual(crow_gui.CODE_DEFAULT, crow_gui.CODE_MIN)
+    def test_the_default_is_340_and_the_minimum_stays_260(self):
+        """robin 2026-10-14: default 340 as in the mockup. This replaces the
+        2026-08-27 reading above ("the default IS the minimum"): the narrowest
+        the grip goes is still 260, a fresh install starts wider."""
+        self.assertEqual(crow_gui.CODE_DEFAULT, 340)
+        self.assertEqual(crow_gui.CODE_MIN, 260)
         self._settings()
-        self.assertEqual(crow_gui.code_width_setting(), 260)
+        self.assertEqual(crow_gui.code_width_setting(), 340)
 
     def test_no_start_width_automation_remains(self):
         """NEGATIV-WAECHTER gegen den Wiedereinbau: weder die halbe-Flaeche-
@@ -10255,9 +10279,9 @@ class TheCodePanelStartsNarrowTests(unittest.TestCase):
         """NEGATIV: ein Wert, den die Maus nie erzeugen konnte, wird zur
         Vorgabe und nicht zur Grenze."""
         self._settings(code_width=5000)
-        self.assertEqual(crow_gui.code_width_setting(), 260)
+        self.assertEqual(crow_gui.code_width_setting(), crow_gui.CODE_DEFAULT)
         self._settings(code_width=True)
-        self.assertEqual(crow_gui.code_width_setting(), 260)
+        self.assertEqual(crow_gui.code_width_setting(), crow_gui.CODE_DEFAULT)
 
     def test_the_panel_gives_way_before_the_composer(self):
         """Die Garantie hinter "niemals rausgucken": #138c laesst die Knoepfe
