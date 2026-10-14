@@ -26202,6 +26202,28 @@ class CutResultPositionTests(ToolLayerCase):
             "[cut at 16000 bytes -- line 1 of 1 alone is longer than that; "
             "narrow the query and ask again]"))
 
+    def test_a_licence_line_before_a_long_line_keeps_the_long_lines_head(self):
+        """Review of #361: cutting at the last whole line left 34 characters
+        of a minified bundle under its licence line, where the blind cut had
+        shown 16,000. Below half the cap the head of the long line is kept."""
+        head = "/*! three.js r170 | MIT license */\n"
+        path = self._make("bundle.min.js", head + "x" * 50_000 + "\n")
+        out = crow_core.tool_read_file(path)
+        self.assertEqual(out, (head + "x" * 50_000)[:16_000] + (
+            "\n\n[cut at 16000 bytes -- showing lines 1-1 and the head of line 2 "
+            "of 2; continue with start_line=2]"))
+
+    def test_more_than_never_names_fewer_lines_than_shown(self):
+        """Review of #361: past the count bound a deep range said `of more
+        than 1,176` while showing lines 1500 and up."""
+        path = self._probe_file()
+        with mock.patch.object(crow_core, "SEARCH_MAX_FILE_BYTES", 40_000):
+            out = crow_core.tool_read_file(path, start_line=1500, end_line=1999)
+        note = out[out.rindex("[cut at"):]
+        last = int(note.split("showing lines 1500-")[1].split(" ")[0])
+        more = int(note.split("of more than ")[1].split(";")[0].replace(",", ""))
+        self.assertGreater(more, last, note)
+
     def test_a_crlf_file_counts_the_lines_the_ranges_number(self):
         """Text mode reads `\\r\\n` as one newline; the count does the same."""
         path = self._path("crlf.txt")

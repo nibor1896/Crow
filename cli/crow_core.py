@@ -14579,14 +14579,25 @@ def _read_cut(text: str, limit: int, first: int, path: str) -> str:
     says so. Whole-file reads stay unnumbered: `N: ` on every line would cost
     prefill against the same 16 KB."""
     edge = text.rfind("\n", 0, limit + 1)
-    kept = text[:edge] if edge >= 0 else text[:limit]
-    shown = kept.count("\n") + 1 if edge >= 0 else 0
+    # A short line before one longer than the cap (a minified bundle under its
+    # licence line) would leave the cap nearly empty: show that long line's
+    # head instead, as the blind cut did, and name it as a head.
+    whole_lines = edge >= limit // 2
+    kept = text[:edge] if whole_lines else text[:limit]
+    shown = kept.count("\n") + (1 if whole_lines else 0)
     lines, exact = _line_count(path) or (None, False)
+    if lines is not None and not exact:
+        lines = max(lines, first + shown)     # never "more than" fewer than shown
     total = "" if lines is None else " of %s%s" % ("" if exact else "more than ",
                                                     f"{lines:,}")
-    after = first + max(shown, 1)
-    say = (f"showing lines {first}-{first + shown - 1}{total}" if shown
-           else f"line {first}{total} alone is longer than that")
+    after = first + shown if shown else first + 1
+    if whole_lines:
+        say = f"showing lines {first}-{first + shown - 1}{total}"
+    elif shown:
+        say = (f"showing lines {first}-{first + shown - 1} and the head of line "
+               f"{first + shown}{total}")
+    else:
+        say = f"line {first}{total} alone is longer than that"
     if not exact or after <= lines:
         say += f"; continue with start_line={after}"
     elif not shown:

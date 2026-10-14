@@ -160,7 +160,7 @@ warning above names (0.13 s with the exports probe, `exports: boot`).
 | other binary | `… is a binary file (N bytes, NUL bytes in its first 8,000) -- …; inspect it with run_command (file <file>; xxd <file> \| head)` |
 | not marked read | a refused file is not recorded for the read-before-write rule (#215) |
 | cut (#361) | a read over 16,000 characters ends after the last whole line inside the cap, then `[cut at 16000 bytes -- showing lines 1-470 of 2,000; continue with start_line=471]`. A range counts from its `start_line`. `read_file(start_line=<that>)` neither repeats nor skips a line |
-| cut, length | counted the way the ranges number lines (text mode: `\r\n` and a lone `\r` end one line each), over at most `SEARCH_MAX_FILE_BYTES` (2 MiB) of the file; past that `of more than N` |
+| cut, length | counted the way the ranges number lines (text mode: `\r\n` and a lone `\r` end one line each), over at most `SEARCH_MAX_FILE_BYTES` (2 Mi) decoded characters of the file; past that `of more than N`, never less than the last line shown |
 | cut, one long line | a first line longer than the cap shows its head: `line 1 of 3 alone is longer than that; continue with start_line=2`, or `narrow the query and ask again` when no line follows |
 | cut, unchanged | whole-file reads stay unnumbered (`N: ` on every line would cost prefill against the same cap). A result at or under the cap is byte-identical to before, so a short range still names no total |
 
