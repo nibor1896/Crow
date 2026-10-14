@@ -1,0 +1,177 @@
+{
+ "session": "<home>\\dev\\crow-nest\\decode_out\\meas-245\\session-0915.json",
+ "model": "",
+ "tokenizer": "<home>\\dev\\crow-nest\\models\\Qwen3.8-Flash-Next-original\\tokenizer.json",
+ "mode": "rendered template (<home>\\dev\\crow-nest\\models\\Qwen3.8-Flash-Next-original\\chat_template.jinja)",
+ "recorded_context_tokens": 180263,
+ "breakdown": {
+  "total": 173668,
+  "markup": 5904,
+  "messages": 274,
+  "keep": 5,
+  "cut": 264,
+  "rows": [
+   {
+    "category": "head",
+    "tokens": 1278,
+    "behind": 1278,
+    "values": 1,
+    "values_behind": 1
+   },
+   {
+    "category": "user",
+    "tokens": 1609,
+    "behind": 1609,
+    "values": 14,
+    "values_behind": 14
+   },
+   {
+    "category": "reasoning",
+    "tokens": 85850,
+    "behind": 82487,
+    "values": 132,
+    "values_behind": 127
+   },
+   {
+    "category": "assistant text",
+    "tokens": 6023,
+    "behind": 5812,
+    "values": 71,
+    "values_behind": 67
+   },
+   {
+    "category": "args edit_file",
+    "tokens": 1231,
+    "behind": 913,
+    "values": 15,
+    "values_behind": 12
+   },
+   {
+    "category": "args list_dir",
+    "tokens": 13,
+    "behind": 13,
+    "values": 1,
+    "values_behind": 1
+   },
+   {
+    "category": "args read_file",
+    "tokens": 394,
+    "behind": 355,
+    "values": 41,
+    "values_behind": 35
+   },
+   {
+    "category": "args run_command",
+    "tokens": 6171,
+    "behind": 6025,
+    "values": 80,
+    "values_behind": 79
+   },
+   {
+    "category": "args search_text",
+    "tokens": 196,
+    "behind": 196,
+    "values": 12,
+    "values_behind": 12
+   },
+   {
+    "category": "args session_search",
+    "tokens": 9,
+    "behind": 9,
+    "values": 2,
+    "values_behind": 2
+   },
+   {
+    "category": "args write_file",
+    "tokens": 10162,
+    "behind": 9092,
+    "values": 38,
+    "values_behind": 36
+   },
+   {
+    "category": "results edit_file",
+    "tokens": 100,
+    "behind": 80,
+    "values": 5,
+    "values_behind": 4
+   },
+   {
+    "category": "results list_dir",
+    "tokens": 1348,
+    "behind": 1348,
+    "values": 1,
+    "values_behind": 1
+   },
+   {
+    "category": "results read_file",
+    "tokens": 17062,
+    "behind": 16383,
+    "values": 17,
+    "values_behind": 15
+   },
+   {
+    "category": "results run_command",
+    "tokens": 35582,
+    "behind": 35291,
+    "values": 78,
+    "values_behind": 77
+   },
+   {
+    "category": "results search_text",
+    "tokens": 48,
+    "behind": 48,
+    "values": 5,
+    "values_behind": 5
+   },
+   {
+    "category": "results session_search",
+    "tokens": 175,
+    "behind": 175,
+    "values": 1,
+    "values_behind": 1
+   },
+   {
+    "category": "results write_file",
+    "tokens": 513,
+    "behind": 491,
+    "values": 19,
+    "values_behind": 18
+   }
+  ]
+ },
+ "replay": {
+  "cut": 264,
+  "end": 274,
+  "keep": 5,
+  "n_ctx": 200000,
+  "tokens_before": 173668,
+  "arms": {
+   "results": {
+    "results": 31,
+    "call_bodies": 0,
+    "tokens_after": 129689,
+    "freed": 43979,
+    "first_changed_message": 3,
+    "reprefill_tokens": 127707,
+    "reprefill_events": 1,
+    "estimate_typical": 44526,
+    "estimate_low": 27885,
+    "estimate_call_bodies": 0
+   },
+   "results+calls": {
+    "results": 31,
+    "call_bodies": 13,
+    "tokens_after": 122763,
+    "freed": 50905,
+    "first_changed_message": 3,
+    "reprefill_tokens": 120781,
+    "reprefill_events": 1,
+    "estimate_typical": 53400,
+    "estimate_low": 33008,
+    "estimate_call_bodies": 8874
+   }
+  },
+  "bodies_on_top": 6926,
+  "render_stable": true
+ }
+}
