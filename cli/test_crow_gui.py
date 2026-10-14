@@ -8769,7 +8769,7 @@ INSPECTOR_RANGES = (
     ("  toggleGit(){", "  // Eine Klappgruppe im Git-Panel."),
     ("  // #383/#384. THE KIND OF A TOOL CALL", "  // #172. EIN OFFENER AUFRUF UND SEINE"),
     ("  toolArgBlock(row, name, raw){", "  // #138. WAS GERADE GESCHRIEBEN WIRD"),
-    ("  // A NEW CHAT IS A NEW LIST.", "  // #138b. Alles im Panel, in einem Griff."),
+    ("  // A NEW CHAT IS A NEW LIST.", "  cost(line,"),
     ("  goalPanel(g){", "  // 89K statt 89234"),
     ("  tokShort(n){", "  // #162. WO MAN STEHT"),
     ("  subs(items){", "  // #162. DREI MARKEN"),
@@ -8947,6 +8947,29 @@ out.git = {tab: sel(), git: body.attrs["data-git"]};
         self.assertIn("set_code_open(true)", tools["calls"])
         self.assertEqual(out["subs"], {"tab": "subs", "seen": True, "hidden": False})
         self.assertEqual(out["git"], {"tab": "git", "git": "open"})
+
+    def test_a_cleared_list_opens_no_wrong_call(self):
+        """#383's trace segment opens call n, its place in the chat. A `clear`
+        empties the list but not the count: the next call keeps its number,
+        so a segment of a cleared call finds no row instead of a wrong one."""
+        out = self.run_page("""
+for (const c of ["ls", "pwd", "id"]) crow.tool("run_command", "", JSON.stringify({command: c}), false);
+crow.codeWipe();
+for (const c of ["date", "whoami"]) crow.tool("run_command", "", JSON.stringify({command: c}), false);
+out.rows = $("#tclist").querySelectorAll(".tool").map(r => [r.dataset.n, r.querySelector(".num").textContent,
+  r.querySelector(".su").textContent]);
+crow.inspectorShow("tools", 2);
+out.stale = [sel(), $("#tclist").querySelectorAll(".tool").filter(r => !r.classList.contains("shut")).length];
+crow.inspectorShow("tools", 5);
+out.five = !$('#tclist .tool[data-n="5"]').classList.contains("shut");
+crow.toolsReset();
+crow.tool("run_command", "", '{"command": "ls"}', false);
+out.newChat = $("#tclist .tool").dataset.n;
+""")
+        self.assertEqual(out["rows"], [["4", "04", "date"], ["5", "05", "whoami"]])
+        self.assertEqual(out["stale"], ["tools", 0])
+        self.assertTrue(out["five"])
+        self.assertEqual(out["newChat"], "1", "a new chat goes on counting")
 
     def test_the_automatic_choices_never_take_a_pick_away(self):
         """A new goal selects Goal; the first call of a chat without a goal

@@ -5893,9 +5893,12 @@ const crow = {
     const empty=list.querySelector(".empty"); if(empty) empty.remove();
     const first=!list.querySelector(".tool");
     list.appendChild(d); this.toolsCount();
-    // #384. ITS NUMBER IN THIS CHAT, the key `inspectorShow("tools", n)` opens,
-    // and the summary: the first argument's value, cut by the row's ellipsis.
-    const k=list.querySelectorAll(".tool").length;
+    // #384. ITS NUMBER IN THIS CHAT, the key `inspectorShow("tools", n)` opens
+    // -- the place #383's trace strip gives the same call. COUNTED, NOT THE
+    // ROWS: after a `clear` the next call keeps its number, so an older
+    // segment finds no row instead of a wrong one. And the summary: the first
+    // argument's value, cut by the row's ellipsis.
+    const k=this.toolSeq=(this.toolSeq||0)+1;
     d.dataset.n=String(k);
     d.querySelector(".num").textContent=String(k).padStart(2,"0");
     d.querySelector(".su").textContent=this.toolSum(raw || args);
@@ -6128,6 +6131,7 @@ const crow = {
   // window, so switching or resetting empties it with everything else.
   toolsReset(){
     $("#tclist").textContent="";
+    this.toolSeq=0;                        // #384: a new chat counts from one
     this.codeReset();
     this.toolsCount();
     // #384: a new chat is a new choice -- the auto rules may pick again.
