@@ -683,11 +683,17 @@ def code_width_setting() -> int:
 
     Dieselbe Regel wie bei der Rail: ein Wert ausserhalb der Grenzen wird zur
     Vorgabe und nicht zur Grenze, weil er dann nicht aus dieser Geste stammt.
+
+    #388. READ BACK UP TO THE CEILING `Api.code_width` WRITES. #175 let the
+    grip go past 612 with the browser open and widened the write clamp to
+    CODE_MAX_WIDE; this read clamp stayed at CODE_MAX, so a dragged 700 came
+    back as 260 on the next start. The layout still limits the live width
+    (#main keeps its 560 px, #side gives way).
     """
     value = read_settings().get("code_width")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return CODE_DEFAULT
-    return int(value) if CODE_MIN <= value <= CODE_MAX else CODE_DEFAULT
+    return int(value) if CODE_MIN <= value <= CODE_MAX_WIDE else CODE_DEFAULT
 
 
 def client_version() -> str:

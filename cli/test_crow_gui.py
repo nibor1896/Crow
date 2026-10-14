@@ -7742,6 +7742,35 @@ class TheRailIsDraggableTests(ApiCase):
 
 
 
+class TheSideWidthSurvivesARestartTests(unittest.TestCase):
+    """#388. A side-column width above 612 px, dragged while the browser is
+    open, was saved (`Api.code_width` writes up to CODE_MAX_WIDE) and read back
+    as 260 (`code_width_setting` read only up to CODE_MAX)."""
+
+    def setUp(self) -> None:
+        self.dir = tempfile.mkdtemp(prefix="crow-codew-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, crow_gui, "SETTINGS_FILE", crow_gui.SETTINGS_FILE)
+        crow_gui.SETTINGS_FILE = os.path.join(self.dir, "settings.json")
+
+    def test_a_wide_width_comes_back(self):
+        api = crow_gui.Api.__new__(crow_gui.Api)
+        self.assertTrue(api.code_width(700))
+        self.assertEqual(crow_gui.code_width_setting(), 700)
+        self.assertIn("--codew:700px", crow_gui.stamped_page())
+
+    def test_the_read_ceiling_is_the_write_ceiling(self):
+        api = crow_gui.Api.__new__(crow_gui.Api)
+        self.assertTrue(api.code_width(crow_gui.CODE_MAX_WIDE))
+        self.assertEqual(crow_gui.code_width_setting(), crow_gui.CODE_MAX_WIDE)
+        # NEGATIVE: past the ceiling it was never a gesture, so the default.
+        with open(crow_gui.SETTINGS_FILE, "w", encoding="utf-8") as fh:
+            json.dump({"code_width": crow_gui.CODE_MAX_WIDE + 1}, fh)
+        self.assertEqual(crow_gui.code_width_setting(), crow_gui.CODE_DEFAULT)
+        self.assertFalse(api.code_width(crow_gui.CODE_MAX_WIDE + 1))
+
+
+
 class ThePanelSeparatesCodeFromCallsTests(unittest.TestCase):
     """#138b. Es war ein Werkzeug-Panel geworden, und das war nie gewollt.
 
