@@ -193,7 +193,7 @@ DEFAULT_THEME = "dark"
 # CROW_BG IS A VALUE HERE, NOT A FALLBACK. `crow` is the theme the window shipped
 # with, so the brand ground is what that theme paints; the dict's default only
 # catches a name no build has.
-THEME_BG = {"dark": "#181818", "light": "#ffffff", "crow": CROW_BG}
+THEME_BG = {"dark": "#171717", "light": "#ffffff", "crow": CROW_BG}
 
 # PASTED PICTURES LAND OUTSIDE THE WORKING DIRECTORY, ON PURPOSE. A screenshot
 # is not part of the project it is about, and writing one into whatever folder
@@ -1069,9 +1069,17 @@ PAGE = r"""<!doctype html>
      all: a rule can only be switched if what it points at can be redefined.
      Before this, 52 lines of CSS carried a literal and no palette could reach
      any of them. A test holds that: no rule may name a colour of its own. */
-  --bg:#181818; --rail:#141414; --panel:#1f1f1f; --raised:#2a2a2b;
-  --line:#2e2e30; --line-soft:#242426;
-  --dim:#a3a3a6; --dimmer:#6f6f73;
+  /* #382. THE MOCKUP'S VALUES (robin approved it on 2026-10-14, vault
+     Crow/02_docs/mockup-crow-gui-redesign-2026-10-14/Main.dc.html): a touch
+     darker rail under a lighter panel, so the rounded chat sheet reads as lying
+     on it. The five `-soft` names and `--on-accent` are new in all three
+     palettes; `--on-accent` is the brand ground, so it is stamped, not written. */
+  --bg:#171717; --rail:#121212; --panel:#1d1d1f; --raised:#252527;
+  --line:#2d2d30; --line-soft:#222225;
+  --dim:#a3a3a8; --dimmer:#6f6f73;
+  --accent-soft:rgba(126,176,248,.13); --sub-soft:rgba(57,198,216,.09);
+  --ok-soft:rgba(78,201,143,.13); --warn-soft:rgba(227,179,65,.12);
+  --on-accent:__BG__;
   --ok:#4ec98f; --warn:#e3b341; --bad:#f0655a;
   /* #296: SKIPPED IS NOT RUNNING. Both were --warn and the owner read one as the
      other (2026-09-25); skipped gets its own hue, plus shape and a label. */
@@ -1082,29 +1090,41 @@ PAGE = r"""<!doctype html>
      base palette: the themed roots inherit it, so every theme carries it. */
   --sub:#39c6d8;
   --mark:var(--text-hi); --mark-o:var(--text-hi);
-  --text:#ffffff; --text-strong:#ffffff; --text-soft:#c9c9cc;
+  --text:#ededef; --text-strong:#ffffff; --text-soft:#c9c9cd;
   --text-faint:#9a9a9e; --text-hi:#ffffff; --text-hover:#ffffff;
   --think:#8e8e93; --think-bg:rgba(255,255,255,.045);
-  --code:#d4d4d8; --code-bg:#111111;
-  --hover:#2a2a2b; --close-bg:#c0362b; --on-solid:#ffffff;
-  --shadow:rgba(0,0,0,.5); --shadow-strong:rgba(0,0,0,.7);
-  /* THE SYSTEM'S OWN, NOT OURS. The page used to name a shipped typeface first
-     and fall back; it still ships in cli/fonts for anyone who wants it, but a
-     window that looks different depending on whether the user installed a font
-     has two appearances and no way to say which is the real one. system-ui IS
-     whatever this machine calls its interface font.
-     TWO STACKS, because "system default" means different things for prose and
-     for code: Windows' interface font is proportional, and a diff or a code
-     fence set in it stops lining up. The monospace stack is the system's as
-     well -- Cascadia and Consolas ship with Windows, neither is ours. */
-  --ui:system-ui,"Segoe UI",-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;
-  --mono:ui-monospace,"Cascadia Mono",Consolas,"Courier New",monospace;
-  /* The height of the two bars across the top, ONCE. The rail's head and the status bar sit side
-     by side and were 3 px apart: 11+9 padding against 8+8, plus a button that builds 0.8 px taller
-     than a chip. Matching them by arithmetic works until a font changes; matching them against one
-     number cannot drift. Both take it as min-height, so the status bar may still grow when its
-     chips wrap -- and then the rail head is SUPPOSED to stay put. */
-  --barh:41px;
+  --code:#d4d4d8; --code-bg:#0f0f10;
+  --hover:#2a2a2d; --close-bg:#c0362b; --on-solid:#ffffff;
+  --shadow:rgba(0,0,0,.45); --shadow-strong:rgba(0,0,0,.7);
+  /* #382. THE SHIPPED FACE FOR CODE, THE SYSTEM'S FOR PROSE. Until #382 the
+     page named no typeface of its own (a window that looked different depending
+     on an installed font had two appearances). robin approved the mockup set in
+     Google Sans Code on 2026-10-14, and the face now comes WITH Crow: the page
+     asks the bridge for cli/fonts/GoogleSansCode[MONO,wght].ttf after load
+     (`crow.monoFace`, `Api.mono_font`) and adds it as a FontFace, so every
+     window has it and nothing depends on what the machine installed. The
+     names after it set the first paint and stand in if the face never comes.
+     Prose keeps the system's interface face, Segoe UI Variable first, as the
+     mockup sets it. */
+  --ui:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+  --mono:"Google Sans Code",ui-monospace,"Cascadia Mono",Consolas,monospace;
+  /* The height of the title bar and of the heads beside it (rail, code, browser), ONCE: 46 px
+     since #382, the mockup's. Matching them by arithmetic works until a font changes; matching
+     them against one number cannot drift. The heads take it as min-height, the bar as its
+     height, and the settings sheet and the phone dialog start below it. */
+  --barh:46px;
+  /* #382. THE COLUMNS' WIDTHS, READ BY THE TITLE BAR TOO. The bar has three
+     zones over the three columns: rail, chat panel, side column. Each zone and
+     its column read the SAME name, so the search sits on the panel's left edge
+     and the engine chip on its right one. These are the start values; a drag
+     writes its value onto the two readers (#236: never onto <html> or <body>,
+     where every node of a long chat would be restyled per mouse step).
+     --railshut is the left zone's width while the rail is folded away: the
+     toggle alone (10 px + 32 px + 8 px, the zone's own padding around it),
+     the wordmark hidden. The panel then starts there, so a narrow strip of
+     rail colour stays under the toggle and the search keeps standing on the
+     panel's edge. */
+  --railw:242px; --codew:__CODEW__px; --railshut:50px;
   /* The scrollbar's width, ONCE. #flow reserves it, the composer stops short of
      it, and .turn centres inside it -- three rules that have to agree or the
      input box sits 5 px off the text above it. */
@@ -1133,16 +1153,23 @@ PAGE = r"""<!doctype html>
    --bg, --accent, --bevel and --model arrive from the core as the brand values
    and are REDEFINED here rather than written twice: the model's own text colour
    is a dark-on-dark choice, and on white it would be a paragraph nobody can
-   read. The accent survives both grounds and stays what the core says. */
+   read.
+   #382: THE ACCENT IS REDEFINED HERE TOO. The core's blue on white is about
+   2.2:1 (WCAG formula), under the 3:1 a control needs (WCAG 2.2 SC 1.4.11);
+   the mockup robin approved darkens it for this ground only. */
 :root[data-theme="light"]{
   --bevel:#d3d7dd; --model:#1a1c1f;
+  --accent:#2b67c9;
   /* THE RAIL IS NOT THE PAGE. On the first build both were #ffffff and the chat
      list dissolved into the conversation beside it -- the reference the owner gave
      sets its sidebar off against the content, and one border was not enough to
      do that on white. */
-  --bg:#ffffff; --rail:#f7f7f8; --panel:#ffffff; --raised:#eeeef0;
-  --line:#e4e4e7; --line-soft:#ededf0;
+  --bg:#ffffff; --rail:#f6f6f7; --panel:#ffffff; --raised:#efeff1;
+  --line:#dedee3; --line-soft:#ebebee;
   --dim:#5b6472; --dimmer:#8b93a1;
+  --accent-soft:rgba(43,103,201,.10); --sub-soft:rgba(14,122,138,.07);
+  --ok-soft:rgba(18,133,90,.10); --warn-soft:rgba(138,100,0,.09);
+  --on-accent:#ffffff;
   --ok:#12855a; --warn:#8a6400; --bad:#c0362b;
   --skip:#6f42c1;
   --gold:#8a6400; --bad-text:#8c241b;
@@ -1150,12 +1177,12 @@ PAGE = r"""<!doctype html>
      the logo cyan reads as haze on white. */
   --sub:#0e7a8a;
   --mark:var(--text-hi); --mark-o:var(--text-hi);
-  --text:#1a1c1f; --text-strong:#0f1114; --text-soft:#3f4550;
+  --text:#16181b; --text-strong:#0f1114; --text-soft:#3a404a;
   --text-faint:#6b7280; --text-hi:#0f1114; --text-hover:#1a1c1f;
   --think:#5b6472; --think-bg:rgba(26,28,31,.05);
   --code:#24292f; --code-bg:#f6f8fa;
-  --hover:#ececed; --close-bg:#c0362b; --on-solid:#ffffff;
-  --shadow:rgba(15,17,20,.14); --shadow-strong:rgba(15,17,20,.30);
+  --hover:#ececee; --close-bg:#c0362b; --on-solid:#ffffff;
+  --shadow:rgba(15,17,20,.10); --shadow-strong:rgba(15,17,20,.30);
 }
 
 /* -- crow ---------------------------------------------------------------- */
@@ -1164,11 +1191,17 @@ PAGE = r"""<!doctype html>
    this theme is not a new design -- it is the old one, given a name.
    --bg is the ONLY colour here that is not written down: it is the wordmark's
    ground and it comes from the core, because the manifest counts every place a
-   brand value is spelled out. */
+   brand value is spelled out.
+   #382: THE SURFACES ABOVE THE GROUND MOVED, the ground did not. The chat
+   panel, the raised rows, the lines and the text took the mockup's values
+   (robin, 2026-10-14) so the panel stands off the rail in this theme too. */
 :root[data-theme="crow"]{
-  --bg:__BG__; --rail:#0e1220; --panel:#0e1220; --raised:#131829;
-  --line:#1c2438; --line-soft:#161d2e;
-  --dim:#6d7b95; --dimmer:#4a566d;
+  --bg:__BG__; --rail:#0e1220; --panel:#111628; --raised:#161c30;
+  --line:#222b42; --line-soft:#171e30;
+  --dim:#8a99b3; --dimmer:#4a566d;
+  --accent-soft:rgba(126,176,248,.14); --sub-soft:rgba(57,198,216,.09);
+  --ok-soft:rgba(78,201,143,.13); --warn-soft:rgba(227,179,65,.12);
+  --on-accent:__BG__;
   --ok:#4ec98f; --warn:#e3b341; --bad:#f0655a;
   /* #296: SKIPPED IS NOT RUNNING. Both were --warn and the owner read one as the
      other (2026-09-25); skipped gets its own hue, plus shape and a label. */
@@ -1177,12 +1210,12 @@ PAGE = r"""<!doctype html>
   /* #143. The logo cyan at home: this theme is the wordmark's own ground. */
   --sub:#39c6d8;
   --mark:var(--accent); --mark-o:var(--bevel);
-  --text:#cfdaea; --text-strong:#e8eef8; --text-soft:#a9bad3;
+  --text:#e3eaf5; --text-strong:#e8eef8; --text-soft:#b8c6dc;
   --text-faint:#9fb0c9; --text-hi:#ffffff; --text-hover:#c8d4e8;
   --think:#7b89a3; --think-bg:rgba(19,24,41,.4);
   --code:#c3d0e4; --code-bg:#080b13;
-  --hover:#161d2e; --close-bg:#8b2b26; --on-solid:#ffffff;
-  --shadow:rgba(0,0,0,.45); --shadow-strong:rgba(0,0,0,.75);
+  --hover:#1a2136; --close-bg:#8b2b26; --on-solid:#ffffff;
+  --shadow:rgba(0,0,0,.55); --shadow-strong:rgba(0,0,0,.75);
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden}
@@ -1221,8 +1254,9 @@ body{background:var(--bg);color:var(--dim);font:13px/1.55 var(--ui);
    Ecke; gerendert in WebKitGTK 2.52 lief der Daumen der Zielkarte in deren
    10-px-Rundung und der von #flow in die 12-px-Ecke von #main, sichtbar
    angeschnitten. Der Spurrand in Hoehe des Radius haelt sie gerade.
+   #382: #main ist seither an allen vier Ecken 14 px rund, also oben UND unten.
    (Headless-Chromium blendet Leisten aus -- dort war davon nichts zu sehen.) */
-#flow::-webkit-scrollbar-track{margin-top:12px}
+#flow::-webkit-scrollbar-track{margin-top:14px;margin-bottom:14px}
 #goalpanel::-webkit-scrollbar-track{margin:10px 0}
 #gitbody::-webkit-scrollbar-track{margin-bottom:10px}
 #spane::-webkit-scrollbar-track{margin-bottom:12px}
@@ -1235,60 +1269,127 @@ body{background:var(--bg);color:var(--dim);font:13px/1.55 var(--ui);
 /* #125. ONE SURFACE WITH THE RAIL, and therefore its colour and no rule under
    it. The ribbon, the rail head and the chat list are the same panel; the chat
    is the thing that sits ON it, which is what the rounded corner below says. */
-#bar{display:flex;align-items:center;gap:10px;height:34px;flex:none;
-  padding:0 0 0 13px;background:var(--rail)}
+/* #382. THREE ZONES OVER THE THREE COLUMNS, as in the mockup robin approved
+   on 2026-10-14 (vault Crow/02_docs/mockup-crow-gui-redesign-2026-10-14/
+   Main.dc.html). #barl stands over the rail, #barm over the chat panel (its
+   8 px right margin is the panel's), #barr over the side column while that is
+   open. Each zone reads the SAME variable as its column -- --railw, --codew,
+   --railshut, all defined once in :root -- so the search sits on the panel's
+   left edge and the engine chip on its right one without any script measuring
+   anything. "+ 1px": a grip is 5 px wide with -2 px either side, so it nets
+   one pixel of the row, between the column and the panel. */
+#bar{display:flex;align-items:center;height:var(--barh);flex:none;
+  background:var(--rail)}
+.hz{display:flex;align-items:center;gap:6px;min-width:0}
+#barl{flex:none;width:calc(var(--railw) + 1px);padding:6px 8px 6px 10px;
+  overflow:hidden;transition:width .16s ease}
+/* THE RAIL FOLDED AWAY leaves the zone the toggle alone -- the wordmark goes
+   with the rail -- and the panel starts where the zone ends (`#main` below),
+   so the search stays on its edge. */
+body[data-rail="shut"] #barl{width:var(--railshut)}
+body[data-rail="shut"] #mark{display:none}
+#barm{flex:1 1 0;margin-right:8px;padding:6px 0;justify-content:space-between}
+/* THE SIDE COLUMN'S WIDTH WHILE IT IS OPEN, the buttons' own room when it is
+   not. Four toggles, a separator and three window buttons are 233 px plus
+   seven gaps; at the mockup's 6 px they need 275, and the column's narrowest
+   width (CODE_MIN 260, + 1 for the grip) is 261 -- so the gap gives way
+   first, down to 4 px there, and the chip keeps its edge. `max-content` is
+   the floor that keeps the close button on screen whatever happens. */
+#barr{flex:none;width:calc(var(--codew) + 1px);min-width:max-content;
+  padding:6px 8px 6px 0;justify-content:flex-end;
+  gap:clamp(2px,calc((var(--codew) - 232px) / 7),6px)}
+body[data-code="shut"][data-browser="shut"] #barr{width:auto;gap:6px}
+#bar.dragging #barl{transition:none}
 /* #119. THE WORDMARK IS A PALETTE ENTRY NOW. It was the accent in all three
    themes, which is Crow's own blue -- right on the dark blue ground it was
    drawn for, and a coloured word floating on a neutral or a white one.
    The owner: white on dark, dark on light, unchanged in `crow`.
    TWO NAMES, because only `crow` splits the O off. Setting both to the same
    value in the other two is what makes them one solid word there rather than
-   a word with a hole in it. */
-#mark{font-weight:700;letter-spacing:.22em;font-size:11.5px;color:var(--mark);pointer-events:none}
+   a word with a hole in it. #382: the mockup's size and spacing. */
+#mark{font-weight:700;letter-spacing:.24em;font-size:12px;color:var(--mark);
+  padding:0 8px 0 4px;white-space:nowrap;pointer-events:none}
 #mark span{color:var(--mark-o)}
-/* #138. DER FREIE PLATZ WIRD EINEN PLATZ FRUEHER VERTEILT. Der Code-Knopf
-   gehoert nach der Vorgabe des Owners links neben die Fensterknoepfe, also traegt ER
-   das `auto` und `#wbtns` folgt ihm dicht. Zweimal `auto` nebeneinander waere
-   falsch: Flex teilt den Rest dann gleichmaessig und schoebe den Knopf in die
-   Mitte der Leiste. */
-#codetoggle{margin-left:auto}
-/* #249. DAS TELEFON STEHT DAVOR und nimmt das `auto` mit; der Code-Knopf rueckt
-   dann dicht an seine zwei Nachbarn, die Luecke gehoert dem Telefon. */
-#remotetoggle{margin-left:auto;position:relative}
-#remotetoggle + #codetoggle{margin-left:0}
-#wbtns{display:flex;-webkit-app-region:no-drag}
+/* #382. THE MOCKUP'S SMALL PARTS, defined once for every surface that uses
+   them: the 32 px icon button, the separator, the key cap, the
+   screen-reader-only label and the mono run. */
+.ib{display:inline-flex;align-items:center;justify-content:center;width:32px;
+  height:32px;flex:none;border:0;border-radius:8px;background:transparent;
+  color:var(--dim);cursor:pointer;padding:0;font:inherit}
+.ib:hover{background:var(--hover);color:var(--text)}
+.ib.on{color:var(--accent);background:var(--accent-soft)}
+.ib svg{width:16px;height:16px}
+.vsep{width:1px;height:20px;background:var(--line);flex:none}
+.kbd{font-family:var(--mono);font-size:10.5px;color:var(--dim);
+  border:1px solid var(--line);border-radius:5px;padding:0 5px;line-height:17px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);
+  white-space:nowrap}
+.mono{font-family:var(--mono)}
+/* THE WINDOW BUTTONS ARE ICON BUTTONS like the toggles beside them, one gap
+   apart (`gap:inherit` takes #barr's); only close keeps its red. */
+#wbtns{display:flex;gap:inherit;-webkit-app-region:no-drag}
+#wbtns .close:hover{background:var(--close-bg);color:var(--on-solid)}
 /* #325: the close saves the chat and the cache first, which can take seconds;
    said, so nobody interrupts it. */
 body.closing::after{content:"saving the chat and the cache...";position:fixed;
   left:50%;top:50%;transform:translate(-50%,-50%);z-index:99999;
   padding:12px 18px;border-radius:8px;background:var(--raised);
   border:1px solid var(--line)}
-/* The buttons sit inside the drag region, so they opt out of it again --
-   without this a click on 'close' starts a drag instead of closing. */
-.wb{width:42px;height:33px;display:grid;place-items:center;color:var(--dimmer);
-  font-size:11px;cursor:default}
-.wb:hover{background:var(--hover);color:var(--text-hover)}
-.wb.close:hover{background:var(--close-bg);color:var(--on-solid)}
 
-/* -- Hilfe, and the sheet it opens -------------------------------------- */
-/* INSIDE THE DRAG REGION AND OPTED OUT OF IT, the same way #wbtns is: the title
-   bar moves the window, so anything clickable in it has to say it is not that.
-   Without the opt-out a click on Hilfe starts a drag and the menu never opens. */
-#helpwrap{position:relative;-webkit-app-region:no-drag}
-#help{font:inherit;font-size:11px;cursor:pointer;border:1px solid transparent;
-  border-radius:6px;padding:2px 9px;background:transparent;color:var(--dim)}
-#help:hover{border-color:var(--line);color:var(--text-hover)}
-/* DOWNWARDS, unlike the four menus at the bottom of the window: this one hangs
-   off the title bar, and a menu that opened upwards from there would be drawn
-   outside the window. */
-#helpmenu{position:absolute;top:calc(100% + 5px);left:0;min-width:150px;
-  background:var(--panel);border:1px solid var(--bevel);border-radius:8px;
-  padding:5px;box-shadow:0 8px 26px var(--shadow);z-index:60}
-#helpmenu[hidden]{display:none}
-#helpmenu button{display:block;width:100%;text-align:left;font:inherit;
-  font-size:11.5px;cursor:pointer;background:transparent;border:0;
-  border-radius:6px;padding:7px 9px;color:var(--dim)}
-#helpmenu button:hover{background:var(--hover);color:var(--text-hover)}
+/* -- #382: the search field over the panel's left edge -------------------- */
+/* A MAGNIFIER UNTIL ASKED. 32 px at rest; the field grows to 210 px while it
+   has the focus (a click on the magnifier label, Tab, Ctrl+K) and stays open
+   while it holds text. The results under it are #386. The mockup's rules, as
+   written there. */
+.search{display:flex;align-items:center;height:32px;border:1px solid var(--line-soft);
+  border-radius:9px;background:var(--bg);color:var(--dim);overflow:hidden;
+  transition:border-color .2s,color .2s}
+.search:hover{border-color:var(--line);color:var(--text)}
+.search:focus-within{border-color:var(--accent);color:var(--text)}
+.s-ico{display:inline-flex;align-items:center;justify-content:center;width:30px;
+  height:30px;flex:none;cursor:pointer}
+.s-ico svg{width:15px;height:15px}
+.search input{width:0;min-width:0;height:30px;padding:0;border:0;outline:none;
+  background:transparent;color:var(--text);font:inherit;font-size:12.5px;
+  transition:width .25s ease}
+.search input::placeholder{color:var(--dim)}
+.search input::-webkit-search-cancel-button{display:none}
+.s-kbd{max-width:0;opacity:0;overflow:hidden;padding:0;border-width:0;margin:0;
+  transition:max-width .25s ease,opacity .2s ease,margin .25s ease}
+/* TWO RULES, NOT ONE LIST. An engine that does not know `:has()` drops the
+   WHOLE selector list it stands in (Selectors 4, "invalid selector list"), and
+   the field would then not open on focus either. Apart, `:focus-within`
+   (Baseline since 2020) always works and `:has()` adds "stays open with
+   text" where it is known. */
+.search:focus-within input{width:210px}
+.search:has(input:not(:placeholder-shown)) input{width:210px}
+.search:focus-within .s-kbd{max-width:64px;opacity:1;padding:0 5px;border-width:1px;
+  margin:0 6px 0 4px}
+.search:has(input:not(:placeholder-shown)) .s-kbd{max-width:64px;opacity:1;
+  padding:0 5px;border-width:1px;margin:0 6px 0 4px}
+
+/* -- #382: the engine chip over the panel's right edge --------------------- */
+/* NARROW UNTIL CLICKED: a status dot and the model's name. A click (or Enter /
+   Space, it is a button) flips `aria-expanded` and slides out the level, the
+   last turn's decode rate and the context in use. The dot is the server's
+   state: amber until the first answer, green while up, red when it is gone. */
+.engine{display:inline-flex;align-items:center;height:32px;padding:0 13px;
+  border:1px solid var(--line-soft);border-radius:999px;background:var(--bg);
+  color:var(--text);font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap}
+.engine:hover{border-color:var(--line)}
+.engine.open{border-color:var(--line);background:var(--panel)}
+.engine .more{display:inline-flex;align-items:center;gap:10px;max-width:0;opacity:0;
+  overflow:hidden;padding-left:0;font-size:11.5px;color:var(--dim);
+  transition:max-width .3s ease,opacity .2s ease,padding .3s ease}
+.engine.open .more{max-width:280px;opacity:1;padding-left:10px}
+.engine .more .vsep{height:14px}
+.engine .more>[hidden]{display:none}
+.engine .erate{color:var(--text)}
+#engine .edot{width:7px;height:7px;border-radius:50%;flex:none;margin-right:9px;
+  background:var(--warn);box-shadow:0 0 0 3px var(--warn-soft)}
+#engine[data-state="up"] .edot{background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
+#engine[data-state="down"] .edot{background:var(--bad);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--bad) 13%,transparent)}
 
 /* A LAYER IN THIS WINDOW, NOT A SECOND WINDOW. A second pywebview window would
    need its own bridge, its own theme attribute and its own close path, for a
@@ -1297,12 +1398,14 @@ body.closing::after{content:"saving the chat and the cache...";position:fixed;
    Bei 1130x520 war das Blatt 468 px hoch (90vh) und begann bei y=26 -- die
    34 px hohe #bar lag mit ihren Fensterknoepfen 8 px darunter. `padding-top`
    in #bar-Hoehe verschiebt die Mitte, die dritte Grenze im `min()` haelt
-   darunter 12 px Luft; der Schleier dimmt die Leiste weiterhin. */
+   darunter 12 px Luft; der Schleier dimmt die Leiste weiterhin.
+   #382: die Leiste ist seither 46 px hoch, also steht hier ihr Name statt
+   einer Zahl -- --barh, dieselbe, die #bar als Hoehe traegt. */
 #settings{position:fixed;inset:0;z-index:80;display:grid;place-items:center;
-  background:var(--shadow-strong);padding-top:34px}
+  background:var(--shadow-strong);padding-top:var(--barh)}
 #settings[hidden]{display:none}
 #settings .sheet{width:min(1040px,94vw);
-  height:min(780px,90vh,calc(100vh - 58px));display:flex;
+  height:min(780px,90vh,calc(100vh - var(--barh) - 24px));display:flex;
   flex-direction:column;background:var(--panel);border:1px solid var(--bevel);
   border-radius:12px;box-shadow:0 24px 60px var(--shadow-strong);overflow:hidden}
 #settings .shead{display:flex;align-items:center;gap:10px;padding:13px 16px;
@@ -1375,7 +1478,7 @@ body.closing::after{content:"saving the chat and the cache...";position:fixed;
 #flow > .turn > :last-child{margin-bottom:0}
 
 /* -- rail --------------------------------------------------------------- */
-#rail{width:var(--railw,242px);flex:none;
+#rail{width:var(--railw);flex:none;
   background:var(--rail);display:flex;flex-direction:column;min-height:0}
 /* ZIEHBAR, UND DER GRIFF IST BREITER ALS DIE LINIE, DIE ER BEWEGT. Fuenf Pixel
    trifft man mit der Maus, einen nicht -- und die negativen Raender legen ihn
@@ -1405,7 +1508,7 @@ body.closing::after{content:"saving the chat and the cache...";position:fixed;
    Die Panels darin teilen sich die Hoehe zu gleichen Teilen (`flex:1 1 0`) --
    nicht nach Inhalt, denn sonst schoebe eine wachsende Werkzeugliste das
    Git-Panel aus dem Bild, waehrend man hineinsieht. */
-#side{width:var(--codew,__CODEW__px);flex:0 1 auto;min-width:0;
+#side{width:var(--codew);flex:0 1 auto;min-width:0;
   display:flex;flex-direction:column;min-height:0;background:var(--rail);
   transition:width .16s ease}
 #side.dragging{transition:none}
@@ -1896,28 +1999,22 @@ body[data-git="shut"] #git{display:none}
 #rail{transition:width .16s ease}
 body[data-rail="shut"] #rail{width:0;overflow:hidden}
 /* IN THE TITLE BAR, so it survives the rail it hides. It is the one control
-   that must not live in the thing it folds away. */
-#railtoggle,#codetoggle,#gittoggle,#browsertoggle,#remotetoggle{font:inherit;color:var(--dimmer);
-  background:transparent;border:1px solid transparent;border-radius:6px;
-  cursor:pointer;display:flex;align-items:center;padding:3px 5px;margin-right:2px}
-#railtoggle:hover,#codetoggle:hover,#gittoggle:hover,
-#browsertoggle:hover,#remotetoggle:hover{color:var(--accent);border-color:var(--bevel)}
+   that must not live in the thing it folds away. #382: all five toggles are
+   the mockup's `.ib` icon buttons now (see the title bar above). */
 /* #249: an = Akzent mit Toenung wie ein offenes Panel; der Punkt = ein Telefon
-   ist gerade verbunden. Die Luecke nach rechts steht HIER, hinter der
-   gemeinsamen Regel, die jedem Knopf 2px gibt. */
-#remotetoggle{margin-right:9px}
-#remotetoggle.on{color:var(--accent);
-  background:color-mix(in srgb,var(--accent) 12%,transparent)}
-#remotetoggle .rdot{display:none;position:absolute;right:2px;top:2px;width:6px;
+   ist gerade verbunden. #382: die Toenung ist --accent-soft wie bei `.ib.on`. */
+#remotetoggle{position:relative}
+#remotetoggle.on{color:var(--accent);background:var(--accent-soft)}
+#remotetoggle .rdot{display:none;position:absolute;right:6px;top:5px;width:6px;
   height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 2px var(--rail)}
 #remotetoggle.live .rdot{display:block}
 /* #249: der Dialog mit dem QR-Code und die Kopplungsleiste -- in der Form der
    vom Owner abgenommenen Mockups (Schritt 0): das Blatt der Einstellungen,
    nur kleiner; die Kopplungsfrage in der Form von #pendbar ueber der Eingabe. */
 #remotedlg{position:fixed;inset:0;z-index:80;display:grid;place-items:center;
-  background:var(--shadow-strong);padding-top:34px}
+  background:var(--shadow-strong);padding-top:var(--barh)}
 #remotedlg[hidden]{display:none}
-#remotedlg .rsheet{width:min(720px,94vw);max-height:calc(100vh - 58px);display:flex;
+#remotedlg .rsheet{width:min(720px,94vw);max-height:calc(100vh - var(--barh) - 24px);display:flex;
   flex-direction:column;background:var(--panel);border:1px solid var(--bevel);
   border-radius:12px;box-shadow:0 24px 60px var(--shadow-strong);overflow:hidden}
 #remotedlg .rhead{display:flex;align-items:center;gap:10px;padding:13px 16px;
@@ -2005,8 +2102,7 @@ body[data-rail="shut"] #rail{width:0;overflow:hidden}
    Kreuz im Panel), muss der Rueckweg sichtbar sein. */
 body:not([data-code="shut"]) #codetoggle,
 body:not([data-browser="shut"]) #browsertoggle,
-body:not([data-git="shut"]) #gittoggle{color:var(--accent);
-  background:color-mix(in srgb,var(--accent) 12%,transparent)}
+body:not([data-git="shut"]) #gittoggle{color:var(--accent);background:var(--accent-soft)}
 
 /* A PROJECT ROW IS NOT A CHAT ROW, and the difference has to survive a glance:
    it is a heading you can fold, so it carries a caret and a count and never the
@@ -2058,6 +2154,15 @@ body:not([data-git="shut"]) #gittoggle{color:var(--accent);
 #archbar .count{margin-left:auto;letter-spacing:0;text-transform:none}
 #arch{display:none}
 #arch.open{display:block}
+/* #382. SETTINGS AT THE RAIL'S FOOT, below the archive. The Help menu that
+   held it as its only entry is gone from the title bar (mockup, robin
+   2026-10-14). The mockup's `.foot` row; #385 restyles the rail around it. */
+.foot{display:flex;align-items:center;gap:8px;width:100%;height:32px;padding:0 10px;
+  border:0;border-radius:8px;background:transparent;color:var(--dim);font:inherit;
+  font-size:12.5px;cursor:pointer;text-align:left}
+.foot:hover{background:var(--hover);color:var(--text)}
+.foot svg{width:15px;height:15px}
+#settingsbtn{flex:none;width:auto;margin:2px 8px 10px}
 
 /* -- main --------------------------------------------------------------- */
 /* #125. THE CORNER IS THE ONLY DIVIDER LEFT. With every rule removed the chat
@@ -2075,20 +2180,37 @@ body:not([data-git="shut"]) #gittoggle{color:var(--accent);
    SCHLIMMSTEN Zustand: RAIL_MAX 520 + 560 Chat + 50 Spalten-Chrome = 1130.
    Ein Fall prueft beide Zahlen gegeneinander -- keine darf allein wandern. */
 #main{flex:1;display:flex;flex-direction:column;min-width:560px;min-height:0;
-  background:var(--bg);border-top-left-radius:12px;
+  background:var(--bg);
   /* #138. DIE ZWEITE KANTE, gespiegelt. Sie gehoert #main und nicht dem
      Panel: die Chatspalte ist das Blatt, das vor den Seitenflaechen liegt,
      und sie hat eine Ecke auf jeder Seite, sobald es beide gibt. Der Radius
      bleibt auch bei geschlossenem Panel stehen -- dahinter liegt dann der
      Fensterhintergrund, und eine Ecke, die beim Zuklappen aufspringt, macht
-     aus dem Falten eine Formaenderung. */
-  border-top-right-radius:12px;overflow:hidden;
+     aus dem Falten eine Formaenderung.
+     #382: EIN BLATT MIT VIER ECKEN, wie im Mockup, das robin am 2026-10-14
+     abgenommen hat: 14 px Radius, eine leise Kante, und 8 px Rail-Farbe
+     rechts und unten, damit es auf der Rail LIEGT statt an den Fensterrand
+     zu stossen. Links liegt die Rail selbst daneben. */
+  border-radius:14px;border:1px solid var(--line-soft);margin:0 8px 8px 0;
+  overflow:hidden;
   position:relative;
   /* #233: der Abfragecontainer fuer #panels (siehe dort). Nur
      inline-size, also Stil- und Breiten-Containment, KEIN Layout-Containment:
      kein neuer Bezugsblock fuer `fixed`, kein neuer Stapelkontext. Die Breite
      kommt ohnehin aus `flex:1` und min-width 560, nie aus dem Inhalt. */
   container:chat/inline-size}
+/* #382. MIT EINGEKLAPPTER RAIL BEGINNT DAS BLATT, WO DIE LINKE ZONE DER
+   TITELLEISTE ENDET (--railshut, minus dem einen Pixel des Griffs), damit die
+   Suche weiter auf seiner Kante steht. Derselbe Uebergang wie die Rail, also
+   gleiten Blatt und Zone gemeinsam. */
+#main{transition:margin-left .16s ease}
+body[data-rail="shut"] #main{margin-left:calc(var(--railshut) - 1px)}
+/* #382. WENIGER BEWEGUNG, WENN DAS SYSTEM DARUM BITTET: die Breiten der
+   Spalten, der Zonen, des Blatts, der Suche und des Modell-Chips springen
+   dann, statt zu gleiten (Media Queries 5, prefers-reduced-motion). Hinter
+   allen Regeln, die einen dieser Uebergaenge setzen. */
+@media (prefers-reduced-motion:reduce){
+  #rail,#side,#main,#barl,.search,.search input,.s-kbd,.engine .more{transition:none}}
 /* #125. THE STATUS BAR IS GONE, not hidden. Both chips it carried moved into
    the settings sheet -- the connection with its address, and the tool switch --
    and an empty bar is a band of nothing between the ribbon and the first line
@@ -3414,91 +3536,104 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 <style>/* __REMOTE_CSS__ */</style></head><body data-rail="__RAIL__" data-code="__CODE__" data-git="__GIT__" data-browser="__BROWSER__">
 
 <div id="bar" class="pywebview-drag-region" ondblclick="pywebview.api.maximise()">
-  <!-- #119. LEFT OF THE WORDMARK, and it has to live in the TITLE BAR rather
-       than in the rail head: a button inside the rail goes away with the rail,
-       and then there is no way back. The glyph is the side-panel mark from
-       the owner's reference -- a frame with one column filled, which is the panel
-       it toggles. Inline SVG for the reason the microphone is: the system font
-       has no such character, and an emoji would drag its own colour in. -->
-  <button id="railtoggle" class="pywebview-no-drag" onclick="crow.toggleRail()"
-          title="Show or hide the chat rail">
-    <svg viewBox="0 0 20 20" width="15" height="15" fill="none"
-         stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-      <rect x="2.5" y="4" width="15" height="12" rx="2"></rect>
-      <line x1="8" y1="4" x2="8" y2="16"></line></svg></button>
-  <span id="mark">CR<span>O</span>W</span>
-  <div id="helpwrap" class="pywebview-no-drag">
-    <button id="help" onclick="crow.helpMenu()">Help</button>
-    <div id="helpmenu" hidden>
-      <button onclick="crow.openSettings()">Settings</button>
-    </div>
+  <!-- #382. THREE ZONES OVER THE THREE COLUMNS (mockup Main.dc.html, robin
+       2026-10-14): rail toggle and wordmark over the rail; the search and the
+       engine chip on the chat panel's two edges; the panel toggles and the
+       window buttons over the side column. Every icon is the mockup's inline
+       stroke SVG at 1.75, `currentColor`, so it takes the theme and the
+       on-state like any text here. -->
+  <div id="barl" class="hz">
+    <!-- #119. LEFT OF THE WORDMARK, and it has to live in the TITLE BAR rather
+         than in the rail head: a button inside the rail goes away with the rail,
+         and then there is no way back. A frame with its left column drawn --
+         the panel it toggles. -->
+    <button id="railtoggle" class="ib pywebview-no-drag" type="button"
+            onclick="crow.toggleRail()" title="Show or hide the chat rail"
+            aria-label="Toggle chat list">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 4v16"></path></svg></button>
+    <span id="mark">CR<span>O</span>W</span>
   </div>
-  <!-- #138. LINKS VON DEN FENSTERKNOEPFEN, aus dem Grund, den #119 fuer den
-       Rail-Knopf aufgeschrieben hat: ein Knopf im Panel geht mit dem Panel weg,
-       und dann gibt es keinen Weg zurueck. Das Zeichen ist die Terminal-Marke des Owners
-       aus dem Noun Project, aber NACHGEZEICHNET statt eingebettet -- die Datei
-       besteht aus gefuellten Pfaden ohne jeden Strich, und `stroke-width` haette
-       dort nichts, worauf es wirken koennte. Als Striche traegt es dieselbe 1.6
-       wie der Rail-Knopf daneben, nimmt `currentColor` wie alles hier, und
-       braucht keine Namensnennung. Derselbe Rahmen wie links, nur ist innen ein
-       Prompt statt einer Spalte. -->
-  <!-- #249. DAS TELEFON, LINKS VON DEN DREI PANEL-KNOEPFEN und durch eine
-       Luecke von ihnen getrennt: es schaltet kein Panel, sondern oeffnet den
-       QR-/Geraete-Dialog (derselbe Weg wie ein nacktes `/remote`). Gezeichnet
-       wie die Nachbarn -- 1.6 Strich, `currentColor`. Aus heisst gedimmt wie
-       sie, an heisst Akzent mit Toenung, ein gruener Punkt heisst: ein Geraet
-       ist verbunden. Der Zustand kommt als `{"k":"remote"}`. -->
-  <button id="remotetoggle" class="pywebview-no-drag" onclick="crow.remoteOpen()"
-          title="Phone mirror: pair a phone on this network">
-    <svg viewBox="0 0 20 20" width="15" height="15" fill="none"
-         stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
-         stroke-linejoin="round" aria-hidden="true">
-      <rect x="5.5" y="2.5" width="9" height="15" rx="2"></rect>
-      <line x1="8.8" y1="14.6" x2="11.2" y2="14.6"></line></svg><span
-      class="rdot" aria-hidden="true"></span></button>
-  <button id="codetoggle" class="pywebview-no-drag" onclick="crow.toggleCode()"
-          title="Show or hide the code panel">
-    <svg viewBox="0 0 20 20" width="15" height="15" fill="none"
-         stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
-         stroke-linejoin="round" aria-hidden="true">
-      <rect x="2.5" y="4" width="15" height="12" rx="2"></rect>
-      <path d="M6.2 8.6 8.6 11 6.2 13.4"></path>
-      <line x1="10.8" y1="13.4" x2="14" y2="13.4"></line></svg></button>
-  <!-- #156. NEBEN DEM CODE-KNOPF, aus demselben Grund wie dieser: ein Schalter
-       im Panel geht mit dem Panel weg. Das Zeichen ist GitHubs eigene Katze --
-       die Marke des Dienstes, den der Knopf verbindet, in der offiziellen
-       Pfadform und mit `currentColor` statt eigener Farbe, damit sie sich in
-       alle drei Themes und in den Aktivzustand einfuegt wie jedes andere
-       Zeichen hier. Ein gefuellter Pfad, kein Strich: `stroke-width` haette
-       daran nichts, worauf es wirken koennte. -->
-  <button id="gittoggle" class="pywebview-no-drag" onclick="crow.toggleGit()"
-          title="Show or hide the git panel">
-    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-      <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47
-        7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01
-        1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95
-        0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6
-        0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08
-        2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54
-        1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
-    </svg></button>
-  <!-- #175. NEBEN DEN BEIDEN ANDEREN, aus demselben Grund: ein Schalter im
-       Panel geht mit dem Panel weg. Ein Globus, gezeichnet statt eingebettet --
-       Kreis, Aequator, ein Meridian: die kleinste Form, die aus einem Kreis eine
-       Weltkugel macht. Dieselbe 1.6 Strichstaerke und `currentColor` wie die
-       Nachbarn, damit die drei eine Reihe sind und nicht drei Zeichen. -->
-  <button id="browsertoggle" class="pywebview-no-drag" onclick="crow.toggleBrowser()"
-          title="Show or hide the browser panel">
-    <svg viewBox="0 0 20 20" width="15" height="15" fill="none"
-         stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-      <circle cx="10" cy="10" r="7.2"></circle>
-      <line x1="2.8" y1="10" x2="17.2" y2="10"></line>
-      <ellipse cx="10" cy="10" rx="3.1" ry="7.2"></ellipse></svg></button>
-  <div id="wbtns" class="pywebview-no-drag">
-    <div class="wb" onclick="pywebview.api.minimise()">&#8211;</div>
-    <div class="wb" onclick="pywebview.api.maximise()">&#9633;</div>
-    <div class="wb close" onclick="document.body.classList.add('closing');
-         pywebview.api.close()">&#10005;</div>
+  <div id="barm" class="hz">
+    <!-- #382. THE SEARCH: a magnifier label for the field, so a click on it
+         focuses the field and CSS alone opens it. Ctrl+K focuses it, Escape
+         lets go. What it finds is #386. A double-click in it is a word
+         selection, not a maximise, so it stops here. -->
+    <div id="search" class="search pywebview-no-drag" ondblclick="event.stopPropagation()">
+      <label class="s-ico" for="searchin"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+          stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path
+          d="m20 20-3.5-3.5"></path></svg><span class="sr">Search chats and commands</span></label>
+      <input id="searchin" type="search" placeholder="Search chats and commands"
+             autocomplete="off" spellcheck="false">
+      <span class="kbd s-kbd">Ctrl K</span>
+    </div>
+    <!-- #382. THE ENGINE CHIP: the server's state as a dot and the model's
+         name; a click slides out the level, the last turn's decode rate and
+         the context in use (`crow.showEngine`). A disclosure button, so
+         Enter and Space work as they do on any button. -->
+    <button id="engine" class="engine pywebview-no-drag" type="button"
+            aria-expanded="false" data-state="wait" onclick="crow.engineToggle()"
+            ondblclick="event.stopPropagation()"><span class="edot" aria-hidden="true"></span><span
+            class="ename">connecting</span><span class="more mono"><span class="vsep"></span><span
+            class="elvl" hidden></span><span class="erate" hidden></span><span
+            class="ectx" hidden></span><span class="eword" hidden></span></span></button>
+  </div>
+  <div id="barr" class="hz">
+    <!-- #138/#156/#175. THE PANEL TOGGLES LIVE IN THE TITLE BAR for #119's
+         reason: a switch inside a panel goes away with the panel. #382: in the
+         mockup's order -- side panel, git, browser, phone -- and its icons:
+         a frame with its right column drawn, a branch, a globe. -->
+    <button id="codetoggle" class="ib pywebview-no-drag" type="button"
+            onclick="crow.toggleCode()" title="Show or hide the code panel"
+            aria-label="Code panel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg></button>
+    <button id="gittoggle" class="ib pywebview-no-drag" type="button"
+            onclick="crow.toggleGit()" title="Show or hide the git panel"
+            aria-label="Git">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle
+        cx="18" cy="7" r="2"></circle><path d="M6 7v10"></path><path
+        d="M18 9a6 6 0 0 1-6 6H8"></path></svg></button>
+    <button id="browsertoggle" class="ib pywebview-no-drag" type="button"
+            onclick="crow.toggleBrowser()" title="Show or hide the browser panel"
+            aria-label="Browser">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path
+        d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"></path></svg></button>
+    <!-- #249. DAS TELEFON: es schaltet kein Panel, sondern oeffnet den
+         QR-/Geraete-Dialog (derselbe Weg wie ein nacktes `/remote`). Aus heisst
+         gedimmt wie die Nachbarn, an heisst Akzent mit Toenung, ein gruener
+         Punkt heisst: ein Geraet ist verbunden. Der Zustand kommt als
+         `{"k":"remote"}`. #382: nach dem Globus, wie im Mockup. -->
+    <button id="remotetoggle" class="ib pywebview-no-drag" type="button"
+            onclick="crow.remoteOpen()" title="Phone mirror: pair a phone on this network"
+            aria-label="Phone">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="7" y="2.5" width="10" height="19" rx="2"></rect><path d="M11 18.5h2"></path></svg><span
+        class="rdot" aria-hidden="true"></span></button>
+    <span class="vsep"></span>
+    <div id="wbtns" class="pywebview-no-drag">
+      <button class="ib wb" type="button" onclick="pywebview.api.minimise()"
+              aria-label="Minimize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path
+              d="M6 12h12"></path></svg></button>
+      <button class="ib wb" type="button" onclick="pywebview.api.maximise()"
+              aria-label="Maximize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="1.75" aria-hidden="true"><rect x="6" y="6" width="12" height="12"
+              rx="1.5"></rect></svg></button>
+      <button class="ib wb close" type="button" aria-label="Close"
+              onclick="document.body.classList.add('closing');
+         pywebview.api.close()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path
+              d="M7 7l10 10M17 7 7 17"></path></svg></button>
+    </div>
   </div>
 </div>
 
@@ -3699,6 +3834,13 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
     <button id="archbar" onclick="crow.toggleArchive()">
       <span class="caret">&#9654;</span>Archive<span class="count"></span></button>
     <div id="arch"></div>
+    <!-- #382. SETTINGS, where the mockup puts it: at the rail's foot, beside
+         the archive. It was the Help menu's only entry in the title bar. -->
+    <button id="settingsbtn" class="foot" type="button" onclick="crow.openSettings()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" aria-hidden="true"><path
+           d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle
+           cx="10" cy="17" r="2"></circle></svg><span>Settings</span></button>
   </aside>
   <!-- #132. Der Griff zwischen Rail und Chat. Ein eigenes Element und nicht ein
        `resize` auf der Rail: CSS-resize zeichnet einen Anfasser in die Ecke und
@@ -5517,10 +5659,7 @@ const crow = {
   },
   toggleTools(){ if(this.running) return; pywebview.api.set_tools(!this.execute); },
 
-  helpMenu(){ const m=$("#helpmenu"); m.hidden=!m.hidden; },
-
   openSettings(){
-    $("#helpmenu").hidden=true;
     // THE ATTRIBUTE IS THE TRUTH, not a variable beside it. Python wrote it onto
     // <html> before the page was handed over, so the sheet marks whatever is
     // actually on screen rather than what a second copy of the state believes.
@@ -6284,8 +6423,8 @@ const crow = {
     // AUF document UND NICHT AUF DEM GRIFF. Die Maus verlaesst fuenf Pixel in
     // der ersten Bewegung, und ein Listener auf dem Griff verloere sie dort.
     ev.preventDefault();
-    const rail=$("#rail"), grip=$("#railgrip");
-    grip.classList.add("on"); rail.classList.add("dragging");
+    const rail=$("#rail"), grip=$("#railgrip"), bar=$("#bar");
+    grip.classList.add("on"); rail.classList.add("dragging"); bar.classList.add("dragging");
     sizing.begin();
     const left=rail.getBoundingClientRect().left;
     const move=e=>{
@@ -6296,12 +6435,15 @@ const crow = {
       // sich, und an der Wurzel gesetzt rechnete jeder Mausschritt den Stil
       // ALLER 12 968 Knoten neu -- gemessen 2026-09-23: 1249 ms Stil fuer
       // einen Zug von 80 Schritten (Chromium), WebKitGTK 38.5 -> 16.1 ms pro
-      // Schritt. Gelesen wird `--railw` nur von `#rail` selbst.
-      rail.style.setProperty("--railw",w+"px"); };
+      // Schritt. Gelesen wird `--railw` nur von `#rail` selbst --
+      // #382: und von der linken Zone der Titelleiste, also bekommt `#bar`
+      // denselben Wert im selben Schritt. Zwei kleine Teilbaeume, nie die Wurzel.
+      rail.style.setProperty("--railw",w+"px"); bar.style.setProperty("--railw",w+"px"); };
     const up=()=>{
       document.removeEventListener("mousemove",move);
       document.removeEventListener("mouseup",up);
       grip.classList.remove("on"); rail.classList.remove("dragging");
+      bar.classList.remove("dragging");
       sizing.end();
       pywebview.api.rail_width(Math.round(
         rail.getBoundingClientRect().width)); };
@@ -6315,7 +6457,7 @@ const crow = {
     ev.preventDefault();
     // #156: DIE SPALTE, nicht das Panel. Sie traegt die Breite, seit zwei
     // Panels darin liegen -- gezogen wird eine Kante, und die gehoert beiden.
-    const panel=$("#side"), grip=$("#codegrip");
+    const panel=$("#side"), grip=$("#codegrip"), bar=$("#bar");
     grip.classList.add("on"); panel.classList.add("dragging");
     sizing.begin();
     const right=panel.getBoundingClientRect().right;
@@ -6328,8 +6470,10 @@ const crow = {
                    : 612;
     const move=e=>{
       const w=Math.max(260,Math.min(cap,Math.round(right-e.clientX)));
-      // #236. Aus demselben Grund auf `#side`, das `--codew` als einziges liest.
-      panel.style.setProperty("--codew",w+"px"); };
+      // #236. Aus demselben Grund auf `#side`, das `--codew` als einziges liest
+      // -- #382: neben der rechten Zone der Titelleiste, die denselben Wert
+      // im selben Schritt bekommt.
+      panel.style.setProperty("--codew",w+"px"); bar.style.setProperty("--codew",w+"px"); };
     const up=()=>{
       document.removeEventListener("mousemove",move);
       document.removeEventListener("mouseup",up);
@@ -7280,6 +7424,7 @@ const crow = {
   // and the template lands there anyway. Dropping the word to save six characters would put the
   // chip back to naming a setting instead of naming what the model DOES.
   showModel(){ const c = $("#model");
+    this.showEngine();                     // #382: the title bar says it too
     if(!this.modelName){ c.hidden = true; return; }
     c.hidden = false;
     c.innerHTML = '<b></b><span class="lvl"></span>';
@@ -7289,6 +7434,55 @@ const crow = {
   // KEPT AS A NAME the two `case` arms already call, so the merge did not have to touch the
   // seam between the Python side and the page. It sets the level and redraws the one chip.
   showReason(level){ this.reasoning = level || ""; this.showModel(); },
+
+  // #382. THE ENGINE CHIP IN THE TITLE BAR, drawn only from what the page
+  // already holds: the server's state (`up` / `down` set data-state), the
+  // model and its level (the composer chip's own fields), the context (`ctx`)
+  // and the last turn's numbers (`stats`, from the turn-end `cost`). Every
+  // part by textContent -- they all arrived over the bridge. A part with
+  // nothing to say is hidden, not drawn empty between two gaps.
+  showEngine(){ const b=$("#engine"); if(!b) return;
+    const st=b.dataset.state;
+    const part=(sel,text)=>{ const el=b.querySelector(sel);
+      el.textContent=text||""; el.hidden=!text; };
+    b.querySelector(".ename").textContent = this.modelName
+      || (st==="down" ? "no server" : "connecting");
+    part(".elvl", this.levelLabel().replace(/^ · /,""));
+    const rate=(this.stats||{}).decode_rate;
+    part(".erate", typeof rate==="number" ? rate.toFixed(2)+" tok/s" : "");
+    const used=(this.ctxNow||[0,0])[0], limit=(this.ctxNow||[0,0])[1];
+    part(".ectx", used>0 ? this.tokK(used)+(limit>0 ? " / "+(limit/1000).toFixed(0)+"k" : "")
+                         : "");
+    // NOTHING MEASURED YET: the chip says what the server is doing instead, the
+    // way the mockup's start screen says "ready".
+    const none=!(typeof rate==="number") && !(used>0);
+    part(".eword", !none ? "" : st==="up" ? "ready"
+                     : st==="down" ? (this.downWhy||"no server") : "connecting"); },
+
+  // #382. THE MONO FACE, ASKED FOR ONCE THE BRIDGE IS THERE. The bytes come as
+  // base64 (`Api.mono_font`; on a phone through `/api`), become an ArrayBuffer
+  // and a FontFace for the family `--mono` names first (CSS Font Loading:
+  // `new FontFace(family, buffer, descriptors)`, `load()`,
+  // `document.fonts.add()`). Until then, and if it never comes, the stack's
+  // system monospace sets the code -- the first paint never waits for it.
+  monoFace(){
+    if(this.monoAsked || !window.FontFace || !document.fonts) return;
+    this.monoAsked = true;
+    return Promise.resolve(pywebview.api.mono_font()).then(b64 => {
+      if(!b64) return;
+      const bin = atob(b64), bytes = new Uint8Array(bin.length);
+      for(let i=0; i<bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      // A VARIABLE FONT: one face covers 300 to 800.
+      const face = new FontFace("Google Sans Code", bytes.buffer,
+                                {weight:"300 800", style:"normal", display:"swap"});
+      return face.load().then(f => { document.fonts.add(f); });
+    }).catch(() => {}); },
+
+  // A DISCLOSURE (WAI-ARIA APG): a button that says whether its details are
+  // out. `aria-expanded` is the state, `.open` only what CSS draws from it.
+  engineToggle(){ const b=$("#engine"), open=b.getAttribute("aria-expanded")!=="true";
+    b.setAttribute("aria-expanded", open ? "true" : "false");
+    b.classList.toggle("open", open); },
 
   // #119: `reasonMenu` IS GONE, not renamed. Its rows moved into modelMenu above, keeping the
   // rule the panel existed to hold: a click chooses AND applies, and every name is drawn with
@@ -7641,9 +7835,14 @@ const crow = {
       btn.dataset.armed=""; label.textContent="delete"; },4000);
   },
 
+  // ONE SPELLING OF A TOKEN COUNT for the composer and the title bar (#382).
+  tokK(n){ return n<1000 ? String(n) : (n/1000).toFixed(1)+"k"; },
+
   ctx(tokens,limit){
+    // #382: kept for the engine chip, which says the same "used / n_ctx".
+    this.ctxNow=[tokens||0, limit||0]; this.showEngine();
     const el=$("#ctx"); if(tokens<=0){ el.innerHTML=""; return; }
-    const size = tokens<1000 ? String(tokens) : (tokens/1000).toFixed(1)+"k";
+    const size = this.tokK(tokens);
     if(limit<=0){ el.innerHTML='<span class="n">'+size+'</span>'; return; }
     // THE NUMBER, NOT A BAR OF HASHES. Ten cells could only ever say the share
     // to within 10%, and the figure that answers "how much room is left" was
@@ -8702,6 +8901,7 @@ const crow = {
     if(e.bg) return;
     switch(e.k){
       case "up": $("#dot").className="up"; $("#state").textContent="connected";
+        $("#engine").dataset.state="up";
         // #115: kept on the page rather than asked for when the menu opens, so
         // a click answers from what the last probe SAW instead of racing it.
         if(e.models){ this.models=e.models; }
@@ -8723,13 +8923,17 @@ const crow = {
         if(e.groups!==undefined){ this.groups=e.groups; }
         this.showReason(e.level); break;
       case "down": $("#dot").className="down";
-        $("#state").textContent=e.why||"no server"; break;
+        $("#state").textContent=e.why||"no server";
+        $("#engine").dataset.state="down"; this.downWhy=e.why||""; this.showEngine(); break;
       // #125. STRAIGHT TO ABOUT. The version used to sit beside the wordmark and
       // be copied into the sheet when it opened; the ribbon is a name and three
       // window buttons now, so the number goes where somebody looks it up.
       case "meta": $("#aboutver").textContent=e.version;
         if(e.slash) this.slash=e.slash;
-        if(e.rail) $("#rail").style.setProperty("--railw", e.rail+"px");
+        // #382: AND ON THE BAR, the other reader -- its left zone stands over
+        // the rail. Two small subtrees, never <html> (#236).
+        if(e.rail){ $("#rail").style.setProperty("--railw", e.rail+"px");
+                    $("#bar").style.setProperty("--railw", e.rail+"px"); }
         // THE TITLE, NOT A CHIP (#119). Set rather than interpolated for the same reason every
         // other name here is: it is a string that arrived over the bridge.
         $("#conn").title=e.url;
@@ -8785,7 +8989,11 @@ const crow = {
       case "tool": this.tool(e.name,e.args,e.raw,e.code); break;
       case "toolend": this.toolEnd(e.name,e.s,e.rep); break;
       case "toolres": this.toolRes(e.name,e.t,e.cut); break;
-      case "cost": this.cost(e.line,e.share,e.sub); this.ctx(e.tokens,e.n_ctx); break;
+      // #382: `stats` is the turn's numbers as numbers; the page keeps the last
+      // one (a chat switch re-sends the line without it) and the engine chip
+      // shows its decode rate. #383 draws the strip from it.
+      case "cost": this.cost(e.line,e.share,e.sub); if(e.stats) this.stats=e.stats;
+        this.ctx(e.tokens,e.n_ctx); break;
       case "ctx": this.ctx(e.tokens,e.n_ctx); break;
       case "subs": this.subs(e.items); break;
       case "note": this.note(e.t); break;
@@ -8834,6 +9042,20 @@ input.addEventListener("keydown",e=>{
   if(e.key==="Enter" && !e.shiftKey && !e.isComposing && e.keyCode!==229){
     e.preventDefault(); crow.go(); }
   if(e.key==="Escape" && crow.running) pywebview.api.stop(); });
+
+// #382. CTRL+K OPENS THE SEARCH FROM ANYWHERE, the composer included -- the
+// palette key of an editor works from inside a file too. Escape lets go of the
+// field (it folds back to the magnifier when empty) and hands the keyboard back
+// to the composer. Escape there is the field's own, so a running turn is not
+// stopped by somebody closing the search.
+const searchIn = $("#searchin");
+document.addEventListener("keydown",e=>{
+  if((e.key!=="k" && e.key!=="K") || !searchIn) return;
+  if(!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+  e.preventDefault(); searchIn.focus(); searchIn.select(); });
+if(searchIn) searchIn.addEventListener("keydown",e=>{
+  if(e.key!=="Escape") return;
+  e.preventDefault(); searchIn.blur(); input.focus(); });
 
 // BOTH HAVE TO BE PREVENTED, and dragover is the one people forget: without it
 // the drop never reaches a listener at all, because WebView2 has already
@@ -9033,12 +9255,12 @@ window.addEventListener("resize", () => sizing.pulse());
 // THE WRAPPER, NOT THE PANEL, and that is the whole reason each of these has a wrapper. Guarding
 // on `#modelmenu` alone would close the menu on the mousedown that lands on its own chip, and the
 // click a moment later would find it hidden and toggle it straight back open -- so the chip could
-// open the menu and never close it. `#helpwrap` was written this way first; the other three now
-// match it.
+// open the menu and never close it. `#helpwrap` was written this way first; the others now
+// match it (#382 removed the Help menu itself; Settings sits at the rail's foot).
 //
 // `mousedown` RATHER THAN `click`, unchanged from what was here: the panel is gone before
 // whatever sits under it does its work, and a row inside a panel is caught by its own wrapper.
-const DISMISS = [["#helpwrap","#helpmenu"], ["#modelwrap","#modelmenu"],
+const DISMISS = [["#modelwrap","#modelmenu"],
                  ["#modewrap","#modemenu"], ["#rootwrap","#rootmenu"],
                  ["#subwrap","#submenu"]];
 window.addEventListener("mousedown",e=>{
@@ -9105,6 +9327,8 @@ new ResizeObserver(() => crow.brPlace()).observe($("#brbody"));
 // (min-width:0), #main traegt die Mindestbreite der Maske.
 
 window.addEventListener("pywebviewready",()=>{ pywebview.api.ready(); input.focus(); });
+// #382: the mono face, once per page, after the first paint (see `monoFace`).
+window.addEventListener("pywebviewready",()=>crow.monoFace());
 // #249: kein pywebview auf dem Telefon, also kein `pywebviewready` von aussen --
 // die Bruecke oben koppelt, oeffnet den Strom und feuert es selbst.
 /* __REMOTE_JS__ */
@@ -9211,6 +9435,8 @@ REMOTE_PROXIED = frozenset({
     "tools_cleared", "unstage_image", "update_check", "update_start",
     "engine_check", "engine_update_start",  # #367, as update_check/_start
     "view_live",
+    # #382: the mono face's bytes; the phone builds its FontFace from them too.
+    "mono_font",
     # #311: the phone sees the previews, the lightbox and its (i) panel --
     # `image_full` answers a phone with the bytes, never a `file://` URL.
     "image_thumb", "image_full", "image_info",
@@ -9302,7 +9528,7 @@ REMOTE_HEAD = ('<meta name="viewport" content="width=device-width,'
                '<meta name="theme-color" media="(prefers-color-scheme: light)"'
                ' content="#ffffff">'
                '<meta name="theme-color" media="(prefers-color-scheme: dark)"'
-               ' content="#181818">'
+               ' content="#171717">'
                # the owner's iPhone, 2026-09-24: "Add to Home Screen" drew a
                # generic "1" tile. The tile, the title and standalone mode.
                #
@@ -9329,10 +9555,10 @@ REMOTE_HEAD = ('<meta name="viewport" content="width=device-width,'
 # (the stamped colour is THEME_BG's, the ground the window itself paints)
 REMOTE_CSS = """
 /* #249: auf dem Telefon bleibt die Titelleiste als Kopf -- sie traegt Rail,
-   Code, Git, Browser und Hilfe. Weg sind nur Fensterknoepfe, Zieh- und
+   Code, Git und Browser (#382: die Einstellungen stehen seither am Fuss der
+   Rail, also in ihrer Schublade). Weg sind nur Fensterknoepfe, Zieh- und
    Greifzonen und der Telefonknopf selbst. */
 #wbtns,.grip,#remotetoggle{display:none !important}
-#remotetoggle + #codetoggle{margin-left:auto}
 #bar{-webkit-app-region:no-drag}
 #remotepair{position:fixed;inset:0;z-index:50;display:grid;place-items:center;
   background:var(--bg);color:var(--text);padding:24px;text-align:center}
@@ -9373,20 +9599,27 @@ body{padding:var(--safe-t) var(--safe-r) 0 var(--safe-l);
    right open the code / git / browser drawers. */
 #bar{height:var(--barh);padding:0 4px;gap:0;background:var(--bg);
   border-bottom:1px solid var(--line-soft)}
-#railtoggle,#codetoggle,#gittoggle,#browsertoggle,#help{
+/* #382: the desktop bar has three zones over its columns and a search and
+   an engine chip in the middle one. The phone keeps the header it had --
+   the zones dissolve into the bar's own row, the middle one's two controls
+   stay off -- until #387 redraws the phone. */
+#barl,#barm,#barr{display:contents}
+#search,#engine,#barr>.vsep{display:none!important}
+#railtoggle,#codetoggle,#gittoggle,#browsertoggle{
   min-width:var(--tap);min-height:var(--tap);justify-content:center;
   margin:0;border-radius:10px}
 #railtoggle svg,#codetoggle svg,#gittoggle svg,#browsertoggle svg{
   width:19px;height:19px}
 #mark{font-size:12.5px;margin:0 4px}
+/* #382: the desktop hides the wordmark while the rail is folded; here the
+   rail is a drawer and "shut" is its resting state, so the name stays. */
+body[data-rail="shut"] #mark{display:inline}
 #bar #codetoggle{margin-left:auto}
-#help{font-size:12.5px;padding:0 10px}
-#helpmenu button{min-height:var(--tap);font-size:14px}
 /* The toggles light when their drawer is open (page rule), not per setting. */
 
 /* ---- the chat fills the screen ------------------------------------------ */
 #body{position:relative;background:var(--bg)}
-#main{min-width:0;border-radius:0;
+#main,body[data-rail="shut"] #main{min-width:0;border-radius:0;border:0;margin:0;
   container-type:normal}          /* fixed children anchor to the viewport */
 #flow{padding-top:14px;
   /* fitFlow writes padding-bottom inline; the pinned card adds its height */
@@ -9862,7 +10095,7 @@ REMOTE_JS = r"""
     body.classList.add("m-auto");
     const shown = id => { const e = document.getElementById(id); return !!e && !e.hidden; };
     const busy = () => DRAWERS.some(isOpen) || body.classList.contains("m-tools")
-      || ["helpmenu","modemenu","modelmenu","rootmenu","submenu","settings"].some(shown)
+      || ["modemenu","modelmenu","rootmenu","submenu","settings"].some(shown)
       || (document.getElementById("menu") || {classList:{contains:()=>false}}).classList.contains("on");
     const arm = ms => { clearTimeout(timer);
       timer = setTimeout(() => { timer = null;
@@ -10195,6 +10428,51 @@ REMOTE_JS = r"""
     else [railEl, sideEl, scrim].forEach(x => x && x.classList.remove("m-gone")); });
 })();
 """
+
+
+# #382. THE MONO FACE COMES THROUGH THE BRIDGE, NOT IN THE PAGE. The page is
+# handed over as a string (WebView2: NavigateToString, origin about:blank, at
+# most 2 MB), so a relative URL has nothing to resolve against, a `file:///`
+# one stayed `unloaded` on WebKitGTK (measured 2026-09-16, see the note in
+# `main`), and the font inlined as a `data:` URL took 358 kB of the 2 MB the
+# page may have. So the page asks for the bytes after load (`Api.mono_font`)
+# and builds a FontFace from them -- on the phone through the same `/api`
+# call. Read once per process. The upright file only: italic code is rare
+# enough for the engine's slant.
+MONO_FONT_FILE = os.path.join(HERE, "fonts", "GoogleSansCode[MONO,wght].ttf")
+_MONO_FONT: "str | None" = None
+
+
+# #382. WHAT THE PAGE GETS OF A TURN'S BALANCE (`TurnCost.record()`), as
+# numbers rather than as the line it would have to take apart again. `line`
+# stays: the core still assembles it, and the page still prints it. The seeds
+# stay in the archive; the page has no use for them.
+TURN_STATS = ("rounds", "decoded", "decode_rate", "prefilled", "prefill_rate",
+              "prefill_s", "cached", "cached_of", "tool_calls", "tool_errors",
+              "tool_declined", "waited_s", "model_s", "tool_s", "finish")
+
+
+def turn_stats(record: "dict | None") -> "dict | None":
+    """The page's share of a turn's record: the TURN_STATS keys it has. A
+    rate without a denominator is absent in the record and stays absent here.
+    None for a turn without rounds -- the page then keeps its last numbers."""
+    if not record:
+        return None
+    return {key: record[key] for key in TURN_STATS if key in record}
+
+
+def mono_font_data() -> str:
+    """The TTF behind `--mono` as base64, read once. Empty when the file is
+    missing: the stack's next names (ui-monospace, Cascadia Mono, Consolas)
+    then set the code, which is what the page did before #382."""
+    global _MONO_FONT
+    if _MONO_FONT is None:
+        try:
+            with open(MONO_FONT_FILE, "rb") as fh:
+                _MONO_FONT = base64.b64encode(fh.read()).decode("ascii")
+        except OSError:
+            _MONO_FONT = ""
+    return _MONO_FONT
 
 
 def stamped_page(remote: bool = False) -> str:
@@ -12340,6 +12618,11 @@ class Api:
             for m in self._conversation.payload()
             if m.get("role") == "assistant")
         return self._tools_cleared
+
+    def mono_font(self) -> str:
+        """#382: the mono face's bytes as base64, for the page's FontFace.
+        The same answer for the window and a phone; "" when the file is gone."""
+        return mono_font_data()
 
     def ready(self) -> None:
         # #249. EIN TELEFON, DAS SEINE SEITE GELADEN HAT, bekommt den Stand --
@@ -18698,20 +18981,24 @@ class Api:
         self._promised_warm = getattr(result, "promised_warm", self._promised_warm)
         cost = getattr(result, "cost", None)
         line = cost.line() if cost is not None and getattr(cost, "rounds", 0) else ""
-        if line:
+        # #382: ONE `record()` for the archive and the page, so both carry the
+        # same `waited_s` (it is read off the clock inside the call).
+        record = cost.record() if line else None
+        if record is not None:
             # #171. DIESELBE BILANZ, DIE DIE ZEILE ZEIGT, als Zahlen ins Band --
             # `at` sagt, nach wievielen Nachrichten der Zug endete, damit ein
             # Auswerter sie im Archiv den Zuegen zuordnen kann. Ein Zug ohne
             # Runden hat keine Bilanz; deshalb haengt es an derselben Bedingung
             # wie die Zeile und nicht an einer zweiten.
-            self._timings.append(dict(cost.record(),
-                                      at=len(self._conversation)))
+            self._timings.append(dict(record, at=len(self._conversation)))
             del self._timings[:-crow_core.SESSION_TIMINGS_MAX]
         self.push({"k": "cost", "line": "[" + line + "]" if line else "",
                    "share": events.share, "tokens": self._context_tokens,
                    "n_ctx": self._n_ctx,
                    # #143. This turn's delegation share, token counts only.
-                   "sub": self._sub_share(sub_before) if line else ""})
+                   "sub": self._sub_share(sub_before) if line else "",
+                   # #382. The same balance as numbers, for the page.
+                   "stats": turn_stats(record)})
         self._persist_live()
         # THE RAIL FOLLOWS THE TURN. A chat that had just been given its first
         # message went on calling itself "new chat" until something else

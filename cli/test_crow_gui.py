@@ -3427,7 +3427,10 @@ class TheThemeAndTheSettingsSheetTests(unittest.TestCase):
         # accent, the bevel and the model's own colour are brand values out of
         # the core, and a theme that redefined them would be inventing a second
         # brand rather than choosing a ground.
-        structural = {"--mono", "--ui", "--barh", "--sbw", "--colw", "--colpad", "--reserve"}
+        # #382 ADDS THE COLUMN WIDTHS the title bar's zones share with the
+        # columns: sizes, not colours, so no theme redefines them.
+        structural = {"--mono", "--ui", "--barh", "--sbw", "--colw", "--colpad", "--reserve",
+                      "--railw", "--codew", "--railshut"}
         carried = {"--accent", "--bevel", "--model"}
         for theme in ("light", "crow"):
             head = ':root[data-theme="%s"]{' % theme
@@ -3517,16 +3520,19 @@ class TheThemeAndTheSettingsSheetTests(unittest.TestCase):
                 self.assertIs(crow_core.context_clear_inputs_on(remote=False), home, doc)
                 self.assertIs(crow_core.context_clear_inputs_on(remote=True), remote, doc)
 
-    def test_hilfe_sits_in_the_title_bar_and_leaves_the_drag_region(self):
-        """The bar moves the window. Anything clickable in it has to opt out, or
-        the click becomes a drag and the menu never opens."""
-        self.assertIn('<div id="helpwrap" class="pywebview-no-drag">', self.source)
-        self.assertIn('id="help" onclick="crow.helpMenu()"', self.source)
-        mark = self.source.index('id="mark"')
-        help_at = self.source.index('id="helpwrap"')
-        wbtns = self.source.index('id="wbtns"')
-        self.assertLess(mark, help_at, "Help is not drawn after the wordmark")
-        self.assertLess(help_at, wbtns, "Help is drawn past the window buttons")
+    def test_settings_sits_at_the_rails_foot_and_help_is_gone(self):
+        """#382 CHANGES THIS REQUIREMENT. The Help menu held one entry,
+        Settings; the approved mockup puts Settings at the foot of the rail,
+        below the archive, and the title bar has no Help any more."""
+        rail = self.source[self.source.index('<aside id="rail">'):]
+        rail = rail[:rail.index("</aside>")]
+        self.assertIn('id="settingsbtn"', rail)
+        self.assertIn('onclick="crow.openSettings()"', rail)
+        self.assertLess(rail.index('id="arch"'), rail.index('id="settingsbtn"'),
+                        "Settings is not at the rail's foot")
+        # NEGATIVE: no Help button, no menu, no opener left behind.
+        for gone in ('id="helpwrap"', 'id="help"', 'id="helpmenu"', "helpMenu("):
+            self.assertNotIn(gone, self.source, gone)
 
     def test_the_sheet_carries_the_three_categories(self):
         """Appearance, Skills, About -- named even where they are still empty,
@@ -3537,18 +3543,16 @@ class TheThemeAndTheSettingsSheetTests(unittest.TestCase):
         for key in ("look", "skills", "about"):
             self.assertIn('data-cat="%s"' % key, self.source)
 
-    def test_the_typeface_is_the_machine_own(self):
-        """NEGATIVE. The shipped typeface must not be named by the page: a window
-        that looks different depending on whether the user installed a font has
-        two appearances and no way to say which is the real one."""
-        # THE DECLARATIONS, NOT THE COMMENTS. The note above the stack names the
-        # typeface it replaced, and a test that could not tell the two apart
-        # would forbid writing down why the change happened.
-        rules = chr(10).join(l for l in self.css.splitlines()
-                        if not l.strip().startswith(("/*", "*", "//")))
-        self.assertNotIn("Google Sans Code", rules,
-                         "the page still asks for the shipped typeface")
-        self.assertIn("--ui:system-ui", self.css)
+    def test_code_is_set_in_the_shipped_face_and_prose_in_the_systems(self):
+        """#382 CHANGES THIS REQUIREMENT. It used to forbid naming the shipped
+        face, because a face the user had to install gave the window two
+        appearances. The face now comes with Crow (`Api.mono_font`, its own
+        cases), so there is one appearance again -- the mockup's: Google Sans
+        Code for code, Segoe UI Variable first for prose."""
+        self.assertIn('--mono:"Google Sans Code",ui-monospace,"Cascadia Mono",'
+                      'Consolas,monospace;', self.css)
+        self.assertIn('--ui:"Segoe UI Variable Text","Segoe UI",system-ui,'
+                      '-apple-system,"Helvetica Neue",sans-serif;', self.css)
 
 class TheDropAndThePasteTests(unittest.TestCase):
     """Files into the box: dropped from Explorer, pasted from the clipboard."""
@@ -3986,10 +3990,13 @@ class TheBarLostThreeChipsAndTheMenuGainedASubmenuTests(unittest.TestCase):
         not, so the window had two behaviours and no rule for which was which."""
         table = self.source[self.source.index("const DISMISS = ["):
                             self.source.index("window.addEventListener(\"mousedown\"")]
-        for wrap, menu in (("#helpwrap", "#helpmenu"), ("#modelwrap", "#modelmenu"),
+        # #382 removed the Help menu (Settings sits at the rail's foot), so
+        # its pair left the table with it.
+        for wrap, menu in (("#modelwrap", "#modelmenu"),
                            ("#modewrap", "#modemenu"), ("#rootwrap", "#rootmenu")):
             self.assertIn('["%s","%s"]' % (wrap, menu), table,
                           "%s does not close on a click elsewhere" % menu)
+        self.assertNotIn("#helpwrap", table)
 
     def test_the_guard_is_the_wrapper_and_never_the_panel(self):
         """THE TRAP THIS PAIRING EXISTS FOR. Guarding on the panel alone closes
@@ -4743,7 +4750,7 @@ class TheHeldWriteBarTests(unittest.TestCase):
             return tuple(int(h[k:k + 2], 16) for k in (0, 2, 4))
 
         # The dark palette is the shipped default and the one robin looked at.
-        dark = self.css[self.css.index("--bg:#181818"):]
+        dark = self.css[self.css.index("--bg:#171717"):]
         dark = dark[:dark.index(CLOSE)]
         used = {}
         for cls in ("plus", "minus"):
@@ -5055,7 +5062,7 @@ class TheMemoryLineTests(unittest.TestCase):
                                      % (module, node.lineno, node.value[:60]))
         self.assertIn("Memory updated", self.source)
         self.assertIn("Good morning, %s.", self.source)
-        self.assertIn(">Help</button>", self.source)
+        self.assertIn("<span>Settings</span></button>", self.source)
         self.assertIn("<h2>Settings</h2>", self.source)
 
     def test_the_line_cannot_be_switched_off(self):
@@ -5104,7 +5111,7 @@ class TheBirdTests(unittest.TestCase):
             high, low = sorted((lum(a), lum(b)), reverse=True)
             return (high + 0.05) / (low + 0.05)
 
-        grounds = {"dark": ["#181818", crow_core.CROW_BG], "light": ["#ffffff"]}
+        grounds = {"dark": ["#171717", crow_core.CROW_BG], "light": ["#ffffff"]}
         for background, on in grounds.items():
             strokes = set(re.findall(r'stroke="(#[0-9a-f]{6})"',
                                      crow_gui.mark_svg(background)))
@@ -5300,7 +5307,8 @@ class TheRibbonAndTheChatRunIntoOneTests(unittest.TestCase):
         to and reads as a notch."""
         main = self.css[self.css.index("#main{"):]
         main = main[:main.index("}") + 1]
-        self.assertIn("border-top-left-radius", main)
+        # #382 CHANGES THE CORNER: all four, 14 px, the mockup's sheet.
+        self.assertIn("border-radius:14px", main)
         self.assertIn("background:var(--bg)", main)
         self.assertIn("overflow:hidden", main)
         body = self.css[self.css.index("#body{"):]
@@ -5619,7 +5627,7 @@ class TheMcpSheetTests(ApiCase):
             h = hexed.lstrip("#")
             return tuple(int(h[k:k + 2], 16) for k in (0, 2, 4))
 
-        dark = self.css[self.css.index("--bg:#181818"):]
+        dark = self.css[self.css.index("--bg:#171717"):]
         dark = dark[:dark.index(CLOSE)]
         picked = _re.search(r"color:var\((--[a-z-]+)\)", chosen)
         proposed = _re.search(r"color:var\((--[a-z-]+)\)", guess)
@@ -7927,8 +7935,10 @@ class TheCodePanelTests(unittest.TestCase):
         m = re.search(r"#main\{([^}]*)\}", self.css)
         self.assertTrue(m, "#main lost its rule")
         body = m.group(1)
-        self.assertIn("border-top-left-radius:12px", body)
-        self.assertIn("border-top-right-radius:12px", body)
+        # #382 CHANGES THE NUMBER AND THE COUNT: one radius for all four
+        # corners, 14 px, as the approved mockup draws the sheet.
+        self.assertIn("border-radius:14px", body)
+        self.assertNotIn("border-top-left-radius", body)
 
     def test_the_toggle_sits_in_the_title_bar(self):
         """#119's reason, unchanged: a button inside the panel goes away with the
@@ -7944,7 +7954,8 @@ class TheCodePanelTests(unittest.TestCase):
         docs/ is not shipped anyway."""
         start = self.source.index('id="codetoggle"')
         svg = self.source[start:start + 700]
-        self.assertIn('stroke-width="1.6"', svg)
+        # #382 CHANGES THE WEIGHT: every title-bar icon is the mockup's 1.75.
+        self.assertIn('stroke-width="1.75"', svg)
         self.assertIn('stroke="currentColor"', svg)
         # NICHT DER NAME, SONDERN DER STEMPEL. Woher das Zeichen stammt, darf im
         # Kommentar stehen -- was nicht mitreisen darf, sind die beiden <text>-
@@ -8786,9 +8797,12 @@ class NothingOverhangsOrClipsTests(unittest.TestCase):
                                    r"\{visibility:hidden\}\}")
 
     def test_the_settings_sheet_starts_below_the_title_bar(self):
-        bar = self._px(self._rule("#bar{"), "height")
-        settings = self._rule("#settings{position:fixed")
-        self.assertEqual(self._px(settings, "padding-top"), bar)
+        # #382 CHANGES THE FORM: the bar is 46 px, and both numbers are now the
+        # one name --barh, so they cannot drift apart again.
+        self.assertIn("height:var(--barh)", self._rule("#bar{"))
+        self.assertIn("padding-top:var(--barh)", self._rule("#settings{position:fixed"))
+        self.assertIn("padding-top:var(--barh)", self._rule("#remotedlg{position:fixed"))
+        self.assertEqual(self._px(self._rule(":root{"), "--barh"), 46)
 
     def test_the_level_keeps_the_space_before_its_dot(self):
         """`.lvl` ist ein Flex-Item, sein fuehrendes Leerzeichen stuende am
@@ -8818,9 +8832,12 @@ class NothingOverhangsOrClipsTests(unittest.TestCase):
 
     def test_scrollbars_stay_out_of_rounded_corners(self):
         """Der Spurrand ist der Radius, gegen den die Leiste laeuft."""
-        main = self._px(self._rule("#main{"), "border-top-right-radius")
-        self.assertEqual(self._px(self._rule("#flow::-webkit-scrollbar-track{"),
-                                  "margin-top"), main)
+        # #382: one radius for all four corners, so the track keeps clear of
+        # the bottom one too.
+        main = self._px(self._rule("#main{"), "border-radius")
+        track = self._rule("#flow::-webkit-scrollbar-track{")
+        self.assertEqual(self._px(track, "margin-top"), main)
+        self.assertEqual(self._px(track, "margin-bottom"), main)
         goal = self._px(self._rule("#goalpanel{"), "border-radius")
         self.assertIn("margin:%dpx 0" % goal,
                       self._rule("#goalpanel::-webkit-scrollbar-track{"))
@@ -14387,7 +14404,7 @@ class RemoteApiParityTests(RemoteCase):
     to the desktop with a stated replacement -- and a call from one client
     produces the push the other one needs."""
 
-    PAGE_METHODS = 108         # 88 at fb31ca2 + the six pairing controls (#249 stage 5) + stage_image_data, drop_seen (#312) + the eight image_* (#311) + video_src, video_reveal (#340) + engine_check, engine_update_start (#367)
+    PAGE_METHODS = 109         # 88 at fb31ca2 + the six pairing controls (#249 stage 5) + stage_image_data, drop_seen (#312) + the eight image_* (#311) + video_src, video_reveal (#340) + engine_check, engine_update_start (#367) + mono_font (#382)
 
     def page_methods(self) -> set:
         page = crow_gui.PAGE
@@ -14766,7 +14783,7 @@ console.log(JSON.stringify({loaded, opened, closed, closedAgain, sheet, gone, op
         from THEME_BG), then one per colour scheme; html and body carry the
         page's ground themselves."""
         phone = crow_gui.stamped_page(remote=True)
-        want = crow_gui.THEME_BG.get(crow_gui.current_theme(), "#181818")
+        want = crow_gui.THEME_BG.get(crow_gui.current_theme(), "#171717")
         self.assertIn('<meta id="mtheme" name="theme-color" content="%s">' % want, phone)
         self.assertIn('media="(prefers-color-scheme: light)"', phone)
         self.assertIn('media="(prefers-color-scheme: dark)"', phone)
@@ -15540,20 +15557,22 @@ console.log(JSON.stringify(out));
         self.assertEqual(closed, [])
 
     # -- the phone icon in the title bar ------------------------------------
-    def test_the_icon_sits_left_of_the_three_panel_buttons(self):
+    def test_the_icon_follows_the_three_panel_buttons(self):
+        """#382 CHANGES THE ORDER: the approved mockup sets the phone after
+        the globe -- side panel, git, browser, phone -- then a separator and
+        the window buttons."""
         src = (HERE / "crow_gui.py").read_text(encoding="utf-8")
         bar = src[src.index('<div id="bar"'):src.index('<div id="wbtns"')]
         order = [bar.index('id="%s"' % i) for i in
-                 ("mark", "remotetoggle", "codetoggle", "gittoggle",
-                  "browsertoggle")]
+                 ("mark", "codetoggle", "gittoggle", "browsertoggle",
+                  "remotetoggle")]
         self.assertEqual(order, sorted(order))
-        icon = bar[bar.index('id="remotetoggle"'):bar.index('id="codetoggle"')]
-        self.assertIn('stroke-width="1.6"', icon)
+        icon = bar[bar.index('id="remotetoggle"'):]
+        self.assertIn('stroke-width="1.75"', icon)
         self.assertIn('stroke="currentColor"', icon)
+        self.assertLess(icon.index('class="rdot"'), icon.index('class="vsep"'))
         css = crow_gui.PAGE
-        self.assertIn("#remotetoggle{margin-left:auto;", css)
-        self.assertIn("#remotetoggle + #codetoggle{margin-left:0}", css)
-        self.assertIn("#remotetoggle{margin-right:9px}", css)
+        self.assertNotIn("#remotetoggle{margin-left:auto", css)
         self.assertIn("#remotetoggle.live .rdot{display:block}", css)
         self.assertIn("background:var(--ok)", css[css.index("#remotetoggle .rdot"):])
         self.assertIn('case "remote": this.remoteState(e); break;', css)
@@ -16928,8 +16947,9 @@ class TheCloseSavesThenEndsTests(unittest.TestCase):
 
     def test_the_window_says_it_is_saving_while_it_closes(self):
         source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
-        button = source[source.index('<div class="wb close"'):]
-        button = button[:button.index("</div>")]
+        # #382: the window buttons are the mockup's icon buttons.
+        button = source[source.index('<button class="ib wb close"'):]
+        button = button[:button.index("</button>")]
         self.assertIn("classList.add('closing')", button)
         self.assertIn('body.closing::after{content:"saving the chat', source)
 
@@ -17216,6 +17236,388 @@ class TheWindowLeavesTheGpuToTheEngineTests(unittest.TestCase):
         self.assertIn("crow_platform.webview_without_gpu()", body)
         self.assertLess(body.index("crow_platform.webview_without_gpu()"),
                         body.index("import webview"))
+
+
+class TheWindowShellTests(unittest.TestCase):
+    """#382. The window's shell as in the mockup robin approved on 2026-10-14
+    (vault Crow/02_docs/mockup-crow-gui-redesign-2026-10-14/Main.dc.html):
+    the palette, the rounded chat panel, the three title-bar zones over the
+    three columns, the search field, the engine chip, the mono face."""
+
+    NEW_NAMES = ("--accent-soft", "--sub-soft", "--ok-soft", "--warn-soft", "--on-accent")
+
+    def setUp(self) -> None:
+        self.source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        self.css = self.source[self.source.index("<style>"):self.source.index("</style>")]
+        body = self.source[self.source.index("</style>"):]
+        self.bar = body[body.index('<div id="bar"'):body.index('<div id="remotedlg"')]
+
+    def _block(self, head: str) -> str:
+        block = self.css[self.css.index(head):]
+        return block[:block.index("\n}")]
+
+    def _rule(self, selector: str) -> str:
+        found = self.css[self.css.index(selector):]
+        return found[:found.index(chr(125))]
+
+    # -- the palette --------------------------------------------------------
+
+    def test_every_palette_carries_the_new_names(self):
+        for head in (":root{", ':root[data-theme="light"]{', ':root[data-theme="crow"]{'):
+            block = self._block(head)
+            for name in self.NEW_NAMES:
+                self.assertIn(name + ":", block, "%s lacks %s" % (head, name))
+
+    def test_the_dark_palette_is_the_mockups(self):
+        dark = self._block(":root{")
+        for pair in ("--bg:#171717", "--rail:#121212", "--panel:#1d1d1f",
+                     "--raised:#252527", "--hover:#2a2a2d", "--line:#2d2d30",
+                     "--line-soft:#222225", "--text:#ededef", "--text-soft:#c9c9cd",
+                     "--dim:#a3a3a8"):
+            self.assertIn(pair, dark)
+        crow = self._block(':root[data-theme="crow"]{')
+        for pair in ("--panel:#111628", "--raised:#161c30", "--hover:#1a2136",
+                     "--line:#222b42", "--line-soft:#171e30", "--text:#e3eaf5",
+                     "--text-soft:#b8c6dc", "--dim:#8a99b3", "--bg:__BG__"):
+            self.assertIn(pair, crow)
+        # The light ground darkens the accent (contrast), the others carry it.
+        self.assertIn("--accent:#2b67c9", self._block(':root[data-theme="light"]{'))
+        self.assertNotIn("--accent:#", dark)
+        self.assertNotIn("--accent:#", crow)
+        # THE BRAND GROUND IS STAMPED, never written (the manifest counts it).
+        self.assertIn("--on-accent:__BG__", dark)
+        self.assertIn("--on-accent:__BG__", crow)
+        # And the window's first paint is the page's ground.
+        self.assertEqual(crow_gui.THEME_BG["dark"], "#171717")
+
+    # -- the panel and the zones ----------------------------------------------
+
+    def test_the_chat_panel_lies_on_the_rail(self):
+        main = self._rule("#main{flex:1")
+        self.assertIn("border-radius:14px", main)
+        self.assertIn("border:1px solid var(--line-soft)", main)
+        self.assertIn("margin:0 8px 8px 0", main)
+        self.assertIn("background:var(--rail)", self._rule("#body{"))
+        for rule in ("#bar{", "#rail{width", "#side{width"):
+            self.assertNotRegex(self._rule(rule), r"border(-bottom|-right|-left)?:",
+                                "%s draws a line again" % rule)
+
+    def test_the_zones_read_the_columns_own_widths(self):
+        root = self._block(":root{")
+        for name in ("--railw:", "--codew:__CODEW__px", "--railshut:"):
+            self.assertIn(name, root)
+        self.assertIn("width:var(--railw)", self._rule("#rail{width"))
+        self.assertIn("width:var(--codew)", self._rule("#side{width"))
+        self.assertIn("width:calc(var(--railw) + 1px)", self._rule("#barl{"))
+        self.assertIn("width:calc(var(--codew) + 1px)", self._rule("#barr{"))
+        self.assertIn("min-width:max-content", self._rule("#barr{"))
+        # The panel's right margin is the middle zone's.
+        self.assertIn("margin-right:8px", self._rule("#barm{"))
+        # RAIL FOLDED: the zone keeps its own room and the panel starts there.
+        self.assertIn('body[data-rail="shut"] #barl{width:var(--railshut)}', self.css)
+        self.assertIn('body[data-rail="shut"] #main{margin-left:calc(var(--railshut) - 1px)}',
+                      self.css)
+        self.assertIn('body[data-code="shut"][data-browser="shut"] #barr{width:auto', self.css)
+
+    def test_every_width_write_reaches_both_readers(self):
+        """#236 keeps a drag step off <html>; #382 adds the bar as the second
+        reader, so every writer of a width writes both."""
+        page = crow_gui.PAGE
+        rail = page[page.index("\n  railDrag(ev){"):page.index("\n  codeDrag(ev){")]
+        self.assertIn('rail.style.setProperty("--railw",w+"px"); '
+                      'bar.style.setProperty("--railw",w+"px");', rail)
+        code = page[page.index("\n  codeDrag(ev){"):]
+        code = code[:code.index('document.addEventListener("mouseup",up); }')]
+        self.assertIn('panel.style.setProperty("--codew",w+"px"); '
+                      'bar.style.setProperty("--codew",w+"px");', code)
+        self.assertIn('$("#bar").style.setProperty("--railw", e.rail+"px");', page)
+        self.assertNotIn("body.style.setProperty(\"--railw\"", page)
+
+    def test_the_bar_holds_the_mockups_controls_in_its_order(self):
+        at = 0
+        for mark in ('id="barl"', 'id="railtoggle"', 'id="mark"', 'id="barm"',
+                     'id="search"', 'id="engine"', 'id="barr"', 'id="codetoggle"',
+                     'id="gittoggle"', 'id="browsertoggle"', 'id="remotetoggle"',
+                     '<span class="vsep"></span>', 'id="wbtns"'):
+            self.assertIn(mark, self.bar[at:], "%s is out of the mockup's order" % mark)
+            at = self.bar.index(mark, at)
+        for icon in ("railtoggle", "codetoggle", "gittoggle", "browsertoggle", "remotetoggle"):
+            tag = self.bar[self.bar.index('id="%s"' % icon):]
+            tag = tag[:tag.index("</button>")]
+            self.assertIn('class="ib pywebview-no-drag"', tag, icon)
+            self.assertIn('stroke-width="1.75"', tag, icon)
+        wbtns = self.bar[self.bar.index('id="wbtns"'):]
+        self.assertEqual(wbtns.count('<button class="ib wb'), 3)
+        self.assertNotIn("&#10005;", wbtns, "the close glyph is a character again")
+
+    # -- the search -----------------------------------------------------------
+
+    def test_the_search_is_a_magnifier_that_opens_into_a_field(self):
+        self.assertIn('<label class="s-ico" for="searchin">', self.bar)
+        self.assertIn('<input id="searchin" type="search"', self.bar)
+        self.assertIn('<span class="kbd s-kbd">Ctrl K</span>', self.bar)
+        self.assertIn("height:32px", self._rule(".search{"))
+        self.assertIn("width:0", self._rule(".search input{"))
+        self.assertIn(".search:focus-within input{width:210px}", self.css)
+        self.assertIn(".search:has(input:not(:placeholder-shown)) input{width:210px}",
+                      self.css)
+
+    def test_has_never_shares_a_rule_with_focus_within(self):
+        """An engine without `:has()` drops the whole selector list it stands
+        in; sharing a rule would take the focus case down with it."""
+        css = re.sub(r"/\*.*?\*/", "", self.css, flags=re.S)
+        rules = re.findall(r"([^{}]*)\{[^{}]*\}", css)
+        searched = [r.strip() for r in rules if ".search" in r]
+        has = [r for r in searched if ":has(" in r]
+        self.assertEqual(len(has), 2, has)
+        for sel in has:
+            self.assertNotIn(":focus-within", sel)
+            self.assertNotIn(",", sel)
+
+    def test_ctrl_k_focuses_the_search_and_escape_lets_go(self):
+        page = crow_gui.PAGE
+        key = page[page.index("const searchIn = $(\"#searchin\");"):]
+        key = key[:key.index("input.focus(); });") + 18]
+        self.assertIn('e.key!=="k" && e.key!=="K"', key)
+        self.assertIn("searchIn.focus();", key)
+        self.assertIn('if(e.key!=="Escape") return;', key)
+        self.assertIn("searchIn.blur();", key)
+
+    # -- the engine chip ------------------------------------------------------
+
+    def test_the_engine_chip_is_a_disclosure_button(self):
+        chip = self.bar[self.bar.index('<button id="engine"'):]
+        chip = chip[:chip.index("</button>")]
+        self.assertIn('type="button"', chip)
+        self.assertIn('aria-expanded="false"', chip)
+        self.assertIn('onclick="crow.engineToggle()"', chip)
+        for part in ("edot", "ename", "elvl", "erate", "ectx"):
+            self.assertIn('class="%s"' % part, chip)
+        self.assertIn(".engine.open .more{max-width:280px;opacity:1;padding-left:10px}",
+                      self.css)
+
+    def _chip_run(self) -> dict:
+        node = _node()
+        if not node:
+            self.skipTest("no node on this machine")
+        page = crow_gui.PAGE
+        def method(name: str, end: str) -> str:
+            start = page.index("\n  %s(" % name) + 1
+            return page[start:page.index(end, start) + len(end)]
+        methods = (method("tokK", "},") + "\n"
+                   + method("showEngine", '"connecting"); },') + "\n"
+                   + method("engineToggle", 'b.classList.toggle("open", open); },'))
+        js = r"""
+const parts = {}; for (const k of [".ename",".elvl",".erate",".ectx",".eword"])
+  parts[k] = {textContent: "", hidden: k !== ".ename"};
+const attrs = {"aria-expanded": "false"}, cls = new Set();
+const engine = {dataset: {state: "wait"}, querySelector: s => parts[s],
+  getAttribute: k => (k in attrs ? attrs[k] : null), setAttribute: (k, v) => { attrs[k] = String(v); },
+  classList: {toggle: (c, on) => { on ? cls.add(c) : cls.delete(c); }}};
+const $ = s => (s === "#engine" ? engine : null);
+const crow = {levelLabel(){ return " · high"; },
+""" + methods + r"""
+};
+const snap = () => ({expanded: attrs["aria-expanded"], open: cls.has("open"),
+  parts: Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, v.hidden ? null : v.textContent]))});
+const out = {};
+crow.showEngine(); out.wait = snap();
+engine.dataset.state = "up"; crow.modelName = "Qwen3.8-Flash-Next"; crow.showEngine(); out.ready = snap();
+crow.stats = {decode_rate: 35.85}; crow.ctxNow = [6100, 200000]; crow.showEngine(); out.ran = snap();
+crow.engineToggle(); out.click1 = snap(); crow.engineToggle(); out.click2 = snap();
+console.log(JSON.stringify(out));
+"""
+        done = subprocess.run([node, "-e", js], capture_output=True, text=True,
+                              encoding="utf-8", timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_a_click_slides_out_level_rate_and_context(self):
+        out = self._chip_run()
+        self.assertEqual(out["wait"]["parts"][".ename"], "connecting")
+        self.assertEqual(out["ready"]["parts"][".ename"], "Qwen3.8-Flash-Next")
+        self.assertEqual(out["ready"]["parts"][".eword"], "ready")
+        ran = out["ran"]["parts"]
+        self.assertEqual(ran[".elvl"], "high")
+        self.assertEqual(ran[".erate"], "35.85 tok/s")
+        self.assertEqual(ran[".ectx"], "6.1k / 200k")
+        self.assertIsNone(ran[".eword"], "a measured chip still says 'ready'")
+        self.assertEqual((out["ran"]["expanded"], out["ran"]["open"]), ("false", False))
+        self.assertEqual((out["click1"]["expanded"], out["click1"]["open"]), ("true", True))
+        self.assertEqual((out["click2"]["expanded"], out["click2"]["open"]), ("false", False))
+
+    def test_the_chip_hears_the_server_and_the_turn(self):
+        page = crow_gui.PAGE
+        self.assertIn('$("#engine").dataset.state="up";', page)
+        self.assertIn('$("#engine").dataset.state="down";', page)
+        self.assertIn("if(e.stats) this.stats=e.stats;", page)
+        self.assertIn('#engine[data-state="up"] .edot{background:var(--ok)', self.css)
+
+    # -- the rail's foot, motion ------------------------------------------------
+
+    def test_motion_stops_when_the_system_asks(self):
+        start = self.css.index("@media (prefers-reduced-motion:reduce){\n  #rail")
+        block = self.css[start:self.css.index("}}", start)]
+        for sel in ("#rail", "#side", "#main", "#barl", ".search", ".search input",
+                    ".s-kbd", ".engine .more"):
+            self.assertIn(sel, block)
+        self.assertIn("transition:none", block)
+        # AFTER every rule that sets one of these transitions, or it loses.
+        self.assertGreater(start, self.css.index("#rail{transition:width .16s ease}"))
+        self.assertGreater(start, self.css.index("#main{transition:margin-left .16s ease}"))
+
+    # -- the mono face -----------------------------------------------------------
+
+    FONT = os.path.join(HERE, "fonts", "GoogleSansCode[MONO,wght].ttf")
+
+    def test_the_mono_face_stays_out_of_the_page(self):
+        """The font took 358 kB of WebView2's 2 MB as a `data:` URL; it comes
+        through the bridge now, so neither page carries it."""
+        with open(self.FONT, "rb") as fh:
+            head = base64.b64encode(fh.read(48)).decode("ascii")
+        for page in (crow_gui.stamped_page(), crow_gui.stamped_page(remote=True)):
+            self.assertNotIn("data:font/ttf;base64", page)
+            self.assertNotIn("@font-face{", page)
+            self.assertNotIn(head, page)
+        self.assertIn('window.addEventListener("pywebviewready",()=>crow.monoFace());',
+                      crow_gui.PAGE)
+
+    def test_the_bridge_hands_over_the_font(self):
+        api = crow_gui.Api.__new__(crow_gui.Api)
+        data = api.mono_font()
+        with open(self.FONT, "rb") as fh:
+            self.assertEqual(base64.b64decode(data), fh.read())
+        self.assertIs(api.mono_font(), data, "read again instead of once")
+        # The phone asks the same method through /api, proxied 1:1.
+        self.assertIn("mono_font", crow_gui.REMOTE_PROXIED)
+        self.assertIn("mono_font", crow_gui.REMOTE_ALLOWED)
+        self.assertIs(api._remote_call("mono_font", []), data)
+
+    def _face_run(self, answer: str) -> dict:
+        node = _node()
+        if not node:
+            self.skipTest("no node on this machine")
+        page = crow_gui.PAGE
+        start = page.index("\n  monoFace(){") + 1
+        end = ".catch(() => {}); },"
+        method = page[start:page.index(end, start) + len(end)]
+        js = r"""
+const calls = [], faces = [], added = [];
+globalThis.window = globalThis;
+globalThis.pywebview = {api: {mono_font(){ calls.push(1); return Promise.resolve(ANSWER); }}};
+globalThis.document = {fonts: {add: f => added.push(f.family)}};
+globalThis.FontFace = class { constructor(family, source, desc){ this.family = family;
+    faces.push({family, bytes: Array.from(new Uint8Array(source)), desc}); }
+  load(){ return Promise.resolve(this); } };
+const crow = {
+""".replace("ANSWER", json.dumps(answer)) + method + r"""
+};
+(async () => { await crow.monoFace(); await crow.monoFace();
+  console.log(JSON.stringify({calls: calls.length, faces, added})); })();
+"""
+        done = subprocess.run([node, "-e", js], capture_output=True, text=True,
+                              encoding="utf-8", timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_the_page_builds_a_font_face_from_the_bytes(self):
+        out = self._face_run(base64.b64encode(bytes([0, 1, 2, 255])).decode("ascii"))
+        self.assertEqual(out["calls"], 1, "asked twice")
+        self.assertEqual(out["faces"], [{"family": "Google Sans Code",
+                                         "bytes": [0, 1, 2, 255],
+                                         "desc": {"weight": "300 800", "style": "normal",
+                                                  "display": "swap"}}])
+        self.assertEqual(out["added"], ["Google Sans Code"])
+        # NEGATIVE: no bytes, no face -- the stack's fallback stays.
+        none = self._face_run("")
+        self.assertEqual((none["faces"], none["added"]), ([], []))
+
+    def test_the_stamped_page_fits_what_webview2_takes(self):
+        """WebView2's NavigateToString takes at most 2 MB (Microsoft Learn,
+        ICoreWebView2::NavigateToString: "may not be larger than 2 MB (2 * 1024
+        * 1024 bytes)", LPCWSTR, so UTF-16). The font is not part of it."""
+        self.assertLess(len(crow_gui.stamped_page().encode("utf-16-le")), 2 * 1024 * 1024)
+
+    def test_a_missing_font_file_leaves_the_fallback_stack(self):
+        before = (crow_gui.MONO_FONT_FILE, crow_gui._MONO_FONT)
+        self.addCleanup(lambda: (setattr(crow_gui, "MONO_FONT_FILE", before[0]),
+                                 setattr(crow_gui, "_MONO_FONT", before[1])))
+        crow_gui.MONO_FONT_FILE = os.path.join(HERE, "fonts", "no-such-face.ttf")
+        crow_gui._MONO_FONT = None
+        self.assertEqual(crow_gui.Api.__new__(crow_gui.Api).mono_font(), "")
+
+    def test_a_folded_rail_leaves_only_the_toggle(self):
+        """With the rail shut the left zone is the toggle alone and the panel
+        starts right after it: no empty strip the width of the wordmark."""
+        root = self._block(":root{")
+        self.assertIn("--railshut:50px", root)
+        self.assertIn('body[data-rail="shut"] #mark{display:none}', self.css)
+        self.assertIn("padding:6px 8px 6px 10px", self._rule("#barl{"))
+        # 10 + 32 + 8: the zone's padding around the one 32 px button.
+        self.assertIn("width:32px", self._rule(".ib{"))
+        # The phone's rail is a drawer whose resting state is "shut": the name stays.
+        self.assertIn('body[data-rail="shut"] #mark{display:inline}', crow_gui.REMOTE_CSS)
+
+
+class TheTurnStatsReachThePageTests(ApiCase):
+    """#382. The turn-end `cost` push carries the balance as numbers (`stats`),
+    picked from the same `TurnCost.record()` that goes into the archive."""
+
+    def _provider(self) -> None:
+        crow_core.provider_key_set("openrouter", "not-a-real-key-0123456789")
+        doc = crow_core.provider_doc()
+        doc["catalog"] = {"openrouter": {"fetched": 1, "models": [
+            {"id": "z-ai/glm-5.2:free", "name": "glm", "context": 131072}]}}
+        crow_core.provider_write(doc)
+        self.assertIsNone(crow_core.provider_pick("openrouter", "z-ai/glm-5.2:free"))
+
+    def _turn(self, cost) -> list[dict]:
+        self._provider()
+        api = self.api()
+
+        def fake_run(conversation, **kw):
+            conversation.append("assistant", "done")
+            return crow_core.TurnResult(cost=cost, context_tokens=9,
+                                        promised_warm=False, rolled=False,
+                                        stopped=False, reported=True)
+
+        api._conversation.append("user", "eine Frage")
+        with mock.patch.object(crow_gui, "run_turn", fake_run), \
+             mock.patch.object(crow_core, "review_due", lambda *a, **k: None):
+            api._run("eine Frage")
+        self.api_used = api
+        return [m for m in self.drained(api) if m.get("k") == "cost"]
+
+    def test_the_push_carries_the_numbers(self):
+        cost = crow_core.TurnCost()
+        cost.add_round({"predicted_n": 200, "prompt_n": 1000,
+                        "predicted_ms": 10000.0, "prompt_ms": 2000.0,
+                        "_client_total_s": 12.0, "_cached_tokens": 900, "_seed": 7})
+        cost.add_tool(1.5, failed=False)
+        costs = self._turn(cost)
+        self.assertTrue(costs)
+        stats = costs[-1]["stats"]
+        self.assertEqual(stats["rounds"], 1)
+        self.assertEqual(stats["decoded"], 200)
+        self.assertEqual(stats["decode_rate"], 20.0)
+        self.assertEqual(stats["prefilled"], 1000)
+        self.assertEqual(stats["prefill_rate"], 500.0)
+        self.assertEqual(stats["prefill_s"], 2.0)
+        self.assertEqual((stats["cached"], stats["cached_of"]), (900, 1900))
+        self.assertEqual(stats["tool_calls"], 1)
+        self.assertEqual(stats["tool_s"], 1.5)
+        self.assertEqual(set(stats) - set(crow_gui.TURN_STATS), set())
+        self.assertNotIn("seeds", stats, "the archive's seeds reached the page")
+        # ONE record for both: the archive's entry says the same.
+        band = dict(self.api_used._timings[-1])
+        self.assertEqual({k: band[k] for k in stats}, stats)
+        # The line is still the core's.
+        self.assertIn("1 round", costs[-1]["line"])
+
+    def test_a_turn_without_rounds_sends_none(self):
+        costs = self._turn(crow_core.TurnCost())
+        self.assertTrue(costs)
+        self.assertIsNone(costs[-1]["stats"])
 
 
 if __name__ == "__main__":
