@@ -58,7 +58,7 @@ python cli\crow_boot.py
 | *(optional)* lines | a llama.cpp line from `manifests/operating-point.json` (ports 8081/8082/8083), started like Crow's own `start_server`: ready when `/props` answers, 600 s. Drawn dimmed; plain consoles show only the tag |
 | Stop the running point | ends every model server the process scan sees (`serve`, `sd-server`, `llama-server`, ComfyUI), waits until each is torn down, removes the contract file |
 | Quit | leaves the menu. A running point keeps running |
-| *(engine update)* | not in this menu: the window's `Help → Settings → About` shows crow-nest's newest release and installs it into `bin\`, and refuses while a `serve` from there runs, so stop the point here first (#367, [install](install.md#updating)) |
+| *(engine update)* | not in this menu: the window's `Settings → About` (Settings at the foot of the rail) shows crow-nest's newest release and installs it into `bin\`, and refuses while a `serve` from there runs, so stop the point here first (#367, [install](install.md#updating)) |
 
 | | |
 |---|---|

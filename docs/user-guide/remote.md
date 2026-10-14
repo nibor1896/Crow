@@ -15,6 +15,28 @@ phone. (#249).
 | 4 | Desktop: **Allow** in the bar (60 s, else denied) |
 | 5 | Optional: Safari → Share → **Add to Home Screen** |
 
+## On the phone (#387)
+
+<div align="center">
+<img src="../images/window-phone-2026-10-14.png" alt="The phone page at 390×844, rendered by tools/render_window.py --remote from the goal-run fixture: the header with rail toggle, CROW, magnifier, model chip and inspector toggle; the chat head with the folder chip and the Goal 3/3 pill; the turn head, the trace strip, the one-line d1 subtask card, the folded Thought and the answer; the one-row composer" width="300">
+</div>
+
+Below 700 px the phone shows the window's own page, redesigned with it (#380), in phone form. The
+picture is rendered by `tools/render_window.py --remote` (#381) in headless Chrome, dark, from
+`tools/fixtures/goal-run-2026-09-16.json`, not taken on a phone.
+
+| | |
+|---|---|
+| header | 48 px: rail toggle, CROW, the search magnifier (the field opens across the header, the [search](window.md) results under it), the model chip (short name; a tap adds the decode rate and the context), the inspector toggle. The git, browser, phone and window buttons are not shown |
+| chat head | one 44 px row: title, folder chip, branch, and the goal pill, which is the phone's goal strip: a tap opens the inspector on its Goal tab. The old goal bar is gone |
+| inspector | the right drawer (a swipe from the right edge opens it too) with the tabs Goal, Tools, Subtasks and Git. Git is a tab, no longer a drawer of its own; there is no Browser tab, a phone has no live page |
+| turn | the trace strip full width, each segment with a 20 px tap band; the subtask card without the model; the telemetry strip as a 3-column grid |
+| composer | one row, `+`, the input and the round send; the `+` sheet keeps its rows, and on the start screen, which has no chat head, its middle row holds the folder chip. The layout also follows a width change after the page has loaded, as on rotating the phone |
+| start screen | mark 120 px, greeting 20 px, then the composer and the Continue cards, stacked |
+| rail | the left drawer; Settings at its foot is a 44 px row |
+| measured | 2026-10-14, 390×844, goal-run fixture: `scrollWidth` 390 (no sideways scroll) in the chat, the open drawer, the open search, the start screen and the light theme; header targets 44×44, the model chip 84×44; drawer tabs Goal, Tools 11, Subtasks 1, Git, each 44 px high, Goal showing 3 steps; telemetry 3 × 120 px, `scrollWidth` 360 = `clientWidth` 360; start screen with 2 cards |
+| not checked | on a phone: the look against the desktop, whether the magnifier focuses the field on iOS (the field is 0 px wide until it has the focus), dictation and image upload with the new layout, the switch on rotation |
+
 ## Commands
 
 | command | |
