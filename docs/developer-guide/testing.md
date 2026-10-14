@@ -61,6 +61,7 @@ Run from the repo root.
 | `tools/check_routing_tables.py` | REAP-pruned checkpoints can carry duplicate expert ids, which crashes CUDA `ggml_mul_mat_id()` on the tokens that hit them. Reads the static routing table without loading the model |
 | `tools/check_gui_prereqs.py` | what the window stands on: font, glyph coverage, runtime versions. It checks the machine it runs on, not the code, and is not run in CI |
 | `tools/check_pathtracer_kit.py` | the voxel kit (#298): bundle sha256 and size against `kits/pathtracer/kit.json`, the three licence texts, NOTICE naming each pinned version, exact MIT pins, the kit importing only the bundle, no `vertexColors: true`, emission capped at 1, a skill description that fits |
+| `tools/render_window.py` | not a checker: renders `stamped_page` headless in Chrome, Edge or Chromium (`CROW_CHROME` names one) with a fixture's messages replayed through `crow.on` and the bridge stubbed, on the desktop page or (`--remote`) the phone's. Writes a PNG and prints `getBoundingClientRect` of the `--rects` as JSON, identical on every run; `--click` and `--focus` drive it. `tools/fixtures/goal-run-2026-09-16.json` is the goal run of `window-goal-2026-09-16.png`. Suite: `python -m unittest tools/test_render_window.py`, its browser cases skipped without a browser (#381) |
 
 The checkers carry their own suites: `tools/test_check_operating_point.py`,
 `tools/test_check_shared_core.py`, `tools/test_check_gui_prereqs.py`, plus
