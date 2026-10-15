@@ -15,7 +15,7 @@ a menu, for a script or a test.
     python cli/crow_boot.py --stop                stop the running point
     python cli/crow_boot.py --start-crow          open the window against the running point
     python cli/crow_boot.py --start-claude        open the window on the Claude subscription (#398)
-    python cli/crow_boot.py --gui               the operating-point window (crow_boot_gui.py)
+    python cli/crow_boot.py --gui                 the operating-point window (crow_boot_gui.py)
     python cli/crow_boot.py --create-shortcut DIR a Windows shortcut to that window in DIR
                                                   (add --terminal for one to this menu)
     python cli/crow_boot.py --plan 27b --json     what --start 27b would use, as JSON (the

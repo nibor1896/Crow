@@ -5,6 +5,10 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 4.1.0 — 2026-10-15
+
+The operating-point window picks from one field with a Vision switch (#396), Flash-Next and the 27B can start without their vision tower (#397, not measured), and the window and the terminal menu start Crow on the Claude subscription without a local model, with a sign-in for the first start (#398).
+
 ### Added
 
 - **Start Crow on your Claude subscription from the operating-point window** (#398, `6281ac4`, `41f1847`, 2026-10-15). The window's Claude entry opens Crow on Claude (subscription) without a local model, whether or not a point runs, and a point can still be started there later. When you are not signed in, **Sign in** opens a terminal running the unmodified `claude auth login`. The entry turns to Start by itself once you are signed in: Claude Code is asked every 3 s for up to 10 minutes. With a guard variable set, Claude Code missing, or an API key or cloud platform billed instead, the entry says so and offers no button. The terminal menu has the same line, "Start Crow with Claude (subscription)", and `crow_boot.py --start-claude` does the same from the command line. Not checked live.
