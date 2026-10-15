@@ -61,6 +61,7 @@ claude auth login
 | | |
 |---|---|
 | Sign in | in a terminal, the command above (Anthropic's own flow); `Settings → Subscriptions` → `ask again`. Sign out: `claude auth logout` |
+| From the operating-point window | pick **Claude (subscription)**: **Start** opens Crow on it without a local model, and a point can still be started there later. Not signed in, **Sign in** opens a terminal running `claude auth login`, and the entry turns to **Start** by itself once you are signed in ([boot](boot.md#operating-point-window)) |
 | Tile | the Claude Code version, what `claude auth status` says (`signed in with your subscription`, a token from the environment, or `Claude Code bills an API key, not your subscription`), the guard variables that are set. Asked when the page opens and on `ask again`, not at window start |
 | Pick | `Settings → Model` → Claude (subscription), then the model on the composer's chip |
 | Needs | Claude Code on `PATH` (`npm install -g @anthropic-ai/claude-code` otherwise) and a chat with a folder: Claude Code works in it. A chat under No folder is refused with a sentence |

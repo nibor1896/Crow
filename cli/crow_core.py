@@ -85,7 +85,7 @@ import crow_platform
 # column 0. Until #187 it stood in cli/crow.py, which handed it over on import;
 # an installation older than this change still carries it there, and that is
 # the only reason the installers look in crow.py at all.
-VERSION = "4.0.0"
+VERSION = "4.1.0"
 
 # The name every reader has used since the split: the session file's `version`
 # field, the User-Agents and the update notice. It used to be "" until the
@@ -1983,6 +1983,10 @@ def read_active_point() -> "dict | None":
                                "port", "readiness"},
                      "video": {"argv", "cwd", "port", "readiness"}}
 
+    #397, ONLY FOR A VARIANT START: `variant` ("text": the point without its
+    vision tower, stack.json `variants`). A base start writes no such key; it
+    is handed back as found.
+
     TOLERANT ON PURPOSE: a missing, unreadable or corrupt file, or one whose
     `point` is not one of the three, is None -- "no boot script ran", which
     keeps today's behaviour for a llama.cpp user.
@@ -2066,7 +2070,8 @@ def running_server_label(pid, line: str) -> str:
 def write_active_point(point: str, base_url: str, pids: dict,
                        started_at: "str | None" = None,
                        servers: "dict | None" = None,
-                       mode: "str | None" = None) -> str:
+                       mode: "str | None" = None,
+                       variant: "str | None" = None) -> str:
     """Write the contract file `read_active_point` reads (schema there).
     Returns its path. Raises ValueError for an unknown point, OSError when the
     file cannot be written.
@@ -2091,6 +2096,9 @@ def write_active_point(point: str, base_url: str, pids: dict,
         doc["servers"] = servers
     if mode is not None:
         doc["mode"] = mode
+    # #397: only a variant start says which one; a base start keeps the shape.
+    if variant is not None:
+        doc["variant"] = variant
     path = active_point_path()
     folder = os.path.dirname(path)
     os.makedirs(folder, exist_ok=True)
@@ -2151,6 +2159,28 @@ def refuse_images(base_url: str, timeout: float = 3.0) -> "str | None":
     if isinstance(modalities, dict) and not modalities.get("vision"):
         return BLIND_SERVER_HINT
     return None
+
+
+def server_vision(base_url: str, timeout: float = 3.0) -> "bool | None":
+    """/props `modalities.vision` of the server at this address (#397).
+
+    THE FIELD `refuse_images` READS, as the server's answer: True or False,
+    and None when nothing answers or the answer has no `modalities`. The boot
+    names a scanned Flash-Next or 27B its text-only variant by it
+    (`crow_boot.Boot.detect`): serve with `CROW_VIT=0` says vision false.
+    """
+    root = base_url.rstrip("/")
+    if root.endswith("/v1"):
+        root = root[: -len("/v1")]
+    try:
+        with urllib.request.urlopen(root + "/props", timeout=timeout) as resp:
+            doc = json.loads(resp.read().decode("utf-8")) or {}
+    except Exception:
+        return None
+    modalities = doc.get("modalities") if isinstance(doc, dict) else None
+    if not isinstance(modalities, dict):
+        return None
+    return bool(modalities.get("vision"))
 
 
 # 2026-08-28, drei stille Servertode ohne jeden Windows-Fussabdruck (kein

@@ -148,6 +148,7 @@ class BootCase(unittest.TestCase):
                         llama=FakeLlama(),
                         point_for=lambda url, timeout=3.0: None,
                         model_path=lambda url, timeout=3.0: None,
+                        vision=lambda url, timeout=3.0: None,
                         terminate=self.terminated.append, log_dir=self.logs)
         defaults.update(kw)
         return crow_boot.Boot(STACK, self.install, self.models, **defaults)
@@ -484,9 +485,12 @@ class TheOptionalLlamaLinesTests(BootCase):
         self.assertIsNone(self.contract())
 
     def test_the_menu_numbers_them_after_the_baseline_and_starts_them(self):
-        # #340: the Media Stack is a baseline row on Windows only
-        here = sum(1 for p in STACK["points"] if crow_boot.runs_here(p))
-        answers = iter([str(2 + here), "0"])
+        # #340: the Media Stack is a baseline row on Windows only; #397: each
+        # variant is a numbered row of its own under its base; #398: Start Crow
+        # and Start Crow with Claude come first
+        here = sum(1 + len(p.get("variants") or []) for p in STACK["points"]
+                   if crow_boot.runs_here(p))
+        answers = iter([str(3 + here), "0"])
         popen = FakePopen()
         code = self.boot(read=lambda prompt="": next(answers), popen=popen,
                          get=lambda url, timeout: (200, b"{}"),
@@ -494,13 +498,14 @@ class TheOptionalLlamaLinesTests(BootCase):
         self.assertEqual(code, crow_boot.EXIT_OK)
         self.assertEqual(popen.calls[0][0][-1], "8082")
         rows = self.boot(llama=FakeLlama([LLAMA_27B])).entries()
-        self.assertEqual([r[0] for r in rows if r[4] and r[4][0] == "stop"], [str(3 + here)])
+        self.assertEqual([r[0] for r in rows if r[4] and r[4][0] == "stop"], [str(4 + here)])
 
 
 class TheLandedScreenReturnsToTheMenuTests(BootCase):
     def test_landed_shows_five_seconds_then_the_menu_comes_back_without_a_key(self):
         self.layout("27b")
-        answers = iter(["3", "0"])
+        # #397: the 27B's number moves with the variant rows above it
+        answers = iter([next(r[0] for r in self.boot().entries() if r[4] == ("point", "27b")), "0"])
         asked = []
 
         def read(prompt=""):
@@ -1155,6 +1160,325 @@ class AComfyUIIsAServerTooTests(BootCase):
         self.assertEqual(killed, ["9191"])
         self.assertIn("ComfyUI pid 9191", text)
         self.assertIsNone(self.contract())
+
+
+SERVE_8099 = ("7001", r"C:\x\bin\serve.exe --port 8099")
+URL_8099 = "http://127.0.0.1:8099/v1"
+
+
+def without_variants(stack):
+    """stack.json as it was before #397: no point carries `variants`."""
+    old = copy.deepcopy(stack)
+    for point in old["points"]:
+        point.pop("variants", None)
+    return old
+
+
+class TheTextVariantsArePlannedFromTheirBaseTests(BootCase):
+    """#397: `text` on Flash-Next and the 27B is the same point without the
+    vision tower. The variant is planned from its base; the base is untouched."""
+
+    def test_flash_next_text_has_the_tower_off_and_no_projector(self):
+        plan = crow_boot.plan_point(STACK, "flash-next", self.install, self.models, variant="text")
+        base = crow_boot.plan_point(STACK, "flash-next", self.install, self.models)
+        env = plan["serve"]["env"]
+        self.assertEqual(env["CROW_VIT"], "0")
+        self.assertNotIn("CROW_VIT_MMPROJ", env)
+        self.assertEqual({k: v for k, v in env.items() if k != "CROW_VIT"},
+                         {k: v for k, v in base["serve"]["env"].items() if k != "CROW_VIT_MMPROJ"},
+                         "every other key is the base's")
+        self.assertEqual((plan["serve"]["argv"], plan["base_url"]),
+                         (base["serve"]["argv"], base["base_url"]))
+        self.assertEqual(plan["variant"], "text")
+        self.assertEqual(plan["title"], "Qwen3.8-Flash-Next", "the title stays the base's")
+        self.assertEqual(plan["line"], "200k context — text only, the vision tower's VRAM goes to experts")
+        self.assertEqual(plan["gui"], "200k context. Text only, more experts on the card.")
+        self.assertIs(plan["identity"]["vision"], False)
+        self.assertIs(base["identity"]["vision"], True, "planning the variant changed the stack")
+        self.assertIn("CROW_VIT_MMPROJ", base["serve"]["env"])
+
+    def test_the_27b_text_has_the_tower_off_and_says_128k(self):
+        # the first draft gave it 200,000 on paper; the owner's 131,072 stands
+        plan = crow_boot.plan_point(STACK, "27b", self.install, self.models, variant="text")
+        env = plan["serve"]["env"]
+        self.assertEqual(env["CROW_VIT"], "0")
+        self.assertNotIn("CROW_VIT_MMPROJ", env)
+        self.assertEqual(plan["line"], "128k context — text only, without the vision tower")
+        self.assertEqual(plan["gui"], "128k context. Text only.")
+        self.assertIs(plan["identity"]["vision"], False)
+
+    def test_the_27b_text_inherits_the_context_131072_from_its_base(self):
+        # owner decision 2026-10-07 (crow-nest #88, the 8-bit KV gate failed): the 27B
+        # stays at 131,072; 200k was refused for VRAM on 2026-10-01. The ~1 GiB the
+        # tower frees is not used by the dense model, so the variant sets no context.
+        plan = crow_boot.plan_point(STACK, "27b", self.install, self.models, variant="text")
+        base = crow_boot.plan_point(STACK, "27b", self.install, self.models)
+        env = plan["serve"]["env"]
+        self.assertEqual((env["CROW_VIT"], env["CROW_CONTEXT"]), ("0", "131072"))
+        self.assertEqual(env["CROW_CONTEXT"], base["serve"]["env"]["CROW_CONTEXT"])
+        variant = next(p for p in STACK["points"] if p["id"] == "27b")["variants"][0]
+        self.assertNotIn("CROW_CONTEXT", variant["env"], "inherited, not set again")
+        self.assertNotIn("context", variant)
+
+    def test_a_base_plan_is_what_it_was_before_variants(self):
+        old = without_variants(STACK)
+        for point in [p for p in STACK["points"] if crow_boot.runs_here(p)]:
+            plan = crow_boot.plan_point(STACK, point["id"], self.install, self.models)
+            self.assertIsNone(plan["variant"])
+            self.assertEqual(plan, crow_boot.plan_point(old, point["id"], self.install, self.models),
+                             point["id"])
+        base = crow_boot.plan_point(STACK, "27b", self.install, self.models)
+        self.assertEqual(base["serve"]["env"]["CROW_CONTEXT"], "131072")
+        self.assertNotIn("CROW_VIT", base["serve"]["env"])
+
+    def test_an_unknown_variant_is_a_setup_error_that_names_the_known_ones(self):
+        with self.assertRaises(crow_boot.SetupError) as cm:
+            crow_boot.plan_point(STACK, "flash-next", self.install, self.models, variant="blind")
+        self.assertEqual(str(cm.exception), "flash-next has no variant 'blind' (text)")
+        with self.assertRaises(crow_boot.SetupError) as cm:
+            crow_boot.plan_point(STACK, "glm53-flash", self.install, self.models, variant="text")
+        self.assertIn("it has none", str(cm.exception))
+
+
+class StartingATextVariantTests(BootCase):
+    def test_a_variant_start_drops_the_projector_and_writes_variant(self):
+        self.layout("flash-next")
+        probes = iter([NOTHING, OK_HEALTH])
+        popen = FakePopen()
+        leftover = os.path.join(self.tmp, "elsewhere", "mmproj-F16.gguf")
+        with mock.patch.dict(os.environ, {"CROW_VIT_MMPROJ": leftover}):
+            code = self.boot(popen=popen, get=lambda url, timeout: next(probes)
+                             ).start("flash-next", variant="text")
+        text = self.out.getvalue()
+        self.assertEqual(code, crow_boot.EXIT_OK, text)
+        env = popen.calls[0][1]["env"]
+        self.assertEqual(env["CROW_VIT"], "0")
+        self.assertIsNone(env.get("CROW_VIT_MMPROJ"), "the shell's projector leaked in")
+        doc = self.contract()
+        self.assertEqual((doc["point"], doc["variant"]), ("flash-next", "text"))
+        self.assertIn("Starting Qwen3.8-Flash-Next · text only -- 200k context — text only", text)
+        self.assertIn("Qwen3.8-Flash-Next · text only is ready", text)
+
+    def test_a_base_start_writes_the_env_and_the_contract_it_always_wrote(self):
+        old = without_variants(STACK)
+        for point_id in ("flash-next", "27b"):
+            self.layout(point_id)
+            probes = iter([NOTHING, OK_HEALTH])
+            popen = FakePopen()
+            self.assertEqual(self.boot(popen=popen, get=lambda url, timeout: next(probes)
+                                       ).start(point_id), crow_boot.EXIT_OK, self.out.getvalue())
+            env = popen.calls[0][1]["env"]
+            want = crow_boot.plan_point(old, point_id, self.install, self.models)["serve"]["env"]
+            self.assertEqual({k: env.get(k) for k in want}, want, point_id)
+            self.assertIsNone(env.get("CROW_VIT"), point_id)
+            doc = self.contract()
+            self.assertEqual(sorted(doc), ["base_url", "pids", "point", "started_at"], point_id)
+            self.assertEqual(doc["pids"], {"serve": popen.procs[0].pid, "image": None})
+            os.remove(os.path.join(self.config, "active-point.json"))
+
+    def test_a_shell_s_crow_vit_reaches_neither_a_base_start_nor_the_variant(self):
+        # a variant's env keys are the stack's too: an inherited CROW_VIT=0 must
+        # not boot the base point blind while its contract file says base
+        self.layout("flash-next")
+        envs = {}
+        for variant in (None, "text"):
+            probes = iter([NOTHING, OK_HEALTH])
+            popen = FakePopen()
+            with mock.patch.dict(os.environ, {"CROW_VIT": "0"}):
+                self.assertEqual(self.boot(popen=popen, get=lambda url, timeout: next(probes)
+                                           ).start("flash-next", variant=variant),
+                                 crow_boot.EXIT_OK, self.out.getvalue())
+            envs[variant] = popen.calls[0][1]["env"]
+            os.remove(os.path.join(self.config, "active-point.json"))
+        self.assertIsNone(envs[None].get("CROW_VIT"), "the shell's CROW_VIT reached a base start")
+        self.assertIsNotNone(envs[None].get("CROW_VIT_MMPROJ"))
+        self.assertEqual(envs["text"]["CROW_VIT"], "0")
+        self.assertIn("CROW_VIT", crow_boot.engine_env_keys(STACK))
+
+    def test_an_unknown_variant_is_exit_2_and_nothing_starts(self):
+        popen = FakePopen()
+        self.assertEqual(self.boot(popen=popen).start("flash-next", variant="blind"),
+                         crow_boot.EXIT_SETUP)
+        self.assertIn("flash-next has no variant 'blind' (text)", self.out.getvalue())
+        # an optional llama.cpp line has no variants
+        self.assertEqual(self.boot(popen=popen, llama=FakeLlama([LLAMA_27B])
+                                   ).start("qwen35-q4-k-xl", variant="text"), crow_boot.EXIT_SETUP)
+        self.assertEqual(popen.calls, [])
+
+    def test_main_hands_the_variant_to_start_and_refuses_it_without_start(self):
+        out, err = io.StringIO(), io.StringIO()
+        argv = ["--install-root", self.install, "--models", self.models]
+        with mock.patch.dict(os.environ), mock.patch.object(sys, "stdout", out), \
+                mock.patch.object(sys, "stderr", err):
+            self.assertEqual(crow_boot.main(argv + ["--start", "flash-next", "--variant", "blind"]),
+                             crow_boot.EXIT_SETUP)
+            with mock.patch.object(crow_boot.Boot, "start", autospec=True,
+                                   return_value=crow_boot.EXIT_OK) as start:
+                self.assertEqual(crow_boot.main(argv + ["--start", "27b", "--variant", "text"]),
+                                 crow_boot.EXIT_OK)
+            with self.assertRaises(SystemExit) as cm:
+                crow_boot.main(["--variant", "text"])
+        self.assertIn("no variant 'blind'", out.getvalue())
+        self.assertEqual(start.call_args.args[1:], ("27b",))
+        self.assertEqual(start.call_args.kwargs, {"variant": "text"})
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("--variant goes with --start", err.getvalue())
+
+
+class ARunningTextVariantIsNamedTests(BootCase):
+    def test_the_contract_file_names_the_variant(self):
+        crow_core.write_active_point("27b", URL_8099, {"serve": 5151, "image": None}, variant="text")
+        popen = FakePopen()
+        boot = self.boot(popen=popen)
+        self.assertEqual(boot.detect()["variant"], "text")
+        self.assertEqual(boot.start("flash-next"), crow_boot.EXIT_REFUSED)
+        self.assertIn("already running: Qwen3.8-27B · text only (27b), serve pid 5151",
+                      self.out.getvalue())
+        self.assertEqual(popen.calls, [])
+
+    def test_a_base_contract_names_no_variant(self):
+        crow_core.write_active_point("27b", URL_8099, {"serve": 5151, "image": None})
+        boot = self.boot()
+        running = boot.detect()
+        self.assertIsNone(running["variant"])
+        self.assertEqual(boot.describe(running), "Qwen3.8-27B (27b), serve pid 5151")
+
+    def test_a_scanned_serve_that_says_vision_false_is_the_text_variant(self):
+        asked = []
+
+        def vision(url, timeout=3.0):
+            asked.append(url)
+            return False
+        running = self.boot(scan=lambda: [SERVE_8099], vision=vision,
+                            point_for=lambda url, timeout=3.0: "flash-next").detect()
+        self.assertEqual((running["source"], running["point"], running["variant"]),
+                         ("scan", "flash-next", "text"))
+        self.assertEqual(asked, [URL_8099])
+        for seen in (True, None):                    # vision on, or no answer: the base
+            running = self.boot(scan=lambda: [SERVE_8099],
+                                vision=lambda url, timeout=3.0, seen=seen: seen,
+                                point_for=lambda url, timeout=3.0: "27b").detect()
+            self.assertIsNone(running["variant"], seen)
+        running = self.boot(vision=lambda url, timeout=3.0: False,
+                            point_for=lambda url, timeout=3.0: "27b").detect()
+        self.assertEqual((running["source"], running["variant"]), ("port", "text"))
+
+    def test_a_point_without_a_text_variant_is_not_asked(self):
+        asked = []
+        running = self.boot(scan=lambda: [SERVE_8099],
+                            vision=lambda url, timeout=3.0: asked.append(url) or False,
+                            point_for=lambda url, timeout=3.0: "image-stack").detect()
+        self.assertIsNone(running["variant"])
+        self.assertEqual(asked, [])
+
+
+class TheMenuListsTheVariantsTests(BootCase):
+    def test_each_variant_has_its_own_numbered_line_under_its_base(self):
+        boot = self.boot()
+        rows = boot.entries()
+        actions = [r[4] for r in rows]
+        self.assertEqual([a for a in actions if a and a[0] == "variant"],
+                         [("variant", ("flash-next", "text")), ("variant", ("27b", "text"))])
+        for point_id, title in (("flash-next", "Qwen3.8-Flash-Next"), ("27b", "Qwen3.8-27B")):
+            i = actions.index(("point", point_id))
+            key, icon, shown, line, _action, optional = rows[i + 1]
+            variant = next(p for p in STACK["points"] if p["id"] == point_id)["variants"][0]
+            self.assertEqual((key, icon, shown, line, optional),
+                             (str(int(rows[i][0]) + 1), rows[i][1], title + " · text only",
+                              variant["menu"]["line"], False))
+        boot.draw()
+        text = self.out.getvalue()
+        for shown in ("Qwen3.8-Flash-Next · text only", "Qwen3.8-27B · text only"):
+            self.assertIn(shown, text)
+
+    def test_a_two_digit_key_keeps_the_icons_in_one_column(self):
+        # with two optional lines the rows reach 10 and up on both platforms
+        self.boot(llama=FakeLlama([LLAMA_27B, dict(LLAMA_27B, key="other", port=8083)])).draw()
+        shown = self.out.getvalue().splitlines()
+        start = next(ln for ln in shown if "Start Crow" in ln)
+        stop = next(ln for ln in shown if "Stop the running point" in ln)
+        self.assertTrue(start.startswith("   1  > Start Crow"), start)
+        self.assertGreaterEqual(int(stop.split()[0]), 10)
+        self.assertEqual(len(stop.split("Stop")[0]), len(start.split("Start")[0]), (start, stop))
+
+    def test_choosing_a_variant_line_starts_that_variant(self):
+        boot = self.boot()
+        number = next(r[0] for r in boot.entries() if r[4] == ("variant", ("27b", "text")))
+        answers = iter([number, "0"])
+        boot.read = lambda prompt="": next(answers)
+        calls = []
+        boot.start = lambda point_id, interactive=False, variant=None: (
+            calls.append((point_id, interactive, variant)) or crow_boot.EXIT_OK)
+        self.assertEqual(boot.menu(), crow_boot.EXIT_OK)
+        self.assertEqual(calls, [("27b", True, "text")])
+
+
+class TheMenuStartsCrowOnTheClaudeSubscriptionTests(BootCase):
+    """#398: "Start Crow with Claude (subscription)" right after Start Crow, and
+    `--start-claude`; both are Boot.start_claude. No real `claude` runs: the
+    probe is a fake, and providers.json goes to this test's own folder."""
+
+    SAID = {"found": True, "version": "2.1.300", "logged_in": True, "method": "claude.ai",
+            "plan": "max", "problem": ""}
+
+    def setUp(self):
+        super().setUp()
+        self.said = dict(self.SAID)
+        self.probes = []
+        self.providers = os.path.join(self.config, "providers.json")
+        env = {k: v for k, v in os.environ.items() if k not in crow_core.CLAUDE_CLI_ENV_GUARD}
+        for p in (mock.patch.object(crow_core, "claude_probe",
+                                    lambda again=False: self.probes.append(again) or dict(self.said)),
+                  mock.patch.object(crow_core, "PROVIDERS_FILE", self.providers),
+                  mock.patch.dict(os.environ, env, clear=True)):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_the_line_comes_right_after_start_crow(self):
+        rows = self.boot().entries()
+        self.assertEqual(rows[1], ("2", "start", "Start Crow with Claude (subscription)",
+                                   "open the window on your Claude plan, no local model needed",
+                                   ("claude", None), False))
+        self.assertEqual(rows[2][0], "3", "the points follow it")
+
+    def test_choosing_it_asks_claude_code_anew_and_opens_the_window(self):
+        answers = iter(["2", "0"])
+        popen = FakePopen()
+        code = self.boot(read=lambda prompt="": next(answers), popen=popen).menu()
+        self.assertEqual(code, crow_boot.EXIT_OK, self.out.getvalue())
+        self.assertEqual(self.probes, [True], "a sign-in since the last ask counts")
+        (argv, _kw), = popen.calls
+        self.assertEqual(argv[2:], ["--base-url", "http://127.0.0.1:8099/v1"])
+        self.assertEqual(crow_core.provider_doc(self.providers).get("active"), "claude")
+
+    def test_signed_out_it_says_to_run_claude_auth_login_and_opens_nothing(self):
+        self.said.update(logged_in=False, method="none")
+        answers = iter(["2", "", "0"])               # the line, Enter after the message, Quit
+        popen = FakePopen()
+        code = self.boot(read=lambda prompt="": next(answers), popen=popen).menu()
+        text = self.out.getvalue()
+        self.assertEqual(code, crow_boot.EXIT_OK)
+        self.assertIn("Claude Code is not signed in.", text)
+        self.assertIn("     claude auth login", text)
+        self.assertEqual(popen.calls, [], "no terminal and no window from the menu")
+        self.assertFalse(os.path.exists(self.providers))
+
+    def test_the_flag_starts_crow_on_claude(self):
+        out = io.StringIO()
+        with mock.patch.object(crow_boot.Boot, "start_claude",
+                               lambda boot: boot.say("start_claude") or crow_boot.EXIT_OK), \
+                mock.patch.object(sys, "stdout", out):
+            code = crow_boot.main(["--start-claude"])
+        self.assertEqual((code, out.getvalue()), (crow_boot.EXIT_OK, "start_claude\n"))
+
+    def test_the_flag_signed_out_says_to_run_claude_auth_login(self):
+        self.said.update(logged_in=False, method="none")
+        out = io.StringIO()
+        with mock.patch.object(sys, "stdout", out):
+            code = crow_boot.main(["--start-claude"])
+        self.assertEqual(code, crow_boot.EXIT_FAILED)
+        self.assertIn("     claude auth login", out.getvalue())
+        self.assertFalse(os.path.exists(self.providers))
 
 
 if __name__ == "__main__":

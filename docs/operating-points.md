@@ -291,7 +291,7 @@ the three things on it that Crow has to know about are under
 | Engine | crow-nest `v0.3.0` ([repo](https://github.com/nibor1896/crow-nest), [release](https://github.com/nibor1896/crow-nest/releases/tag/v0.3.0)), Windows and Linux, own HTTP server, OpenAI-compatible |
 | Model | `CNQ4.5-M`, the project's own quant: one 104.7 GB NVFP4 container of `Qwen3.8-Flash-Next` ([package](https://huggingface.co/nibor1896/Qwen3.8-Flash-Next-CNQ4.5-M)) |
 | Context | 200,000, one slot |
-| Vision | yes. At v0.3.0 from the container's own `vit` section; since crow-nest #108 serve prefers the F16 projector `mmproj-F16.gguf` (904,004,000 B, `CROW_VIT_MMPROJ`) and falls back to that section without it |
+| Vision | yes. At v0.3.0 from the container's own `vit` section; since crow-nest #108 serve prefers the F16 projector `mmproj-F16.gguf` (904,004,000 B, `CROW_VIT_MMPROJ`) and falls back to that section without it. The `text` variant runs without the tower ([below](#text-only--flash-next-and-the-27b-without-the-vision-tower-397), not measured) |
 | Decode | Newest reading, Linux, after the PLE fix: **35.8 tok/s at 122k context** (2026-09-24, crow-nest `decode_out/hotset-0924/speed.log`, hot set `crow0924`, three runs 35.6 / 35.8 / 35.8). Windows, 2026-10-06, after the fix: **39–41 tok/s** in live Crow sessions at 7–9k context (engine `b812d9e` in the morning, engine 0.9.4 with `CROW_STAGE_PAR=0` in the evening); 43.08 tok/s in a greedy `serve` A/B at 31,827 tokens (`crow-lab/runs/fn-flags-win-20261006`). Engine 0.9.4 set `CROW_STAGE_PAR=1` by default, which read 45.97 in that A/B but **halved Flash-Next in Crow** (20–24 tok/s); 0.9.5 reverted it. From 100k to 175k with 0.9.3: 39.3–48.1 tok/s from 100k to 175k context with engine 0.9.3 (cold prefill 775.6–788.5 tok/s, `crow-lab/runs/fn-c-b-win-20261006`). Before the fix: Windows 45.1 tok/s (22.18 ms/token, 2026-09-13, `decode_out/srv-62e-crow-N*`) vs llama.cpp 44.9 on the same prompt, with greedy ids identical from one run of crow-nest to the next (not a claim that they equal llama.cpp's ids); Linux 36.8 tok/s at 16k context (the ten-task form, the same figure the Windows record of that form shows) |
 | Prefill | Windows (16k reference prompt): 771 tok/s default (mean of the crow-nest `decode_out/10b` N1-3 runs; the 10c B2/B3 default of record reads 775), **871 tok/s** with `CROW_PF_GEMM_B=1`, vs llama.cpp 922.7 (mean of `srv-59` C1-3; `srv-59b` 923.8; crow-nest's docs quote 922.5). Linux: **968 tok/s** cold on the same 16k prompt, 740 tok/s on a cold 1024-token prompt, warm short turns 228 ms prefill / 247 ms to the first token |
 | Quality | ten-task suite, 2 Pass / 5 Partial / 3 Fail (2/5/3), against 2/6/2 for the llama.cpp operating point's reading (`runs/2026-09-10/crow-nest-tentask/judgement.txt`, B4 run 0) |
@@ -356,6 +356,26 @@ changes; the engine has to be on `main` or newer.
 **`serve`'s default `max_tokens` is 8192, not 1024** (`8bad310`, 2026-09-18). Crow sends
 `max_tokens` on every request since 2.3.0 and no longer depends on this, but a 2.2.1 client against
 an older engine can still lose a long tool call to `finish length`.
+
+### Text only — Flash-Next and the 27B without the vision tower (#397)
+
+**NOT MEASURED.** The owner's request of 2026-10-15: both Qwen points can also start without the
+vision tower, so its VRAM stays free: Flash-Next puts it into the expert hot set, the dense 27B
+has no use for it. Same files, another env: `variants` in
+[`manifests/stack.json`](../manifests/stack.json), key `text`, started from the boot menu's own
+line or with `--start <point> --variant text` ([boot menu](user-guide/boot.md#terminal-menu)). The
+criteria are fixed in [`runs/397-text-variants/PREREG.md`](../runs/397-text-variants/PREREG.md)
+before the first run; the measured figures replace the arithmetic below before a release ships
+the variants. The Image and Media Stacks keep vision, and GLM-5.3-Flash has no tower.
+
+| | Flash-Next · text only | 27B · text only |
+|---|---|---|
+| Env | the base env, plus `CROW_VIT=0`, without `CROW_VIT_MMPROJ` | the same; no `CROW_CONTEXT` of its own, the base's 131072 applies |
+| Context | 200,000 | 131,072, like the base point |
+| Vision | none: `/props` says `modalities.vision` false, and Crow answers a pasted image with its no-vision sentence | the same |
+| Freed VRAM, on paper | about 1.16 GiB: the F16 projector's 0.83 GiB on the card and the image reserve's 0.33 GiB at 200k (crow-nest `docs/env.md`, `CROW_VIT_MMPROJ` and `CROW_VIT_RESERVE_MB`), about 9.4 hot-set units of 132,710,400 B | about 1 GiB, not used by the dense model: the context stays at 131,072 |
+| Limit | the hot set rises at most to `n_hot` 160 (crow-nest `geo.rs:250`); today's N with vision is not measured | owner decision 2026-10-07: the 27B stays at 131,072. 200,000 was refused for VRAM on 2026-10-01 and the 8-bit KV gate that was to make it possible failed (crow-nest #88); the owner confirmed 2026-10-15 that the 27B does not boot at 200k |
+| Install | nothing of its own; the projector stays for the base point | the same |
 
 ---
 

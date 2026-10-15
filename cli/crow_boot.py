@@ -10,8 +10,11 @@ a menu, for a script or a test.
     python cli/crow_boot.py                       the menu
     python cli/crow_boot.py --status              what runs (exit 0), or nothing (exit 1)
     python cli/crow_boot.py --start 27b           start one point (flash-next, 27b, image-stack)
+    python cli/crow_boot.py --start 27b --variant text
+                                                  the same point without its vision tower (#397)
     python cli/crow_boot.py --stop                stop the running point
     python cli/crow_boot.py --start-crow          open the window against the running point
+    python cli/crow_boot.py --start-claude        open the window on the Claude subscription (#398)
     python cli/crow_boot.py --gui                 the operating-point window (crow_boot_gui.py)
     python cli/crow_boot.py --create-shortcut DIR a Windows shortcut to that window in DIR
                                                   (add --terminal for one to this menu)
@@ -19,8 +22,8 @@ a menu, for a script or a test.
                                                   installer's check step reads it)
 
 Exit codes: 0 done, 1 failed (or, for --status, nothing runs), 2 setup error
-(no stack.json, unknown point, no engine binary), 3 refused because another
-point already runs.
+(no stack.json, unknown point or variant, no engine binary), 3 refused because
+another point already runs.
 
 THE DECISIONS, and why each is this way:
 
@@ -35,8 +38,20 @@ THE DECISIONS, and why each is this way:
   `8099`) is passed as written. stack.json is looked up beside cli/ at
   `../manifests/stack.json` (`--stack` overrides).
 * THE ENGINE ENV IS THE STACK'S, NOT THE SHELL'S: every key any point declares
-  is dropped from the inherited environment before the chosen point's own are
-  set, so a `CROW_HOTSETS` left over from Flash-Next cannot reach the 27B.
+  (its variants' included, #397) is dropped from the inherited environment
+  before the chosen point's own are set, so a `CROW_HOTSETS` left over from
+  Flash-Next cannot reach the 27B, nor a shell's `CROW_VIT=0` a base start.
+* A VARIANT IS THE SAME POINT WITH ANOTHER ENV (#397): stack.json `variants`,
+  today `text` on Flash-Next and the 27B (`CROW_VIT=0`, no `CROW_VIT_MMPROJ`;
+  the 27B keeps its base's 131,072). `plan_point(..., variant=)` takes the base env minus the
+  variant's `env_unset` plus its `env`, its menu line and gui text, and
+  `identity.vision` from its `vision`; the title stays the base's. It installs
+  nothing: the projector stays for the base point. The menu lists each variant
+  on its own numbered line under its base, `--start <point> --variant <key>`
+  starts one, the contract file carries `variant` (a base start writes none),
+  and a scanned serve that says /props `modalities.vision` false is the
+  point's variant with `vision: false` (`crow_core.server_vision`). A base
+  start is what it was before variants existed.
 * DETACHED: `crow_platform.spawn_kwargs(detached=True)` (Windows:
   CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW, #158 -- a Ctrl+C in this menu or
   closing its console does not reach the server), plus
@@ -109,12 +124,17 @@ THE DECISIONS, and why each is this way:
   environment; with a llama-server running, on `http://127.0.0.1:<its
   --port>/v1`, naming the server. Only when no model server with an address
   runs (nothing, or an sd-server alone) it says so and starts nothing.
+* START CROW WITH CLAUDE (SUBSCRIPTION) (#398, `--start-claude`) needs no
+  model server: Boot.start_claude, the same as the window's Claude entry. Its
+  state is asked when it is chosen, never on a draw. Signed out it names
+  `claude auth login` and opens nothing: a terminal that pops up from a
+  terminal would be a second one for no reason.
 * THE TERMINAL: stdout is forced to UTF-8; on Windows VT processing is
   switched on (SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_PROCESSING). If that
   fails, or stdout is not a terminal, the output is plain: ASCII markers, no
   colour, no animation. NO_COLOR drops only the colour.
-* ONE MENU, NOT TWO: Start Crow, the three points, the optional lines, Stop,
-  Quit. "Landed" shows
+* ONE MENU, NOT TWO: Start Crow, Start Crow with Claude (subscription), the
+  three points (each variant under its base), the optional lines, Stop, Quit. "Landed" shows
   for 5 seconds and returns to this menu by itself; errors and refusals wait
   for Enter so they can be read.
 * THE SHORTCUT (`--create-shortcut DIR`, Windows): `DIR\Crow.lnk`, written by
@@ -196,6 +216,8 @@ ICONS = {
     "brush": ("\U0001F58C️ ", "~"),
 }
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+# #397: how a variant is named after its point's title; another key is shown as written.
+VARIANT_TAGS = {"text": "text only"}
 
 
 def kill_hint(pid) -> str:
@@ -205,6 +227,14 @@ def kill_hint(pid) -> str:
 
 def base_url_for(port: int) -> str:
     return "http://127.0.0.1:%d/v1" % int(port)
+
+
+def point_title(title: str, variant: "str | None" = None) -> str:
+    """A point's title with its variant's tag: "Qwen3.8-Flash-Next · text only".
+    No variant: the title as it is."""
+    if not variant:
+        return title
+    return "%s · %s" % (title, VARIANT_TAGS.get(variant, variant))
 
 
 # ----------------------------------------------------------------- stack.json ---
@@ -252,12 +282,19 @@ def runs_here(point: dict) -> bool:
     return PLATFORM_KEY in (point.get("platforms") or ("windows", "linux"))
 
 
-def plan_point(stack: dict, point_id: str, install: str, models: str) -> dict:
+def plan_point(stack: dict, point_id: str, install: str, models: str,
+               variant: "str | None" = None) -> dict:
     """Everything needed to start one point, placeholders resolved.
 
     `lib_path` is stack.json's top-level `lib_path` for this platform: the
     folders serve and sd-server get in front of LD_LIBRARY_PATH (#341). []
     where the stack names none (Windows).
+
+    `variant` (#397) is one of the point's stack.json `variants` by its key:
+    the base env minus its `env_unset`, plus its `env`; its menu line and gui
+    text; `identity.vision` from its `vision`. The title stays the base's.
+    `plan["variant"]` is the key, None for the base. A key the point does not
+    have is a SetupError.
     """
     points = {p.get("id"): p for p in stack["points"]}
     point = points.get(point_id)
@@ -267,17 +304,29 @@ def plan_point(stack: dict, point_id: str, install: str, models: str) -> dict:
     if not runs_here(point):
         raise SetupError("%s runs on %s only, not on %s"
                          % (point_id, ", ".join(point.get("platforms") or []), PLATFORM_KEY))
+    chosen = None
+    if variant is not None:
+        known = [v for v in point.get("variants") or [] if isinstance(v, dict)]
+        chosen = next((v for v in known if v.get("key") == variant), None)
+        if chosen is None:
+            raise SetupError("%s has no variant %r (%s)"
+                             % (point_id, variant,
+                                ", ".join(str(v.get("key")) for v in known) or "it has none"))
 
     def r(value):
         return resolve(value, install, models)
 
     engine = point.get("engine") or {}
+    env = engine.get("env") or {}
+    if chosen is not None:
+        env = {k: v for k, v in env.items() if k not in (chosen.get("env_unset") or [])}
+        env.update(chosen.get("env") or {})
     port = int(engine.get("port") or crow_core.CROW_NEST_PORT)
     serve = {
         "kind": engine.get("kind") or "serve",
         "argv": [r(_binary(engine, point_id, "engine"))]
                 + [r(a) for a in engine.get("argv") or []],
-        "env": {str(k): r(v) for k, v in (engine.get("env") or {}).items()},
+        "env": {str(k): r(v) for k, v in env.items()},
         "cwd": r(engine.get("cwd") or "${INSTALL}"),
         "dirs": [r(d) for d in engine.get("dirs") or []],
         "port": port,
@@ -306,16 +355,22 @@ def plan_point(stack: dict, point_id: str, install: str, models: str) -> dict:
             "runtime": r(((spec.get("runtime") or {}).get(PLATFORM_KEY) or {}).get("dir") or ""),
         }
     menu = point.get("menu") or {}
+    words = menu if chosen is None else (chosen.get("menu") or {})
+    identity = engine.get("identity") or {}
+    if chosen is not None:
+        identity = dict(identity, vision=bool(chosen.get("vision")))
     return {
         "id": point_id,
+        "variant": variant,
         "title": menu.get("title") or point_id,
-        "line": menu.get("line") or "",
+        "line": words.get("line") or "",
+        "gui": words.get("gui") or "",
         "serve": serve,
         "image": image,
         "video": video,
         "crow_env": {str(k): r(v) for k, v in (point.get("crow_env") or {}).items()},
         "base_url": base_url_for(port),
-        "identity": engine.get("identity") or {},
+        "identity": identity,
         "timeout": BOOT_TIMEOUT_S.get(point_id, DEFAULT_BOOT_TIMEOUT_S),
         "lib_path": [r(d) for d in (stack.get("lib_path") or {}).get(PLATFORM_KEY) or []],
     }
@@ -338,10 +393,19 @@ def with_lib_path(env: dict, lib_path) -> dict:
 
 
 def engine_env_keys(stack: dict) -> set:
-    """Every env key any point's engine declares."""
+    """Every env key any point's engine declares, its variants' included.
+
+    #397: a variant's `env` keys are the stack's too, so a `CROW_VIT=0` left in
+    the shell cannot boot a base point blind while its contract file says base.
+    `env_unset` names base keys, which are here already.
+    """
     keys = set()
     for point in stack["points"]:
         keys.update((point.get("engine") or {}).get("env") or {})
+        for variant in point.get("variants") or []:
+            if isinstance(variant, dict):
+                keys.update(variant.get("env") or {})
+                keys.update(variant.get("env_unset") or [])
     return keys
 
 
@@ -680,7 +744,8 @@ class Boot:
                  sleep=None, clock=None, read=None, scan=None, active=None,
                  point_for=None, model_path=None, write_active=None,
                  terminate=None, kill=None, alive=None, log_dir=None,
-                 forwarded_args=(), llama=None, cancelled=None, on_stage=None):
+                 forwarded_args=(), llama=None, cancelled=None, on_stage=None,
+                 vision=None):
         self.stack, self.install, self.models = stack, install, models
         self.out = out or sys.stdout
         self.style = style or Style()
@@ -693,6 +758,7 @@ class Boot:
         self.active = active or crow_core.read_active_point
         self.point_for = point_for or crow_core.point_for_server
         self.model_path = model_path or crow_core.server_model_path
+        self.vision = vision or crow_core.server_vision
         self.write_active = write_active or crow_core.write_active_point
         self.terminate = terminate or crow_platform.terminate_tree
         self.kill = kill or crow_platform.kill_pid
@@ -710,6 +776,8 @@ class Boot:
         self._llama_cache = None
         self.titles = {p.get("id"): (p.get("menu") or {}).get("title") or p.get("id")
                        for p in stack["points"]}
+        self.variants = {p.get("id"): [v for v in p.get("variants") or [] if isinstance(v, dict)]
+                         for p in stack["points"]}
 
     # -- output ------------------------------------------------------------
     def say(self, text: str = "") -> None:
@@ -749,10 +817,10 @@ class Boot:
             self._llama_cache = self.llama.installed()
         return self._llama_cache
 
-    def label(self, point_id: "str | None") -> str:
+    def label(self, point_id: "str | None", variant: "str | None" = None) -> str:
         if not point_id:
             return "crow-nest (point not identified yet, it may still be loading)"
-        return "%s (%s)" % (self.titles.get(point_id, point_id), point_id)
+        return "%s (%s)" % (point_title(self.titles.get(point_id, point_id), variant), point_id)
 
     def log_dir(self) -> str:
         if self._log_dir:
@@ -766,13 +834,30 @@ class Boot:
         return folder
 
     # -- what runs ---------------------------------------------------------
+    def blind_variant(self, point_id: "str | None", url: str) -> "str | None":
+        """#397: the variant a serve the scan found runs, or None for the base.
+
+        Only a point with a variant of `vision: false` is asked, over /props
+        `modalities.vision` (`self.vision`); false names that variant. True,
+        or no answer, is the base point.
+        """
+        key = next((v.get("key") for v in self.variants.get(point_id) or []
+                    if v.get("vision") is False), None)
+        if key is None:
+            return None
+        return key if self.vision(url) is False else None
+
     def detect(self) -> "dict | None":
-        """The running point (or other model server), or None."""
+        """The running point (or other model server), or None.
+
+        A crow-nest point carries `variant` (#397): the contract file's, or
+        for a serve found by the scan or on the port, `blind_variant`.
+        """
         doc = self.active()
         if doc:
             pids = doc.get("pids") or {}
             return {"kind": crow_platform.KIND_CROW_NEST, "point": doc.get("point"),
-                    "source": "active-point",
+                    "variant": doc.get("variant"), "source": "active-point",
                     "pids": {"serve": pids.get("serve"), "image": pids.get("image"),
                              "video": pids.get("video")},
                     "base_url": doc.get("base_url") or base_url_for(crow_core.CROW_NEST_PORT),
@@ -789,7 +874,9 @@ class Boot:
             pid, line = serves[0]
             port = crow_platform.server_port(line) or crow_core.CROW_NEST_PORT
             url = base_url_for(port)
-            return {"kind": crow_platform.KIND_CROW_NEST, "point": self.point_for(url),
+            point = self.point_for(url)
+            return {"kind": crow_platform.KIND_CROW_NEST, "point": point,
+                    "variant": self.blind_variant(point, url),
                     "source": "scan", "pids": {"serve": pid, "image": image_pid},
                     "base_url": url}
         if llamas:
@@ -811,6 +898,7 @@ class Boot:
         point = self.point_for(url)
         if point:
             return {"kind": crow_platform.KIND_CROW_NEST, "point": point,
+                    "variant": self.blind_variant(point, url),
                     "source": "port", "pids": {"serve": None, "image": None},
                     "base_url": url}
         return None
@@ -834,7 +922,7 @@ class Boot:
             bits.append("sd-server pid %s" % pids["image"])
         if pids.get("video"):
             bits.append("ComfyUI pid %s" % pids["video"])
-        return "%s%s" % (self.label(running.get("point")),
+        return "%s%s" % (self.label(running.get("point"), running.get("variant")),
                          ", " + ", ".join(bits) if bits else "")
 
     def refusal(self, running: dict) -> str:
@@ -922,15 +1010,24 @@ class Boot:
                     self.say("     " + row)
         return EXIT_FAILED
 
-    def start(self, point_id: str, interactive: bool = False) -> int:
-        line = next((o for o in self.optional_lines() if o["key"] == point_id), None)
+    def start(self, point_id: str, interactive: bool = False,
+              variant: "str | None" = None) -> int:
+        """Start one point, or with `variant` one of its stack.json variants (#397).
+
+        An optional llama.cpp line has no variants: with one named, its key is
+        no point of the stack and the start is a setup error.
+        """
+        line = None
+        if variant is None:
+            line = next((o for o in self.optional_lines() if o["key"] == point_id), None)
         if line is not None:
             return self.start_llama(line, interactive)
         try:
-            plan = plan_point(self.stack, point_id, self.install, self.models)
+            plan = plan_point(self.stack, point_id, self.install, self.models, variant)
         except SetupError as exc:
             self.say("%s %s" % (self.style.icon("fail"), exc))
             return EXIT_SETUP
+        title = point_title(plan["title"], plan["variant"])
         running = self.detect()
         if running:
             self.say(self.refusal(running))
@@ -944,7 +1041,7 @@ class Boot:
         missing = missing_files(plan, self.install, self.models)
         if missing:
             self.say("%s %s is not installed completely. Missing:"
-                     % (self.style.icon("fail"), plan["title"]))
+                     % (self.style.icon("fail"), title))
             for path in missing[:5]:
                 self.say("     %s" % path)
             if len(missing) > 5:
@@ -952,7 +1049,7 @@ class Boot:
             return EXIT_SETUP
 
         self.say("%s Starting %s -- %s" % (self.style.icon("start"),
-                                           self.style.bold(plan["title"]), plan["line"]))
+                                           self.style.bold(title), plan["line"]))
         env = {k: v for k, v in os.environ.items() if k not in engine_env_keys(self.stack)}
         env.update(plan["serve"]["env"])
         with_lib_path(env, plan["lib_path"])
@@ -999,7 +1096,7 @@ class Boot:
         except OSError as exc:
             why = "could not be started: %s" % exc
         if why is not None:
-            return self._fail(plan["title"], why, started, logs)
+            return self._fail(title, why, started, logs)
 
         seconds = self.clock() - began
         pids = {"serve": serve.pid, "image": image.pid if image is not None else None}
@@ -1017,6 +1114,8 @@ class Boot:
                 "video": {"argv": plan["video"]["argv"], "cwd": plan["video"]["runtime"],
                           "port": plan["video"]["port"],
                           "readiness": plan["video"]["readiness"]}}}
+        if plan["variant"] is not None:
+            extra["variant"] = plan["variant"]          # #397; a base start writes none
         try:
             where = self.write_active(plan["id"], plan["base_url"], pids, **extra)
         except (OSError, ValueError) as exc:
@@ -1086,7 +1185,7 @@ class Boot:
     def landed(self, plan, seconds, model, pids, where, interactive) -> None:
         self.say("%s %s %s is ready at %s after %.0f s."
                  % (self.style.icon("landed"), self.style.paint("Landed!", "1;32"),
-                    plan["title"], plan["base_url"], seconds))
+                    point_title(plan["title"], plan.get("variant")), plan["base_url"], seconds))
         want = (plan.get("identity") or {}).get("endswith") or ""
         if model:
             self.say("   model: %s" % model)
@@ -1140,7 +1239,7 @@ class Boot:
         if not point and llama_names:
             point_text = "the llama.cpp server (%s)" % ", ".join(llama_names)
         else:
-            point_text = self.label(point) if point else "the running point"
+            point_text = self.label(point, doc.get("variant")) if point else "the running point"
         for _role, pid in targets:
             self.kill(pid)
         began = self.clock()
@@ -1219,7 +1318,7 @@ class Boot:
         if running["kind"] == crow_platform.KIND_LLAMA:
             what = self.describe(running)
         else:
-            what = self.label(running.get("point"))
+            what = self.label(running.get("point"), running.get("variant"))
         if running["kind"] == crow_platform.KIND_CROW_NEST and running.get("point"):
             try:
                 plan = plan_point(self.stack, running["point"], self.install, self.models)
@@ -1235,6 +1334,152 @@ class Boot:
             return EXIT_FAILED
         self.say("%s Crow is opening (pid %s), connected to %s at %s."
                  % (self.style.icon("crow"), proc.pid, what, url))
+        return EXIT_OK
+
+    # -- start crow on the Claude subscription (#398) ------------------------
+    def claude_state(self, again: bool = False) -> dict:
+        """Whether Crow can open on the Claude subscription: {state, detail, action}.
+
+        crow_core's own facts, the first that holds wins: `guarded` (a guard
+        variable would move the bill, crow_core.claude_cli_env_conflicts),
+        `missing` (no Claude Code on PATH), `signed_out`, `billed` (signed in,
+        but not on the subscription), `ready`. `action` is what may be offered:
+        "sign_in" when signed out, "start" when ready, else None.
+
+        THE PROBE SPAWNS TWO PROCESSES (`claude --version`, `claude auth
+        status`) the first time and is then kept; `again` asks anew. The window
+        asks off its UI thread. A guard variable needs no probe: it refuses
+        whatever the probe would say.
+        """
+        names = crow_core.claude_cli_env_conflicts()
+        if names:
+            return {"state": "guarded", "detail": crow_core.claude_cli_guard_line(names),
+                    "action": None}
+        probe = crow_core.claude_probe(again)
+        if not probe.get("found"):
+            return {"state": "missing", "detail": crow_core.CLAUDE_CLI_MISSING, "action": None}
+        if not probe.get("logged_in"):
+            return {"state": "signed_out",
+                    "detail": "Sign in once with your Claude subscription. Claude Code "
+                              "opens Anthropic's sign-in in a terminal.",
+                    "action": "sign_in"}
+        method = probe.get("method") or ""
+        if method not in ("claude.ai", "oauth_token"):
+            return {"state": "billed",
+                    "detail": crow_core.CLAUDE_SUB_SAYS.get(method)
+                    or "Claude Code is signed in, but not with your subscription (%s)"
+                    % (method or "no method"),
+                    "action": None}
+        return {"state": "ready",
+                "detail": "Your Claude plan through Claude Code. No local model needed.",
+                "action": "start"}
+
+    def claude_sign_in(self, which=shutil.which) -> int:
+        """Open a terminal the user types into, running `claude auth login`.
+
+        ANTHROPIC'S OWN FLOW, UNMODIFIED: its terms ("Authentication and
+        credential use", code.claude.com/docs/en/legal-and-compliance, read
+        2026-10-15) allow the user to sign in to the unmodified Claude Code and
+        forbid Crow to offer, collect or intermediate that sign-in. So Crow
+        starts a terminal and nothing else: no argument of its own to claude,
+        none of its output read, and the outcome learnt only from the next
+        `claude auth status`. The sign-in may ask for a pasted code, so it needs
+        a real terminal, not a hidden child.
+
+        Windows: Windows Terminal (`wt.exe`) when it is on PATH, as the
+        shortcut does, else a console of its own (CREATE_NEW_CONSOLE). Either
+        runs `cmd.exe /k`: cmd finds `claude.cmd` (npm) as well as
+        `claude.exe`, and keeps the window open on "Login successful". Linux:
+        $TERMINAL, x-terminal-emulator, gnome-terminal, konsole, xterm, the
+        first one found. EXIT_FAILED names the command to run by hand.
+        """
+        login = crow_core.CLAUDE_CLI_LOGIN.split()
+        kw = {}
+        argv = None
+        if crow_platform.IS_WINDOWS:
+            shell = ["cmd.exe", "/k"] + login
+            terminal = which("wt") or which("wt.exe")
+            if terminal:
+                argv = [terminal] + shell
+            else:
+                argv = shell
+                kw["creationflags"] = 0x00000010            # CREATE_NEW_CONSOLE
+        else:
+            for name in (os.environ.get("TERMINAL"), "x-terminal-emulator",
+                         "gnome-terminal", "konsole", "xterm"):
+                path = which(name) if name else None
+                if path:
+                    # gnome-terminal takes the command after `--`; the others after -e
+                    run = ["--"] if os.path.basename(path) == "gnome-terminal" else ["-e"]
+                    argv = [path] + run + login
+                    break
+        by_hand = "   Run it in a terminal yourself: %s" % crow_core.CLAUDE_CLI_LOGIN
+        if argv is None:
+            self.say("%s No terminal was found to sign in to Claude Code." % self.style.icon("fail"))
+            self.say(by_hand)
+            return EXIT_FAILED
+        try:
+            proc = self.popen(argv, **kw)
+        except OSError as exc:
+            self.say("%s The terminal could not be opened: %s" % (self.style.icon("fail"), exc))
+            self.say(by_hand)
+            return EXIT_FAILED
+        self.say("%s Claude Code's sign-in is open in a terminal (pid %s). Finish it there."
+                 % (self.style.icon("crow"), proc.pid))
+        return EXIT_OK
+
+    def start_claude(self, again: bool = False) -> int:
+        """Open the window on the Claude subscription; no local model needed.
+
+        Only in `ready` (claude_state; `again` asks Claude Code anew, as the
+        menu does, else the kept probe); in any other state it says that
+        state's sentence and changes nothing. Signed out, the sentence is the
+        command to run: neither the menu nor `--start-claude` opens a terminal
+        by itself (the window's Sign in does, claude_sign_in). Then
+        providers.json's `active` is `claude` (crow_core.provider_pick; the
+        window reads it at start) and the window opens like Start Crow, with
+        `--base-url` of the model server that runs, else crow-nest's port: a
+        point booted later from here is the local endpoint when the user
+        switches back (Settings -> Model or `/model`; turns stay on Claude
+        until then).
+        """
+        state = self.claude_state(again)
+        if state["state"] == "signed_out":
+            self.say("%s Claude Code is not signed in. Sign in once with your Claude subscription:"
+                     % self.style.icon("fail"))
+            self.say("     %s" % crow_core.CLAUDE_CLI_LOGIN)
+            self.say("   then start Crow with Claude again.")
+            return EXIT_FAILED
+        if state["state"] != "ready":
+            self.say("%s %s" % (self.style.icon("fail"), state["detail"]))
+            return EXIT_FAILED
+        running = self.detect()
+        env = dict(os.environ)
+        if running and running.get("base_url") and running["kind"] in (
+                crow_platform.KIND_CROW_NEST, crow_platform.KIND_LLAMA):
+            url = running["base_url"]
+            if running["kind"] == crow_platform.KIND_CROW_NEST and running.get("point"):
+                try:
+                    env.update(plan_point(self.stack, running["point"], self.install,
+                                          self.models)["crow_env"])
+                except SetupError:
+                    pass
+        else:
+            url = base_url_for(crow_core.CROW_NEST_PORT)
+        problem = crow_core.provider_pick(crow_core.CLAUDE_PROVIDER)
+        if problem:
+            self.say("%s %s" % (self.style.icon("fail"), problem))
+            return EXIT_FAILED
+        try:
+            proc = self._spawn(self.gui_command(url), cwd=os.getcwd(), env=env,
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL)
+        except OSError as exc:
+            self.say("%s The window could not be started: %s" % (self.style.icon("fail"), exc))
+            return EXIT_FAILED
+        self.say("%s Crow is opening (pid %s) on %s; the local model is looked for at %s."
+                 % (self.style.icon("crow"), proc.pid,
+                    crow_core.PROVIDERS[crow_core.CLAUDE_PROVIDER]["label"], url))
         return EXIT_OK
 
     # -- status ------------------------------------------------------------
@@ -1264,19 +1509,31 @@ class Boot:
     def entries(self) -> list:
         """(key, icon, title, line, action, optional) in menu order.
 
-        The three baseline points from stack.json first; below them, under a
-        heading row (key "", action None), the installed optional llama.cpp
-        lines, each tagged "(optional)" and drawn dimmed.
+        Start Crow, then Start Crow with Claude (subscription) (#398; its state
+        is asked when it is chosen, not on every draw: the probe spawns two
+        processes). The three baseline points from stack.json next, each variant (#397)
+        on its own numbered line right under its base (action ("variant",
+        (point, key))); below them, under a heading row (key "", action None),
+        the installed optional llama.cpp lines, each tagged "(optional)" and
+        drawn dimmed.
         """
         rows = [("1", "start", "Start Crow", "open the window on the running point",
-                 ("crow", None), False)]
+                 ("crow", None), False),
+                ("2", "start", "Start Crow with Claude (subscription)",
+                 "open the window on your Claude plan, no local model needed",
+                 ("claude", None), False)]
         for p in self.stack["points"]:
             if not runs_here(p):
                 continue
             menu = p.get("menu") or {}
             icon = p.get("id") if p.get("id") in ICONS else "start"
-            rows.append((str(len(rows) + 1), icon, menu.get("title") or p.get("id"),
+            title = menu.get("title") or p.get("id")
+            rows.append((str(len(rows) + 1), icon, title,
                          menu.get("line") or "", ("point", p.get("id")), False))
+            for v in self.variants.get(p.get("id")) or []:
+                rows.append((str(len(rows) + 1), icon, point_title(title, v.get("key")),
+                             (v.get("menu") or {}).get("line") or "",
+                             ("variant", (p.get("id"), v.get("key"))), False))
         n = len(rows)
         optional = self.optional_lines()
         if optional:
@@ -1302,17 +1559,20 @@ class Boot:
         width = max(len(r[2]) for r in rows if r[0])
         after_optional = False
         for key, icon, title, line, action, optional in rows:
+            # #397: the variant rows reach 10 and up; a two-digit key takes one
+            # of the three leading blanks, so the icons stay in one column.
+            lead = " " * max(1, 4 - len(key))
             if action is None:                      # the "Optional (llama.cpp)" heading
                 self.say()
                 self.say("  " + s.dim(title))
             elif optional:
-                self.say(("   %s  %s %s" % (s.dim(key), s.icon(icon),
-                                            s.dim("%s  %s" % (title.ljust(width), line)))).rstrip())
+                self.say(("%s%s  %s %s" % (lead, s.dim(key), s.icon(icon),
+                                           s.dim("%s  %s" % (title.ljust(width), line)))).rstrip())
             else:
                 if after_optional:
                     self.say()
-                self.say(("   %s  %s %s  %s" % (s.bold(key), s.icon(icon), title.ljust(width),
-                                               s.dim(line))).rstrip())
+                self.say(("%s%s  %s %s  %s" % (lead, s.bold(key), s.icon(icon), title.ljust(width),
+                                              s.dim(line))).rstrip())
             after_optional = optional
         self.say()
         if self._note:
@@ -1344,8 +1604,17 @@ class Boot:
                     self.countdown(OPENED_S, "Back to the menu")
                 else:
                     self.pause()
+            elif what == "claude":
+                # asked anew: a sign-in in another terminal since the last ask counts
+                if self.start_claude(again=True) == EXIT_OK:
+                    self.countdown(OPENED_S, "Back to the menu")
+                else:
+                    self.pause()
             elif what == "point":
                 if self.start(arg, interactive=True) != EXIT_OK:
+                    self.pause()
+            elif what == "variant":
+                if self.start(arg[0], interactive=True, variant=arg[1]) != EXIT_OK:
                     self.pause()
             elif what == "stop":
                 self.stop()
@@ -1431,6 +1700,8 @@ def main(argv=None) -> int:
     group.add_argument("--start", metavar="POINT", help="start one operating point")
     group.add_argument("--stop", action="store_true", help="stop the running operating point")
     group.add_argument("--start-crow", action="store_true", help="open the window on the running point")
+    group.add_argument("--start-claude", action="store_true",
+                       help="open the window on your Claude subscription (Claude Code), no local model needed")
     group.add_argument("--gui", action="store_true", help="the operating-point window instead of this menu")
     group.add_argument("--create-shortcut", metavar="DIR",
                        help="write a Windows shortcut to the operating-point window")
@@ -1438,11 +1709,15 @@ def main(argv=None) -> int:
     ap.add_argument("--json", action="store_true", help="with --plan: the plan as JSON on stdout")
     ap.add_argument("--terminal", action="store_true",
                     help="with --create-shortcut: the shortcut opens this terminal menu instead")
+    ap.add_argument("--variant", metavar="KEY",
+                    help="with --start: one of the point's variants (text: without the vision tower)")
     args = ap.parse_args(argv)
     if bool(args.plan) != bool(args.json):
         ap.error("--plan and --json go together: --plan POINT --json")
     if args.terminal and not args.create_shortcut:
         ap.error("--terminal goes with --create-shortcut DIR")
+    if args.variant and not args.start:
+        ap.error("--variant goes with --start POINT")
 
     style = Style.detect(sys.stdout)
     install = os.path.abspath(args.install_root) if args.install_root else crow_platform.install_dir()
@@ -1477,11 +1752,13 @@ def main(argv=None) -> int:
     if args.status:
         return boot.status()
     if args.start:
-        return boot.start(args.start)
+        return boot.start(args.start, variant=args.variant)
     if args.stop:
         return boot.stop()
     if args.start_crow:
         return boot.start_crow()
+    if args.start_claude:
+        return boot.start_claude()
     if args.create_shortcut:
         return boot.create_shortcut(args.create_shortcut, terminal=args.terminal)
     if args.gui:
