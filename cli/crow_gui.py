@@ -3635,6 +3635,10 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 #modelmenu button.lvlrow::before{content:"";position:absolute;left:15px;top:0;bottom:0;
   width:1px;background:var(--line)}
 #modelmenu button.lvlrow:last-child::before{bottom:50%}
+/* #390: a Claude model the installed Claude Code is too old for, and the levels while
+   CLAUDE_CODE_EFFORT_LEVEL decides them -- shown, never pickable. */
+#modelmenu button[disabled]{cursor:default;opacity:.5}
+#modelmenu button[disabled]:hover{background:none}
 /* ONLY THE RUNNING MODEL CARRIES LEVELS, and the reason is in the payload rather than in taste:
    `levels` and `groups` are measured for the model that ANSWERED the probe, so they describe one
    model and no other. Hanging them under the row that would boot 17 GB would be inventing them
@@ -7825,18 +7829,33 @@ const crow = {
     if(this.foreignRunning()) shown.unshift([this.modelKey, this.modelName]);
     shown.forEach(x => {
       const running = (x[0] === this.modelKey);
+      // #390. A CLAUDE ROW CARRIES ITS FACTS AS A THIRD ELEMENT (`claude_model_rows`): nothing
+      // restarts there, a model the installed Claude Code is too old for is greyed out with the
+      // update command, and `lock` names the variable that decides the level instead of the chip.
+      const info = x[2] || null;
       out.push({kind:"model", k:x[0], name:x[1],
-                what: running ? "running" : "restarts the server"});
+                what: info ? (info.ready ? (running ? "running" : "") : info.why)
+                           : (running ? "running" : "restarts the server"),
+                off: !!(info && !info.ready)});
       // ONLY UNDER THE RUNNING ONE. `levels` and `groups` describe the model that answered the
       // probe; hanging them under the other row would name steps nobody has measured there.
       if(!running || !(this.levels||[]).length) return;
+      if(info && info.lock){
+        out.push({kind:"level", k:"", name:info.lock, bits:[], tick:false, off:true});
+        return; }
       const now = this.reasoning || "off";
       this.reasonGroups().forEach(g => {
         const bits = [];
         if(g.indexOf("off") >= 0) bits.push("default");
-        out.push({kind:"level", k:this.reasonName(g), name:this.reasonName(g),
-                  bits: bits, tick: (g.indexOf(now) >= 0)}); }); });
+        // A ROW THAT IS ONLY `off` SENDS `off`: on the subscription it is named after the model's
+        // own default ("medium") and still means "send no --effort".
+        out.push({kind:"level", k:(g.length === 1 && g[0] === "off") ? "off" : this.reasonName(g),
+                  name:this.reasonName(g), bits: bits, tick: (g.indexOf(now) >= 0)}); }); });
     return out; },
+
+  // #390: the running row's facts, or null on a local row (which has only [key, label]).
+  chipInfo(){ const row = (this.models||[]).find(x => x[0] === this.modelKey);
+    return (row && row[2]) || null; },
 
   modelMenu(){ const m=$("#modelmenu");
     if(!m.hidden){ m.hidden=true; return; }
@@ -7856,6 +7875,8 @@ const crow = {
     plan.forEach((p,i) => { const el = els[i];
       if(!el) return;
       el.dataset.k = p.k;
+      // #390: a row nobody may pick is a disabled button, not a click that fails later.
+      if(p.off) el.disabled = true;
       const name = p.name;
       el.querySelector("b").textContent = name;
       if(p.kind === "model"){ el.querySelector(".what").textContent = p.what; return; }
@@ -7895,7 +7916,10 @@ const crow = {
   // the absence of a setting, and every template has a default for the absent key -- so a row
   // called `off` beside the step it IS would be the defect #117 was cut for: the chip read
   // `reasoning off` while Qwen reasoned at xhigh, the dearest setting on that model.
-  reasonName(g){ for(const n of g){ if(n!=="off") return n; } return "off"; },
+  // #390: ON THE SUBSCRIPTION `off` HAS A NAME -- the model's own default from the table, so the
+  // chip reads `medium (default)` and not `off (default)` about a model that thinks at medium.
+  reasonName(g){ for(const n of g){ if(n!=="off") return n; }
+    const info = this.chipInfo(); return (info && info.default) || "off"; },
 
   // THE CHIP NAMES THE ROW, ALWAYS -- not the level the chat happens to have stored. A level
   // bound under another name still runs whatever its group renders as: on 0731 a chat set to
@@ -7905,6 +7929,9 @@ const crow = {
   // EMPTY WHEN THE MODEL DECLARES NO LEVELS, rather than a name with nothing behind it: #116's
   // second negative proof is that no manifest entry means no invented levels.
   levelLabel(){ if(!(this.levels||[]).length) return "";
+    // #390: while CLAUDE_CODE_EFFORT_LEVEL decides, the chip names its value and says so.
+    const info = this.chipInfo();
+    if(info && info.lock) return " · " + info.lock_level + " (env)";
     const now = this.reasoning || "off";
     const g = this.reasonGroups().filter(x => x.indexOf(now) >= 0)[0];
     if(!g) return " · " + now;
@@ -12100,6 +12127,11 @@ class Turn(TurnEvents):
             total = self._reasoning_chars + self._content_chars
             self.share = 100.0 * self._reasoning_chars / total
 
+    def context_measured(self, tokens: int, window: int) -> None:
+        # #390: Claude Code's usage per request moves the composer's bar while
+        # the turn runs -- the same `ctx` event a rollover sends.
+        self._put({"k": "ctx", "tokens": int(tokens), "n_ctx": int(window)})
+
     def cache_promise_broken(self) -> None:
         # #262: a diagnostic about the server's cache, not about
         # the conversation -- it goes to crow.log, not into the flow.
@@ -14403,10 +14435,55 @@ class Api:
             return (check_endpoint(spot["base_url"]),
                     model_display_name(fetch_model_name(spot["base_url"])),
                     fetch_n_ctx(spot["base_url"]))
+        # #390. THE SUBSCRIPTION HAS NO CATALOGUE, so name and window come from
+        # what Claude Code last reported (init.model, modelUsage) and, before
+        # its first turn, from the table. No pick is no refusal here: Claude
+        # Code then runs its own default model.
+        if spot.get("transport") == crow_core.TRANSPORT_CLAUDE_CLI:
+            return ("ready", crow_core.claude_model_shown(spot["model"]),
+                    crow_core.claude_context_window(spot["model"]))
         if not spot["model"]:
             return ("no model picked", spot["label"], 0)
         return ("ready", spot["model"],
                 crow_core.provider_context(spot["provider"], spot["model"]))
+
+    def _chip_menu(self, spot: dict, name: str) -> dict:
+        """The chip's half of an `up` payload. ONE builder for the three pushes.
+
+        #115: the list travels with the probe that learned the name, so the two
+        can never disagree about which model is the running one. [key, label]
+        -- the key is what the menu sends back, the label is what a person
+        recognises (see model_label). #225: a point whose manifest entry fixes
+        its thinking offers no level, and the chip then shows none. #117:
+        `groups` says which levels render the SAME prompt, measured; empty
+        means unmeasured, and the page collapses nothing on an empty list.
+
+        #390. ON THE SUBSCRIPTION THE LIST IS CLAUDE_MODELS, never the bootable
+        models, each row carrying whether the installed Claude Code serves it
+        (`claude_model_rows`). The levels are the picked model's `--effort`
+        steps, and the stored level only shows while that model takes it.
+        """
+        if spot.get("transport") == crow_core.TRANSPORT_CLAUDE_CLI:
+            picked = spot.get("model") or ""
+            row = crow_core.claude_model(picked)
+            levels = list(crow_core.claude_effort_menu(picked))
+            version = crow_core.claude_cli_version_cached()
+            # STILL [key, label] FIRST, the shape #115's guard holds every
+            # producer to; the facts ride behind them as a third element.
+            return {"models": [[k, label, facts] for k, label, facts
+                               in crow_core.claude_model_rows(version)],
+                    "model_key": row["alias"] if row else picked,
+                    "reasoning": (self._reasoning
+                                  if self._reasoning in levels else ""),
+                    "levels": levels, "groups": []}
+        remote = spot.get("remote")
+        return {"models": [[k, crow_core.model_label(k)]
+                           for k in crow_core.bootable_models()],
+                "model_key": "" if remote else crow_core.model_key_for(name),
+                "reasoning": self._reasoning or "",
+                "levels": [] if remote else list(crow_core.reasoning_menu_for(name)),
+                "groups": [] if remote else
+                          [list(g) for g in crow_core.reasoning_menu_groups_for(name)]}
 
     def _probe(self, redraw: bool = False) -> None:
         spot = self._endpoint()
@@ -14427,6 +14504,11 @@ class Api:
                 # #209: THE LIVE CHAT'S LEVEL STANDS -- a reload is not a
                 # start, and the file may be older than the chat.
                 note = ""
+            elif spot.get("transport") == crow_core.TRANSPORT_CLAUDE_CLI:
+                # #390: the chat's level, like #209's, against the picked
+                # model's `--effort` steps instead of a manifest.
+                self._reasoning, note = crow_core.claude_effort_for_chat(
+                    spot["model"], SESSION_FILE)
             elif spot["remote"]:
                 self._reasoning, note = None, ""
             else:
@@ -14435,23 +14517,7 @@ class Api:
                 self.push({"k": "note", "t": note})
             self.push({"k": "up", "model": name, "n_ctx": self._n_ctx,
                        "tokens": self._context_tokens, "state": state,
-                       # #115: the chip's list travels with the probe that
-                       # learned the name, so the two can never disagree about
-                       # which model is the running one.
-                       # [key, label] -- the key is what the menu sends back,
-                       # the label is what a person recognises. See model_label.
-                       "models": [[k, crow_core.model_label(k)]
-                                  for k in crow_core.bootable_models()],
-                       "model_key": "" if spot["remote"] else crow_core.model_key_for(name),
-                       "reasoning": self._reasoning or "",
-                       # #225: a point whose manifest entry fixes
-                       # its thinking offers no level -- the chip then shows
-                       # none (`levelLabel` is empty on an empty list).
-                       "levels": [] if spot["remote"] else list(crow_core.reasoning_menu_for(name)),
-                       # #117. Which of those levels render the SAME prompt, measured. Empty
-                       # means unmeasured, and the page collapses nothing on an empty list.
-                       "groups": [] if spot["remote"] else
-                                 [list(g) for g in crow_core.reasoning_menu_groups_for(name)]})
+                       **self._chip_menu(spot, name)})
         except Exception as exc:           # noqa: BLE001 - shown, never raised
             self.push({"k": "down", "why": str(exc)[:120]})
             return
@@ -14516,6 +14582,8 @@ class Api:
         self._notes = crow_core.session_notes()
         self._timings = crow_core.session_timings()      # #171
         self._conversation.restore(messages)
+        # #390: the Claude Code session comes back with the chat it belongs to.
+        self._conversation.claude_session = crow_core.session_claude()
         self._context_tokens, self._promised_warm = tokens, kv
         # An empty restored chat is still an empty chat; `turn()` takes the line
         # back off the moment `_replay` puts a row in.
@@ -14860,6 +14928,22 @@ class Api:
         """
         if self._worker and self._worker.is_alive():
             return "the model does not change mid-turn"
+        # #390. ON THE SUBSCRIPTION A NAME THAT IS NOT A LOCAL MODEL IS A CLAUDE
+        # MODEL -- an alias off the chip or a full id typed -- and it is kept
+        # per provider like any slug. The chat and its Claude Code session
+        # stay: Claude Code resumes them with the other model.
+        picked = " ".join(rest).strip()
+        if (picked not in crow_core.bootable_models()
+                and crow_core.provider_active() == crow_core.CLAUDE_PROVIDER):
+            said, model, changed = crow_core.claude_model_command(
+                picked, crow_core.provider_model_for(crow_core.CLAUDE_PROVIDER),
+                crow_core.claude_cli_version_cached())
+            if changed:
+                problem = crow_core.provider_model_set(crow_core.CLAUDE_PROVIDER, model)
+                if problem:
+                    return problem
+                self._endpoint_changed(reset=False)
+            return said
         # NAMING A LOCAL MODEL IS COMING BACK TO THE LOCAL PROVIDER, so the
         # choice is written rather than left to disagree with the server that is
         # about to answer. Refusing here instead would leave the chip -- the one
@@ -14937,6 +15021,18 @@ class Api:
         request is built; nothing about the turn in flight changes, and refusing
         would be a rule with no failure behind it.
         """
+        # #390: on the subscription the levels are the picked model's
+        # `--effort` steps, and "(default)" sends none.
+        if crow_core.provider_active() == crow_core.CLAUDE_PROVIDER:
+            picked = crow_core.provider_model_for(crow_core.CLAUDE_PROVIDER)
+            said, level, changed = crow_core.claude_effort_command(
+                " ".join(rest), picked, self._reasoning)
+            if changed:
+                self._reasoning = level
+                self.push({"k": "reasoning", "level": level or "",
+                           "levels": list(crow_core.claude_effort_menu(picked)),
+                           "groups": []})
+            return said
         said, level, changed = crow_core.reasoning_command(
             " ".join(rest), self._model, self._reasoning)
         if changed:
@@ -15482,16 +15578,7 @@ class Api:
         spot = remote or {}
         name = self._model or ""
         self.push({"k": "up", "model": name, "n_ctx": self._n_ctx,
-                   "tokens": 0, "state": "ok",
-                   "models": [[k, crow_core.model_label(k)]
-                              for k in crow_core.bootable_models()],
-                   "model_key": "" if spot.get("remote")
-                   else crow_core.model_key_for(name),
-                   "reasoning": self._reasoning or "",
-                   "levels": [] if spot.get("remote")
-                   else list(crow_core.reasoning_menu_for(name)),
-                   "groups": [] if spot.get("remote")
-                   else [list(g) for g in crow_core.reasoning_menu_groups_for(name)]})
+                   "tokens": 0, "state": "ok", **self._chip_menu(spot, name)})
         self.push_goal(force=True)
 
     def push_goal(self, force: bool = False, moved: bool = False) -> None:
@@ -15708,6 +15795,8 @@ class Api:
         # still delivers is dropped and its card ends "interrupted".
         INTERRUPT.set()
         crow_core.cancel_subtasks()
+        # #390: a running `claude -p` child dies now, with what it started.
+        crow_core.claude_cli_stop()
         # #282: and the goal engine pauses -- see `_goal_nudge`.
         self._goal_paused = True
 
@@ -16476,6 +16565,8 @@ class Api:
         # mitgeschleppt, der gerade geschlossen wurde.
         self._notes = crow_core.session_notes(path)
         self._timings = crow_core.session_timings(path)  # #171
+        # #390: and the Claude Code session it resumes, from the same file.
+        self._conversation.claude_session = crow_core.session_claude(path)
         self.push({"k": "clear"})     # the page no longer guesses; see crow.open
         self._hello()
         self._replay(messages, self._notes)
@@ -18162,14 +18253,7 @@ class Api:
         self._n_ctx = window
         self.push({"k": "up", "model": name, "n_ctx": self._n_ctx,
                    "tokens": self._context_tokens, "state": state,
-                   "models": [[k, crow_core.model_label(k)]
-                              for k in crow_core.bootable_models()],
-                   "model_key": "" if spot["remote"] else crow_core.model_key_for(name),
-                   "reasoning": self._reasoning or "",
-                   "levels": [] if spot["remote"] else
-                             list(crow_core.reasoning_menu_for(name)),
-                   "groups": [] if spot["remote"] else
-                             [list(g) for g in crow_core.reasoning_menu_groups_for(name)]})
+                   **self._chip_menu(spot, name)})
 
     def set_theme(self, name: str) -> bool:
         """The picker in Aussehen. True when the choice reached the disk.
@@ -19678,6 +19762,13 @@ class Api:
                       # #211: der Schnitt buendelt den Fensterzustand neu --
                       # siehe `_surface`.
                       surface_reload=self._surface)
+        # #390. THE SUBSCRIPTION TURN LEAVES HERE, before anything below runs:
+        # no rollover and no tool-result clearing (Claude Code compacts its own
+        # session), no memory pin and no review (Crow's prompt is not sent).
+        where = self._endpoint()
+        if where.get("transport") == crow_core.TRANSPORT_CLAUDE_CLI:
+            self._run_claude(text, where, events)
+            return
         rolled = False
         # #268: a stuck render loop asks for the cut below the threshold too.
         forced = getattr(self, "_goal_roll_due", False)
@@ -19891,36 +19982,7 @@ class Api:
         # soll dagegen messen und nicht gegen die Tiefe von davor.
         crow_core.goal_tokens_mark(self._context_tokens)
         self._promised_warm = getattr(result, "promised_warm", self._promised_warm)
-        cost = getattr(result, "cost", None)
-        line = cost.line() if cost is not None and getattr(cost, "rounds", 0) else ""
-        # #382: ONE `record()` for the archive and the page, so both carry the
-        # same `waited_s` (it is read off the clock inside the call).
-        record = cost.record() if line else None
-        if record is not None:
-            # #171. DIESELBE BILANZ, DIE DIE ZEILE ZEIGT, als Zahlen ins Band --
-            # `at` sagt, nach wievielen Nachrichten der Zug endete, damit ein
-            # Auswerter sie im Archiv den Zuegen zuordnen kann. Ein Zug ohne
-            # Runden hat keine Bilanz; deshalb haengt es an derselben Bedingung
-            # wie die Zeile und nicht an einer zweiten.
-            self._timings.append(dict(record, at=len(self._conversation)))
-            del self._timings[:-crow_core.SESSION_TIMINGS_MAX]
-        self.push({"k": "cost", "line": "[" + line + "]" if line else "",
-                   "share": events.share, "tokens": self._context_tokens,
-                   "n_ctx": self._n_ctx,
-                   # #143. This turn's delegation share, token counts only.
-                   "sub": self._sub_share(sub_before) if line else "",
-                   # #382. The same balance as numbers, for the page.
-                   "stats": turn_stats(record),
-                   # #383. The cut-off warning under the strip, in the
-                   # core's words (the line carries it as its last bit).
-                   "cut": (crow_core.CUT_OFF_NOTE
-                           if (record or {}).get("finish") == "length" else "")})
-        self._persist_live()
-        # THE RAIL FOLLOWS THE TURN. A chat that had just been given its first
-        # message went on calling itself "new chat" until something else
-        # happened to redraw the list.
-        self._reload_rail()
-        self.push({"k": "idle"})
+        line = self._turn_end(result, events, sub_before)
         # #122. AFTER `idle`, AND THAT ORDER IS THE FIX FOR A DEFECT the owner found
         # live on 2026-08-21. The review sat inside `run_turn`, so the turn did
         # not end until it had thought about the whole conversation at the
@@ -19977,6 +20039,81 @@ class Api:
                 gate=getattr(self._args, "memory_approval",
                              crow_core.MEMORY_APPROVAL_DEFAULT),
                 events=events)
+
+    def _turn_end(self, result, events: "Turn", sub_before: "set | None" = None) -> str:
+        """The close every turn shares: cost line, numbers, save, rail, `idle`.
+
+        ONE CLOSING FOR BOTH KINDS OF TURN (#390), so a Claude Code turn ends on
+        the page exactly as a local one does. Returns the line, "" for a turn
+        without rounds -- the review's seed bookkeeping reads it.
+        """
+        cost = getattr(result, "cost", None)
+        line = cost.line() if cost is not None and getattr(cost, "rounds", 0) else ""
+        # #382: ONE `record()` for the archive and the page, so both carry the
+        # same `waited_s` (it is read off the clock inside the call).
+        record = cost.record() if line else None
+        if record is not None:
+            # #171. DIESELBE BILANZ, DIE DIE ZEILE ZEIGT, als Zahlen ins Band --
+            # `at` sagt, nach wievielen Nachrichten der Zug endete, damit ein
+            # Auswerter sie im Archiv den Zuegen zuordnen kann. Ein Zug ohne
+            # Runden hat keine Bilanz; deshalb haengt es an derselben Bedingung
+            # wie die Zeile und nicht an einer zweiten.
+            self._timings.append(dict(record, at=len(self._conversation)))
+            del self._timings[:-crow_core.SESSION_TIMINGS_MAX]
+        self.push({"k": "cost", "line": "[" + line + "]" if line else "",
+                   "share": events.share, "tokens": self._context_tokens,
+                   "n_ctx": self._n_ctx,
+                   # #143. This turn's delegation share, token counts only.
+                   "sub": (self._sub_share(sub_before)
+                           if line and sub_before is not None else ""),
+                   # #382. The same balance as numbers, for the page.
+                   "stats": turn_stats(record),
+                   # #383. The cut-off warning under the strip, in the
+                   # core's words (the line carries it as its last bit).
+                   "cut": (crow_core.CUT_OFF_NOTE
+                           if (record or {}).get("finish") == "length" else "")})
+        self._persist_live()
+        # THE RAIL FOLLOWS THE TURN. A chat that had just been given its first
+        # message went on calling itself "new chat" until something else
+        # happened to redraw the list.
+        self._reload_rail()
+        self.push({"k": "idle"})
+        return line
+
+    def _run_claude(self, text, spot: dict, events: "Turn") -> None:
+        """#390. One turn on the subscription: a `claude -p` child in the chat's
+        working area, Claude Code's own tools, its events drawn by this window.
+
+        WHAT `_run` DOES AND THIS DOES NOT: the rollover before and inside the
+        turn, the memory pin, the image gate, `run_turn`'s rounds and the review
+        after -- `crow_core.run_claude_turn` says why for each. WHAT IS THE SAME:
+        the line enters the transcript first, the rail learns the chat exists,
+        and `_turn_end` closes it.
+        """
+        if self._staged_images:
+            # STAGED PICTURES STAY STAGED, and that is said: the child's stdin
+            # is text, and a picture dropped without a word is #142's loss.
+            self.push({"k": "note", "t": "the staged images stay here -- turns "
+                                         "on Claude (subscription) carry text only"})
+        self._conversation.append("user", text)
+        self._reload_rail()
+        try:
+            result = crow_core.run_claude_turn(
+                self._conversation, text, model=spot.get("model") or "",
+                effort=self._reasoning,
+                mode=getattr(self._args, "mode", DEFAULT_MODE),
+                cwd=crow_core.get_root(), context_tokens=self._context_tokens,
+                events=events)
+        except Exception as exc:           # noqa: BLE001 - a window survives its turns
+            self.push({"k": "fail", "t": "%s: %s" % (type(exc).__name__, exc)})
+            self.push({"k": "idle"})
+            return
+        self._context_tokens = result.context_tokens
+        self._promised_warm = False
+        # THE CHIP NAMES WHAT CLAUDE CODE RAN (init.model) against the window it
+        # reported: the same `up` a probe sends, read from what the turn saw.
+        self._endpoint_changed(reset=False)
+        self._turn_end(result, events)
 
 
 def build_parser() -> argparse.ArgumentParser:
