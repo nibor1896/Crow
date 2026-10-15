@@ -12,7 +12,7 @@ python cli\crow_boot.py --gui
 
 Header **CROW · Operating points**. The shortcut runs it with `pythonw.exe`, so no console opens. On Windows it has its own taskbar button with the crow (AppUserModelID `Crow.OperatingPoints`), apart from Crow's chat window. Each point's line is `menu.gui` from `manifests/stack.json`; the terminal menu shows `menu.line`.
 
-Everything to start is in one field (#396), in two groups: **Operating points** (this platform's; the Media Stack on Windows only) and **Optional (llama.cpp)** (the installed lines). The chosen entry's line is under the field, with one **Start**. A point with a no-vision variant in `stack.json` also has a **Vision** switch: off starts that variant, and the line under the field is the variant's. The field starts on what runs, else on the first entry.
+Everything to start is in one field (#396), in three groups: **Operating points** (this platform's; the Media Stack on Windows only), **Optional (llama.cpp)** (the installed lines), **Claude**. The chosen entry's line is under the field, with one **Start**. A point with a no-vision variant in `stack.json` also has a **Vision** switch: off starts that variant, and the line under the field is the variant's. The field starts on what runs, else on the first entry.
 
 | Key on the field | |
 |---|---|
@@ -30,6 +30,22 @@ Everything to start is in one field (#396), in two groups: **Operating points** 
 | A second start | **Start** on another point while one runs: "One model at a time.", the point needs the card for itself; stop the running one first |
 
 A point that already runs when the window opens (started from the terminal, or by an earlier window) is shown as landed at once. A failed start shows its reason and the server log's path. If the window cannot open at all, the reason goes to `runs\crow-boot-gui.log`.
+
+**Claude (subscription)** (#398) opens Crow on your Claude plan through Claude Code, without a local model, whether or not a point runs. Its state is asked in the background when the window opens (`claude --version`, `claude auth status`):
+
+| The entry says | When | Button |
+|---|---|---|
+| Checking Claude Code... | until Claude Code has answered | none |
+| Claude (subscription) refuses this turn: `<variable>` is set ... | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_BEDROCK` or `CLAUDE_CODE_USE_VERTEX` is set ([remote models](remote-models.md#claude-subscription)) | none |
+| Claude Code is not installed: npm install -g @anthropic-ai/claude-code | `claude` is not on `PATH` | none |
+| Sign in once with your Claude subscription. Claude Code opens Anthropic's sign-in in a terminal. | not signed in | **Sign in** |
+| Claude Code bills an API key, not your subscription (or: runs on a cloud platform) | signed in, but not with the subscription | none |
+| Your Claude plan through Claude Code. No local model needed. | signed in with the subscription | **Start** |
+
+| | |
+|---|---|
+| Sign in | opens a terminal running the unmodified `claude auth login`: Windows Terminal when it is installed, else a console of its own; on Linux `$TERMINAL`, `x-terminal-emulator`, `gnome-terminal`, `konsole` or `xterm`, the first one found. You sign in there, in Anthropic's own flow; Crow reads nothing of it. The window asks `claude auth status` again every 3 s for up to 10 minutes, and the entry turns to **Start** once you are signed in |
+| Start | sets Claude (subscription) as the active provider in `providers.json` and opens Crow's window. The bar says "The Crow window is opening on Claude (subscription)." The window's local model is the running server, else `http://127.0.0.1:8099/v1`, so a point started later from here answers when you switch back (`Settings → Model` → This machine, or `/model`). Turns stay on Claude until then |
 
 ## Terminal menu
 

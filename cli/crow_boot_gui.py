@@ -21,12 +21,20 @@ THE DECISIONS, and why each is this way:
   selection and the vision switch are the controller's too; the page keeps
   only whether the list is open and which option the keys stand on.
 * ONE PICKER, NOT A ROW PER POINT (#396): a select-only combobox (WAI-ARIA
-  APG) with two groups -- the points of this platform, the installed
-  llama.cpp lines -- the chosen entry's line under it, a Vision switch
+  APG) with three groups -- the points of this platform, the installed
+  llama.cpp lines, Claude -- the chosen entry's line under it, a Vision switch
   for a point with a no-vision variant (stack.json `variants`, #397), and one
   Start. It is drawn by the page, not a native <select>: WebView2 and
   WebKitGTK draw that popup each their own way and without the second line.
   The selection defaults to what runs, else the first entry.
+* THE CLAUDE ENTRY (#398) opens Crow on the subscription without a local model
+  (Boot.start_claude), whether or not a point runs. Its state is
+  Boot.claude_state, and the probe behind it spawns two processes: it runs in
+  the background when the window opens ("Checking Claude Code..." until it
+  answers) and, after Sign in, again every REFRESH_S for up to SIGN_IN_WAIT_S,
+  so the entry turns to Start by itself. Sign in is Boot.claude_sign_in: a
+  visible terminal running the unmodified `claude auth login`. Crow offers no
+  sign-in of its own and reads nothing of it.
 * WHAT RUNS IS DETECTED ON OPEN AND EVERY REFRESH_S: Boot.detect (the contract
   file, the process scan with point_for_server, port 8099). A point started
   from the terminal or a window opened while one runs shows "Landed." at once.
@@ -82,11 +90,15 @@ DEFAULT_USUAL_START_S = 60.0
 FILL_CAP = 95
 REFRESH_S = 3.0
 OPENED_S = 5.0
+SIGN_IN_WAIT_S = 600.0
 
 IDLE, STARTING, LANDED, REFUSED, STOPPING = "idle", "starting", "landed", "refused", "stopping"
 
-# The picker's groups (#396).
-POINTS_GROUP, OPTIONAL_GROUP = "Operating points", "Optional (llama.cpp)"
+# The picker's groups (#396) and its Claude entry (#398).
+POINTS_GROUP, OPTIONAL_GROUP, CLAUDE_GROUP = "Operating points", "Optional (llama.cpp)", "Claude"
+CLAUDE_ID = crow_core.CLAUDE_PROVIDER
+CLAUDE_TITLE = crow_core.PROVIDERS[crow_core.CLAUDE_PROVIDER]["label"]
+CLAUDE_CHECKING = "Checking Claude Code..."
 
 # THE TASKBAR IDENTITY. Without one a pythonw.exe window is Python's button
 # with Python's icon (crow_gui.taskbar_identity says why). Its own id and not
@@ -142,10 +154,15 @@ class Controller:
         self.note = None
         self.busy = False
         self.opened_at = None
+        self.opened_on = None
         # #396: the picker's choice (None: what runs, else the first entry)
         # and the Vision switch, off = the point's no-vision variant.
         self.selected = None
         self.vision = True
+        # #398: Boot.claude_state's last answer, None until the first arrives.
+        self.claude = None
+        self._claude_asking = False
+        self._sign_in_until = None
 
     # -- what is on offer ---------------------------------------------------
     def points(self) -> list:
@@ -187,7 +204,11 @@ class Controller:
 
     # -- the actions --------------------------------------------------------
     def refresh(self) -> None:
-        """Ask Boot what runs. Not while a start or a stop is under way."""
+        """Ask Boot what runs. Not while a start or a stop is under way.
+
+        After Sign in it also asks Claude Code again (#398), off this thread.
+        """
+        self._claude_again()
         if self.busy:
             return
         running = self.boot.detect()
@@ -222,10 +243,14 @@ class Controller:
     def start(self, point_id: "str | None" = None) -> None:
         """Start a point, or without one the picker's entry (#396).
 
-        Vision off starts the point's no-vision variant where it has one.
+        Vision off starts the point's no-vision variant where it has one. The
+        Claude entry opens Crow on the subscription instead (#398).
         """
         if point_id is None:
             point_id = self._chosen(self.entries(), self.running)
+        if point_id == CLAUDE_ID:
+            self.start_claude()
+            return
         with self._lock:
             if self.busy or self._point(point_id) is None:
                 return
@@ -318,7 +343,65 @@ class Controller:
         code = self.boot.start_crow()
         with self._lock:
             if code == crow_boot.EXIT_OK:
-                self.opened_at, self.note = self.clock(), None
+                self.opened_at, self.opened_on, self.note = self.clock(), None, None
+            else:
+                self.note = self._failure(self.boot.out.getvalue())
+
+    # -- the Claude entry (#398) --------------------------------------------
+    def ask_claude(self, again: bool = False) -> None:
+        """Boot.claude_state off the caller's thread; one ask at a time."""
+        with self._lock:
+            if self._claude_asking:
+                return
+            self._claude_asking = True
+        self.run(self._ask_claude, again)
+
+    def _ask_claude(self, again: bool) -> None:
+        try:
+            state = self.boot.claude_state(again)
+        except Exception as exc:              # noqa: BLE001 - the entry says it
+            state = {"state": "failed", "detail": "Claude Code could not be asked: %s" % exc,
+                     "action": None}
+        with self._lock:
+            self.claude, self._claude_asking = state, False
+            if state.get("action") != "sign_in":
+                self._sign_in_until = None
+
+    def _claude_again(self) -> None:
+        """After Sign in: ask again on every refresh until SIGN_IN_WAIT_S is up."""
+        with self._lock:
+            until = self._sign_in_until
+            if until is None or self._claude_asking:
+                return
+            if self.clock() > until:
+                self._sign_in_until = None
+                return
+        self.ask_claude(again=True)
+
+    def claude_sign_in(self) -> None:
+        """Boot's terminal with `claude auth login`, then watch for the result."""
+        with self._lock:
+            if (self.claude or {}).get("action") != "sign_in":
+                return
+        self.boot.out = io.StringIO()
+        code = self.boot.claude_sign_in()
+        with self._lock:
+            if code == crow_boot.EXIT_OK:
+                self.note, self._sign_in_until = None, self.clock() + SIGN_IN_WAIT_S
+            else:
+                self.note = self._failure(self.boot.out.getvalue())
+
+    def start_claude(self) -> None:
+        """Open Crow on the subscription, Boot's way; a point may run or not."""
+        with self._lock:
+            if self.busy or (self.claude or {}).get("action") != "start":
+                return
+            self.selected = CLAUDE_ID
+        self.boot.out = io.StringIO()
+        code = self.boot.start_claude()
+        with self._lock:
+            if code == crow_boot.EXIT_OK:
+                self.opened_at, self.opened_on, self.note = self.clock(), CLAUDE_TITLE, None
             else:
                 self.note = self._failure(self.boot.out.getvalue())
 
@@ -382,9 +465,13 @@ class Controller:
         return {"title": self.boot.titles.get(point, point), "detail": detail, "stop": stop}
 
     def entries(self) -> list:
-        """Everything the picker offers, in its order (#396): the points, then
-        the installed llama.cpp lines."""
-        return self.points()
+        """Everything the picker offers, in its order (#396): the points, the
+        installed llama.cpp lines, then Claude (subscription) with the last
+        answer about it (#398)."""
+        with self._lock:
+            claude = self.claude
+        return self.points() + [{"id": CLAUDE_ID, "title": CLAUDE_TITLE, "optional": False,
+                                 "detail": claude["detail"] if claude else CLAUDE_CHECKING}]
 
     def _chosen(self, entries: list, running) -> "str | None":
         """The selection. None, or one the stack no longer offers, is what
@@ -402,20 +489,28 @@ class Controller:
         `detail` replaces the chosen entry's line (a start under way says how
         long it usually takes); `start` False greys Start (the entry runs). The
         Vision switch is shown for a point with a no-vision variant, and the
-        line under the field is that variant's while it is off.
+        line under the field is that variant's while it is off. The Claude
+        entry's button is its state's: Start, Sign in, or none (#398).
         """
         def item(e):
             return {"id": e["id"], "title": e["title"], "detail": e["detail"]}
-        groups = [(POINTS_GROUP, [item(e) for e in entries if not e["optional"]]),
-                  (OPTIONAL_GROUP, [item(e) for e in entries if e["optional"]])]
+        groups = [(POINTS_GROUP, [item(e) for e in entries
+                                  if e["id"] != CLAUDE_ID and not e["optional"]]),
+                  (OPTIONAL_GROUP, [item(e) for e in entries if e["optional"]]),
+                  (CLAUDE_GROUP, [item(e) for e in entries if e["id"] == CLAUDE_ID])]
         with self._lock:
-            vision = self.vision
+            vision, claude = self.vision, dict(self.claude or {})
         me = next((e for e in entries if e["id"] == chosen), None)
-        variant = self._no_vision(chosen)
+        variant = self._no_vision(chosen) if chosen != CLAUDE_ID else None
         line = me["detail"] if me else ""
         if variant and not vision:
             line = gui_line(variant.get("menu") or {}) or line
-        button = {"label": "Start", "act": "start", "enabled": enabled and start}
+        if chosen == CLAUDE_ID:
+            button = {"start": {"label": "Start", "act": "start", "enabled": enabled},
+                      "sign_in": {"label": "Sign in", "act": "claude_sign_in",
+                                  "enabled": enabled}}.get(claude.get("action"))
+        else:
+            button = {"label": "Start", "act": "start", "enabled": enabled and start}
         return {"groups": [{"label": label, "items": items} for label, items in groups if items],
                 "selected": chosen, "detail": line if detail is None else detail,
                 "vision": {"shown": variant is not None, "on": vision},
@@ -426,6 +521,7 @@ class Controller:
             phase, running, starting = self.phase, self.running, dict(self.starting or {})
             refused, note = self.refused, self.note
             opened = self.opened_at is not None and self.clock() - self.opened_at < OPENED_S
+            opened_on = self.opened_on if opened else None
         entries = self.entries()
         view = {"phase": phase, "fill": None, "running": None, "warn": None, "note": note,
                 "picker": None, "bar": None}
@@ -453,6 +549,8 @@ class Controller:
                 and bool(running.get("base_url")) and phase != STOPPING
             if phase == STOPPING:
                 text = "Stopping %s." % card["title"]
+            elif opened_on:
+                text = "The Crow window is opening on %s." % opened_on
             elif not can_open:
                 text = "Start a model, then open the Crow window."
             elif opened:
@@ -474,7 +572,9 @@ class Controller:
 
         view["say"] = "Which model should Crow fly with?"
         view["picker"] = self._picker(entries, chosen)
-        view["bar"] = {"text": "Start a model, then open the Crow window.", "button": open_btn}
+        view["bar"] = {"text": ("The Crow window is opening on %s." % opened_on if opened_on
+                                else "Start a model, then open the Crow window."),
+                       "button": open_btn}
         return view
 
 
@@ -513,6 +613,9 @@ class Api:
 
     def set_vision(self, on) -> None:
         self._ctl.set_vision(bool(on))
+
+    def claude_sign_in(self) -> None:
+        self._ctl.claude_sign_in()
 
     def cancel(self) -> None:
         self._ctl.cancel()
@@ -620,6 +723,7 @@ def open_window(boot: "crow_boot.Boot") -> int:
         import crow_gui
         ctl = Controller(boot)
         ctl.refresh()
+        ctl.ask_claude()                      # #398: in the background, two processes
         api = Api(ctl)
         taskbar_identity()
         window = webview.create_window(

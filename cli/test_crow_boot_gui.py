@@ -88,12 +88,14 @@ class State1NothingRunsTests(GuiCase):
         self.assertNotIn("optional", v)
         p = v["picker"]
         self.assertEqual([g["label"] for g in p["groups"]],
-                         ["Operating points", "Optional (llama.cpp)"])
+                         ["Operating points", "Optional (llama.cpp)", "Claude"])
         self.assertEqual([r["title"] for r in group(v, "Operating points")],
                          ["Qwen3.8-Flash-Next", "Qwen3.8-27B", "GLM-5.3-Flash", "Image Stack"]
                          + ["Media Stack"] * MEDIA)
         self.assertEqual([(r["title"], r["detail"]) for r in group(v, "Optional (llama.cpp)")],
                          [("Qwen3.8-27B-UD-Q4_K_XL (optional)", "llama.cpp, port 8082")])
+        self.assertEqual(group(v, "Claude"), [{"id": "claude", "title": "Claude (subscription)",
+                                               "detail": "Checking Claude Code..."}])
         self.assertEqual((p["selected"], p["detail"], p["enabled"]),
                          ("flash-next", "200k context. Great for coding and vision.", True))
         self.assertEqual(p["start"], {"label": "Start", "act": "start", "enabled": True})
@@ -491,11 +493,11 @@ class ThePickerTests(GuiCase):
         ctl = self.controller()
         ctl.refresh()
         shown = {}
-        for entry in ("flash-next", "27b", "glm53-flash", "image-stack"):
+        for entry in ("flash-next", "27b", "glm53-flash", "image-stack", "claude"):
             ctl.select(entry)
             shown[entry] = ctl.view()["picker"]["vision"]["shown"]
         self.assertEqual(shown, {"flash-next": True, "27b": True, "glm53-flash": False,
-                                 "image-stack": False})
+                                 "image-stack": False, "claude": False})
 
     def test_vision_off_shows_the_variants_line(self):
         ctl = self.controller()
@@ -599,6 +601,272 @@ class ThePickerPageTests(unittest.TestCase):
         with open(crow_boot_gui.PAGE_FILE, encoding="utf-8") as fh:
             names = re.findall(r"\bfunction\s+(\w+)\s*\(", fh.read())
         self.assertEqual(sorted(n for n in set(names) if names.count(n) > 1), [])
+
+
+# ------------------------------------------------------ the Claude entry (#398) ---
+
+SAID = {"found": True, "version": "2.1.300", "logged_in": True, "method": "claude.ai",
+        "plan": "max", "problem": ""}
+SIGN_IN = ("Sign in once with your Claude subscription. Claude Code opens Anthropic's "
+           "sign-in in a terminal.")
+READY = "Your Claude plan through Claude Code. No local model needed."
+MISSING = "Claude Code is not installed: npm install -g @anthropic-ai/claude-code"
+LOGIN = ["claude", "auth", "login"]
+
+
+class ClaudeCase(GuiCase):
+    """A fake `claude` behind crow_core.claude_probe (no process is spawned),
+    no guard variable in the environment, and providers.json in this test's
+    own config folder, never the real install's."""
+
+    def setUp(self):
+        super().setUp()
+        self.probes = []
+        self.said = dict(SAID)
+        self.providers = os.path.join(self.config, "providers.json")
+        env = {k: v for k, v in os.environ.items() if k not in crow_core.CLAUDE_CLI_ENV_GUARD}
+        for p in (mock.patch.object(crow_core, "claude_probe", self.probe),
+                  mock.patch.object(crow_core, "PROVIDERS_FILE", self.providers),
+                  mock.patch.dict(os.environ, env, clear=True)):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def probe(self, again=False):
+        self.probes.append(again)
+        return dict(self.said)
+
+    def active(self):
+        return crow_core.provider_doc(self.providers).get("active")
+
+
+class BootClaudeStateTests(ClaudeCase):
+    """#398: Boot.claude_state, the five states in their order."""
+
+    def asked(self, **env):
+        with mock.patch.dict(os.environ, env):
+            return self.boot().claude_state()
+
+    def test_a_guard_variable_comes_first_and_needs_no_probe(self):
+        s = self.asked(ANTHROPIC_API_KEY="sk-test")
+        self.assertEqual(s, {"state": "guarded", "action": None,
+                             "detail": crow_core.claude_cli_guard_line(["ANTHROPIC_API_KEY"])})
+        self.assertIn("ANTHROPIC_API_KEY is set", s["detail"])
+        self.assertEqual(self.probes, [])
+
+    def test_without_claude_code_it_is_missing(self):
+        self.said.update(found=False, logged_in=False, method="")
+        self.assertEqual(self.asked(), {"state": "missing", "detail": MISSING, "action": None})
+
+    def test_signed_out_offers_the_sign_in(self):
+        self.said.update(logged_in=False, method="none")
+        self.assertEqual(self.asked(), {"state": "signed_out", "detail": SIGN_IN, "action": "sign_in"})
+
+    def test_an_api_key_or_a_cloud_is_billed_not_the_subscription(self):
+        for method, said in (("api_key", "Claude Code bills an API key, not your subscription"),
+                             ("api_key_helper", "Claude Code bills an API key, not your subscription"),
+                             ("third_party", "Claude Code runs on a cloud platform, not your subscription")):
+            self.said.update(method=method)
+            self.assertEqual(self.asked(), {"state": "billed", "detail": said, "action": None})
+
+    def test_signed_in_on_the_subscription_is_ready(self):
+        for method in ("claude.ai", "oauth_token"):
+            self.said.update(method=method)
+            self.assertEqual(self.asked(), {"state": "ready", "detail": READY, "action": "start"})
+
+    def test_again_asks_claude_code_anew(self):
+        boot = self.boot()
+        boot.claude_state()
+        boot.claude_state(again=True)
+        self.assertEqual(self.probes, [False, True])
+
+
+class BootClaudeSignInTests(ClaudeCase):
+    """#398: Boot.claude_sign_in opens a visible terminal with the unmodified
+    `claude auth login` and passes nothing of its own."""
+
+    def sign_in(self, windows, found, **env):
+        popen = FakePopen()
+        base = {k: v for k, v in os.environ.items() if k != "TERMINAL"}
+        base.update(env)
+        with mock.patch.object(crow_platform, "IS_WINDOWS", windows), \
+                mock.patch.dict(os.environ, base, clear=True):
+            code = self.boot(popen=popen).claude_sign_in(which=found.get)
+        return code, popen.calls
+
+    def test_windows_terminal_when_it_is_on_path(self):
+        wt = r"C:\Users\u\AppData\Local\Microsoft\WindowsApps\wt.exe"
+        code, calls = self.sign_in(True, {"wt": wt})
+        self.assertEqual(code, crow_boot.EXIT_OK, self.out.getvalue())
+        self.assertEqual(calls, [([wt, "cmd.exe", "/k"] + LOGIN, {})])
+
+    def test_a_console_of_its_own_without_windows_terminal(self):
+        code, calls = self.sign_in(True, {})
+        self.assertEqual(code, crow_boot.EXIT_OK)
+        self.assertEqual(calls, [(["cmd.exe", "/k"] + LOGIN, {"creationflags": 0x00000010})])
+
+    def test_linux_takes_the_first_terminal_found(self):
+        every = {"alacritty": "/usr/bin/alacritty", "x-terminal-emulator": "/usr/bin/x-terminal-emulator",
+                 "gnome-terminal": "/usr/bin/gnome-terminal", "konsole": "/usr/bin/konsole",
+                 "xterm": "/usr/bin/xterm"}
+        rest = dict(every)
+        del rest["alacritty"]
+        self.assertEqual(self.sign_in(False, every, TERMINAL="alacritty")[1],
+                         [(["/usr/bin/alacritty", "-e"] + LOGIN, {})])
+        self.assertEqual(self.sign_in(False, rest)[1],
+                         [(["/usr/bin/x-terminal-emulator", "-e"] + LOGIN, {})])
+        del rest["x-terminal-emulator"]
+        self.assertEqual(self.sign_in(False, rest)[1],
+                         [(["/usr/bin/gnome-terminal", "--"] + LOGIN, {})])
+        del rest["gnome-terminal"]
+        self.assertEqual(self.sign_in(False, rest)[1], [(["/usr/bin/konsole", "-e"] + LOGIN, {})])
+        del rest["konsole"]
+        self.assertEqual(self.sign_in(False, rest)[1], [(["/usr/bin/xterm", "-e"] + LOGIN, {})])
+
+    def test_no_terminal_names_the_command_to_run_by_hand(self):
+        code, calls = self.sign_in(False, {})
+        self.assertEqual((code, calls), (crow_boot.EXIT_FAILED, []))
+        self.assertIn("Run it in a terminal yourself: claude auth login", self.out.getvalue())
+
+
+class BootStartClaudeTests(ClaudeCase):
+    """#398: Boot.start_claude opens the window on the subscription."""
+
+    def test_it_refuses_in_every_state_but_ready_and_writes_nothing(self):
+        for env, said, sentence in (({"ANTHROPIC_BASE_URL": "http://proxy"}, {}, "ANTHROPIC_BASE_URL is set"),
+                                    ({}, {"found": False, "logged_in": False}, MISSING),
+                                    ({}, {"logged_in": False}, SIGN_IN),
+                                    ({}, {"method": "api_key"}, "bills an API key")):
+            self.said = dict(SAID, **said)
+            self.out.truncate(0)
+            popen = FakePopen()
+            with mock.patch.dict(os.environ, env):
+                code = self.boot(popen=popen).start_claude()
+            self.assertEqual(code, crow_boot.EXIT_FAILED, sentence)
+            self.assertIn(sentence, self.out.getvalue())
+            self.assertEqual(popen.calls, [], "no window")
+            self.assertFalse(os.path.exists(self.providers), "providers.json untouched")
+
+    def test_ready_picks_claude_and_opens_the_window_on_crow_nests_port(self):
+        popen = FakePopen()
+        code = self.boot(popen=popen).start_claude()
+        self.assertEqual(code, crow_boot.EXIT_OK, self.out.getvalue())
+        self.assertEqual(self.active(), "claude")
+        (argv, _kw), = popen.calls
+        self.assertTrue(argv[1].endswith("crow_gui.py"))
+        self.assertEqual(argv[2:], ["--base-url", "http://127.0.0.1:8099/v1"])
+
+    def test_with_a_llama_server_its_port_is_the_local_endpoint(self):
+        scan = lambda: [("6001", "llama-server.exe -m D:/m/Qwen3.8-27B-UD-Q4_K_XL.gguf --port 8082")]  # noqa: E731
+        popen = FakePopen()
+        code = self.boot(popen=popen, scan=scan).start_claude()
+        self.assertEqual(code, crow_boot.EXIT_OK, self.out.getvalue())
+        self.assertEqual(popen.calls[0][0][2:], ["--base-url", "http://127.0.0.1:8082/v1"])
+
+
+class TheClaudeEntryTests(ClaudeCase):
+    """#398: the picker's Claude group in the window."""
+
+    def test_it_says_checking_until_the_probe_answers_in_the_background(self):
+        later = []
+        ctl = crow_boot_gui.Controller(self.boot(), clock=self.clock,
+                                       run=lambda fn, *args: later.append((fn, args)))
+        ctl.refresh()
+        ctl.ask_claude()
+        ctl.select("claude")
+        p = ctl.view()["picker"]
+        self.assertEqual(self.probes, [], "not on the caller's thread")
+        self.assertEqual((p["selected"], p["detail"], p["start"]),
+                         ("claude", "Checking Claude Code...", None))
+        fn, args = later.pop()
+        fn(*args)
+        p = ctl.view()["picker"]
+        self.assertEqual((p["detail"], p["start"]["label"]), (READY, "Start"))
+
+    def test_refreshing_and_drawing_never_ask_claude_code(self):
+        ctl = self.controller()
+        for _ in range(3):
+            ctl.refresh()
+            ctl.view()
+        self.assertEqual(self.probes, [])
+
+    def test_each_state_has_its_button_or_none(self):
+        sign_in = {"label": "Sign in", "act": "claude_sign_in", "enabled": True}
+        start = {"label": "Start", "act": "start", "enabled": True}
+        for env, said, detail, button in (
+                ({"ANTHROPIC_API_KEY": "sk-test"}, {},
+                 crow_core.claude_cli_guard_line(["ANTHROPIC_API_KEY"]), None),
+                ({}, {"found": False, "logged_in": False}, MISSING, None),
+                ({}, {"logged_in": False}, SIGN_IN, sign_in),
+                ({}, {"method": "third_party"}, "Claude Code runs on a cloud platform, not your subscription", None),
+                ({}, {}, READY, start)):
+            self.said = dict(SAID, **said)
+            popen = FakePopen()
+            with mock.patch.dict(os.environ, env):
+                ctl = self.controller(popen=popen)
+                ctl.refresh()
+                ctl.ask_claude()
+            ctl.select("claude")
+            v = ctl.view()
+            p = v["picker"]
+            self.assertEqual((p["selected"], p["detail"], p["start"], p["vision"]["shown"]),
+                             ("claude", detail, button, False))
+            self.assertEqual(group(v, "Claude")[0]["detail"], detail)
+            if button is None:
+                ctl.start()
+                self.assertEqual(popen.calls, [], "no button, no start")
+
+    def test_after_sign_in_it_asks_again_until_signed_in(self):
+        self.said.update(logged_in=False)
+        popen = FakePopen()
+        ctl = self.controller(popen=popen)
+        ctl.refresh()
+        ctl.ask_claude()
+        ctl.select("claude")
+        with mock.patch.object(crow_platform, "IS_WINDOWS", True):
+            crow_boot_gui.Api(ctl).claude_sign_in()
+        self.assertEqual(popen.calls[0][0][-3:], LOGIN, "the terminal runs claude auth login")
+        self.clock.t += crow_boot_gui.REFRESH_S
+        ctl.refresh()
+        self.assertEqual(ctl.view()["picker"]["start"]["label"], "Sign in", "not signed in yet")
+        self.said.update(logged_in=True)
+        self.clock.t += crow_boot_gui.REFRESH_S
+        ctl.refresh()
+        p = ctl.view()["picker"]
+        self.assertEqual((p["detail"], p["start"]["label"]), (READY, "Start"))
+        self.clock.t += crow_boot_gui.REFRESH_S
+        ctl.refresh()
+        self.assertEqual(self.probes, [False, True, True], "asked anew, and not after Start shows")
+
+    def test_the_wait_after_sign_in_ends_after_ten_minutes(self):
+        self.said.update(logged_in=False)
+        ctl = self.controller()
+        ctl.ask_claude()
+        ctl.select("claude")
+        with mock.patch.object(crow_platform, "IS_WINDOWS", True):
+            ctl.claude_sign_in()
+        self.clock.t += crow_boot_gui.SIGN_IN_WAIT_S + 1
+        ctl.refresh()
+        self.assertEqual(self.probes, [False])
+
+    def test_start_opens_crow_on_claude_whether_or_not_a_point_runs(self):
+        for runs in (False, True):
+            if runs:
+                self.running_27b()
+            popen = FakePopen()
+            ctl = self.controller(popen=popen)
+            ctl.refresh()
+            ctl.ask_claude()
+            ctl.select("claude")
+            ctl.start()
+            (argv, _kw), = popen.calls
+            self.assertEqual(argv[2:], ["--base-url", "http://127.0.0.1:8099/v1"])
+            self.assertEqual(self.active(), "claude")
+            v = ctl.view()
+            self.assertEqual(v["bar"]["text"], "The Crow window is opening on Claude (subscription).")
+            self.assertEqual(v["phase"], crow_boot_gui.LANDED if runs else crow_boot_gui.IDLE)
+            ctl.select("flash-next")
+            self.assertTrue(ctl.view()["picker"]["start"]["enabled"], "the local points stay startable")
+            os.remove(self.providers)
 
 
 if __name__ == "__main__":
