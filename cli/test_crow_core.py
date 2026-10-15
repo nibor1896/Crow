@@ -12611,6 +12611,16 @@ class ABlindServerRefusesImagesTests(unittest.TestCase):
         self.assertIsNone(crow_core.refuse_images("http://127.0.0.1:9/v1",
                                                   timeout=0.3))
 
+    def test_server_vision_is_the_same_answer_as_a_boolean(self):
+        """#397: the boot names a text-only variant by it; no answer is None,
+        not False, so a silent server is never called blind."""
+        self.assertIs(crow_core.server_vision(
+            self._serve(b'{"modalities": {"vision": false}}')), False)
+        self.assertIs(crow_core.server_vision(
+            self._serve(b'{"modalities": {"vision": true}}')), True)
+        self.assertIsNone(crow_core.server_vision(self._serve(b'{"model_path": "x"}')))
+        self.assertIsNone(crow_core.server_vision("http://127.0.0.1:9/v1", timeout=0.3))
+
 
 class TheProjectorReachesTheCommandLineTests(unittest.TestCase):
     """#142, stage one: `servers.<key>.mmproj` is the whole vision switch.
@@ -29598,6 +29608,19 @@ class TheActivePointGatesTheImageServerTests(unittest.TestCase):
             crow_core.write_active_point("70b", "x", {"serve": 1, "image": None})
         self._point("{broken")
         self.assertIsNone(crow_core.read_active_point())
+
+    def test_a_variant_round_trips_and_a_base_start_writes_none(self):
+        """#397: `variant` only for a variant start, handed back as found; a
+        base start writes the four keys it always wrote."""
+        pids = {"serve": os.getpid(), "image": None}
+        crow_core.write_active_point("flash-next", "http://127.0.0.1:8099/v1", pids,
+                                     variant="text")
+        self.assertEqual(crow_core.read_active_point()["variant"], "text")
+        crow_core.write_active_point("flash-next", "http://127.0.0.1:8099/v1", pids)
+        with open(crow_core.active_point_path(), encoding="utf-8") as fh:
+            doc = json.load(fh)
+        self.assertEqual(sorted(doc), ["base_url", "pids", "point", "started_at"])
+        self.assertNotIn("variant", crow_core.read_active_point())
 
     def test_a_dead_serve_pid_makes_the_file_absent(self):
         """A crashed boot script, or a later llama.cpp session: the file is

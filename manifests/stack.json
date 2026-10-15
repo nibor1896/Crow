@@ -1028,7 +1028,24 @@
      "_source": "crow-nest geo.rs:42 HOST_PINNED_CAP; the operating value is min(cap, free_for_pin - CROW_RAM_MARGIN_GB), derived at boot. Measured on a 64 GB host class."
     },
     "disk_bytes": 105644572922
-   }
+   },
+   "variants": [
+    {
+     "key": "text",
+     "vision": false,
+     "menu": {
+      "line": "200k context — text only, the vision tower's VRAM goes to experts",
+      "gui": "200k context. Text only, more experts on the card."
+     },
+     "env": {
+      "CROW_VIT": "0"
+     },
+     "env_unset": [
+      "CROW_VIT_MMPROJ"
+     ],
+     "_status": "NOT MEASURED (#397): without the tower about 1.16 GiB comes free on paper (the F16 projector's 0.83 GiB on the card, crow-nest docs/env.md CROW_VIT_MMPROJ, and the image reserve's 0.33 GiB at 200k, CROW_VIT_RESERVE_MB), about 9.4 hot-set units. N can rise only up to n_hot 160 (crow-nest geo.rs:250). Criteria: runs/397-text-variants/PREREG.md; the measured figures replace this before a release ships the variant."
+    }
+   ]
   },
   {
    "id": "27b",
@@ -1112,7 +1129,26 @@
      "_source": "dense family: no routed experts, no hot set and no pinned expert tier (crow-nest boot.rs:50-56). No host-RAM floor is stated in crow-nest's docs."
     },
     "disk_bytes": 18784665622
-   }
+   },
+   "variants": [
+    {
+     "key": "text",
+     "vision": false,
+     "menu": {
+      "line": "200k context — text only, the vision tower's VRAM goes to the context",
+      "gui": "200k context. Text only, more room for the context."
+     },
+     "env": {
+      "CROW_VIT": "0",
+      "CROW_CONTEXT": "200000"
+     },
+     "env_unset": [
+      "CROW_VIT_MMPROJ"
+     ],
+     "context": 200000,
+     "_status": "NOT MEASURED (#397), provisional: 200,000 was refused at boot with the F16 projector, 13.03 GiB of states needed against 12.17 GiB free (2026-10-01, engine._context). Without the tower about 1.16 GiB comes free on paper, about 0.3 GiB to spare. If the boot refuses 200,000, the variant goes back to 131072 on the owner's word. Criteria: runs/397-text-variants/PREREG.md; the measured figures replace this before a release ships the variant."
+    }
+   ]
   },
   {
    "id": "glm53-flash",

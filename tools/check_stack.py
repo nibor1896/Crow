@@ -25,6 +25,11 @@ OFFLINE (the default, no network):
                    platform and every path inside that runtime's dir;
                    the slot dir is created; ports agree with argv; a menu line
                    never claims more context than the point serves;
+  * variants     - #397: a point's optional `variants` (the same files started
+                   with another env, cli/crow_boot.py plan_point): unique keys,
+                   `vision` true or false, every `env_unset` key one the base env
+                   sets, `env` values strings, `menu.line` and `menu.gui` given,
+                   and a `_status` (NOT MEASURED until the figures replace it);
   * platforms    - #341: every engine and image server names its binary for
                    windows AND linux, the same program under ${INSTALL}/bin/
                    (.exe on Windows only); argv_platform names only those two;
@@ -741,6 +746,56 @@ def check_wiring(doc) -> "list[str]":
     return p
 
 
+def check_variants(doc) -> "list[str]":
+    """#397: a point's `variants`, which crow_boot.plan_point merges over the base:
+    the base env minus `env_unset`, plus `env`; the menu texts; `vision`."""
+    p = []
+    for pt in doc["points"]:
+        pid = pt["id"]
+        vs = pt.get("variants")
+        if vs is None:
+            continue
+        if not isinstance(vs, list):
+            p.append("point %s variants is not a list" % pid)
+            continue
+        base = (pt.get("engine") or {}).get("env") or {}
+        keys = []
+        for v in vs:
+            if not isinstance(v, dict):
+                p.append("point %s has a variant that is not an object" % pid)
+                continue
+            key = v.get("key")
+            if not isinstance(key, str) or not key:
+                p.append("point %s has a variant without a key" % pid)
+            elif key in keys:
+                p.append("point %s variant key %r twice" % (pid, key))
+            keys.append(key)
+            if not isinstance(v.get("vision"), bool):
+                p.append("point %s variant %s vision %r is not true or false" % (pid, key, v.get("vision")))
+            unset = v.get("env_unset", [])
+            if not isinstance(unset, list):
+                p.append("point %s variant %s env_unset is not a list" % (pid, key))
+                unset = []
+            for k in unset:
+                if k not in base:
+                    p.append("point %s variant %s unsets %s, which the base env does not set" % (pid, key, k))
+            env = v.get("env", {})
+            if not isinstance(env, dict):
+                p.append("point %s variant %s env is not an object" % (pid, key))
+                env = {}
+            for k, val in env.items():
+                if not isinstance(val, str):
+                    p.append("point %s variant %s env %s=%r is not a string" % (pid, key, k, val))
+            menu = v.get("menu") if isinstance(v.get("menu"), dict) else {}
+            for k in ("line", "gui"):
+                if not (isinstance(menu.get(k), str) and menu[k]):
+                    p.append("point %s variant %s has no menu %s" % (pid, key, k))
+            if not (isinstance(v.get("_status"), str) and v["_status"]):
+                p.append("point %s variant %s has no _status (NOT MEASURED until its figures replace it)"
+                         % (pid, key))
+    return p
+
+
 def check_platforms(doc) -> "list[str]":
     """#341: both platforms can start every point (cli/crow_boot.py plan_point),
     unless the point names fewer in `platforms` with a reason (#340)."""
@@ -1145,6 +1200,9 @@ def run(doc, online=False) -> Report:
         "%s %d files %s B" % (pt["id"], len(pt["files"]), format(pt["bytes"]["disk"], ","))
         for pt in doc["points"]))
     r.check("engine wiring", check_wiring(doc), "env/argv paths are files of their own point")
+    r.check("variants", check_variants(doc), ", ".join(
+        "%s %s" % (pt["id"], v.get("key")) for pt in doc["points"]
+        for v in pt.get("variants") or [] if isinstance(v, dict)) or "none")
     r.check("platforms", check_platforms(doc), "windows and linux binaries for every server, lib_path")
     crow = [f for f in doc.get("crow_files") or [] if isinstance(f, dict)]
     crow_problems = check_crow_files(doc)

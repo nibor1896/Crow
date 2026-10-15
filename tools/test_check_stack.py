@@ -544,6 +544,51 @@ class TheWindowsLine(Base):
             self.red("placeholders and paths", "names the user")
 
 
+class Variants(Base):
+    """#397: a point's `variants`, merged over the base by crow_boot.plan_point.
+    One case per rule, each on the real Flash-Next `text` variant."""
+
+    def variant(self, pid="flash-next"):
+        return point(self.doc, pid)["variants"][0]
+
+    def test_the_real_variants_are_text_on_flash_next_and_the_27b(self):
+        got = {p["id"]: [v["key"] for v in p.get("variants") or []] for p in REAL["points"]}
+        self.assertEqual(got, {"flash-next": ["text"], "27b": ["text"], "glm53-flash": [],
+                               "image-stack": [], "media-stack": []})
+        self.assertEqual(point(REAL, "flash-next")["variants"][0]["env"], {"CROW_VIT": "0"})
+        self.assertEqual(point(REAL, "27b")["variants"][0]["env"],
+                         {"CROW_VIT": "0", "CROW_CONTEXT": "200000"})
+
+    def test_a_key_twice(self):
+        pt = point(self.doc, "flash-next")
+        pt["variants"].append(copy.deepcopy(pt["variants"][0]))
+        self.red("variants", "variant key 'text' twice")
+
+    def test_vision_that_is_not_a_boolean(self):
+        self.variant()["vision"] = "no"
+        self.red("variants", "vision 'no' is not true or false")
+
+    def test_unsetting_a_key_the_base_does_not_set(self):
+        self.variant()["env_unset"] = ["CROW_HOTSETS_EXTRA"]
+        self.red("variants", "unsets CROW_HOTSETS_EXTRA, which the base env does not set")
+
+    def test_an_env_value_that_is_not_a_string(self):
+        self.variant("27b")["env"]["CROW_CONTEXT"] = 200000
+        self.red("variants", "env CROW_CONTEXT=200000 is not a string")
+
+    def test_no_menu_line(self):
+        del self.variant()["menu"]["line"]
+        self.red("variants", "variant text has no menu line")
+
+    def test_no_menu_gui_text(self):
+        del self.variant()["menu"]["gui"]
+        self.red("variants", "variant text has no menu gui")
+
+    def test_no_status(self):
+        del self.variant()["_status"]
+        self.red("variants", "variant text has no _status")
+
+
 def media_like(doc):
     """27b rebuilt as a llama-server point with a video server (#340), valid as built."""
     base = file_(doc, "27b-cnq")

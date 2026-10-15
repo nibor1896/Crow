@@ -32,18 +32,20 @@ python cli\crow_boot.py
   ----------------------------------------------------
   ⚪ No operating point is running.
 
-   1  🚀 Start Crow                     open the window on the running point
-   2  🧠 Qwen3.8-Flash-Next             200k context — great for coding & vision
-   3  ⚡ Qwen3.8-27B                    128k context — great speed, awesome for coding & vision
-   4  🐋 GLM-5.3-Flash                  200k context — the big MoE, experts streamed from NVMe
-   5  🎨 Image Stack                    27B + Qwen-Image 2.1 — create AWESOME pictures
-   6  🎬 Media Stack                    9B + Qwen-Image 2.1 + LTX-2.5 — pictures and short videos
+   1  🚀 Start Crow                      open the window on the running point
+   2  🧠 Qwen3.8-Flash-Next              200k context — great for coding & vision
+   3  🧠 Qwen3.8-Flash-Next · text only  200k context — text only, the vision tower's VRAM goes to experts
+   4  ⚡ Qwen3.8-27B                     128k context — great speed, awesome for coding & vision
+   5  ⚡ Qwen3.8-27B · text only         200k context — text only, the vision tower's VRAM goes to the context
+   6  🐋 GLM-5.3-Flash                   200k context — the big MoE, experts streamed from NVMe
+   7  🎨 Image Stack                     27B + Qwen-Image 2.1 — create AWESOME pictures
+   8  🎬 Media Stack                     9B + Qwen-Image 2.1 + LTX-2.5 — pictures and short videos
 
   Optional (llama.cpp)
-   7  🦙 Qwen3.8-27B (optional)         llama.cpp, port 8082
-   8  🦙 Qwen3.8-Flash-Next (optional)  llama.cpp, port 8083
+   9  🦙 Qwen3.8-27B (optional)          llama.cpp, port 8082
+  10  🦙 Qwen3.8-Flash-Next (optional)   llama.cpp, port 8083
 
-   9  🛑 Stop the running point
+  11  🛑 Stop the running point
    0  👋 Quit
 ```
 
@@ -51,7 +53,9 @@ python cli\crow_boot.py
 |---|---|
 | Start Crow | opens the window with `--base-url` of what runs: a baseline point, or a llama-server (its port), and says which. Only when no model server runs it says so and starts nothing |
 | Qwen3.8-Flash-Next | starts crow-nest's `serve` with the Flash-Next container (200k context) |
+| Qwen3.8-Flash-Next · text only | the same point without the vision tower (#397): `CROW_VIT=0`, no `CROW_VIT_MMPROJ`, so the projector's and the image reserve's VRAM stay with the expert hot set (at most N 160). No images: `/props` says vision false, and Crow answers a pasted image with its no-vision sentence. **Not measured** |
 | Qwen3.8-27B | starts `serve` with the 27B container at 131,072 context (`CROW_CONTEXT`; 200k waits for an 8-bit KV cache in crow-nest) |
+| Qwen3.8-27B · text only | the 27B without the vision tower at 200,000 context (#397: `CROW_VIT=0`, no `CROW_VIT_MMPROJ`, `CROW_CONTEXT=200000`). **Not measured**: with the tower 200,000 was refused at boot for lack of 0.86 GiB; on paper the tower frees 1.16 GiB. If the boot refuses, the line goes back to 131,072 |
 | GLM-5.3-Flash | starts `serve` with the GLM-5.3-Flash container (200k context) and crow-nest's `arm4.env` operating set plus the three prefill-reuse switches `CROW_GLM_SMALL_PROMPT`, `CROW_GLM_ANSWER_REUSE`, `CROW_GLM_PREFIX_ANCHOR` (#365, 2026-10-12; needs crow-nest v0.12.0 or later, pinned v0.13.2) |
 | Image Stack | starts the 27B at 65,536 context (room for Qwen-Image beside it), then `sd-server` with Qwen-Image 2.1 once `serve` is ready |
 | Media Stack | Windows only. Starts `llama-server` with Qwen3.5-9B Q8_0 and its projector on 8099 at 65,536 context. Crow's window warms `sd-server` when it opens; ComfyUI (LTX-2.5) starts on the first `animate_image`; for a clip the language model leaves the card and comes back afterwards ([operating points](../operating-points.md#media-stack--pictures-and-short-videos-windows)) |
@@ -67,7 +71,7 @@ python cli\crow_boot.py
 | Failure or timeout | what was started is stopped, the last 10 log lines are shown |
 | One point at a time | in both directions: a llama-server blocks a baseline start and a baseline point blocks an optional one. The message names what runs and how to stop it: the menu entry, `--stop`, or `taskkill /PID <pid> /F` |
 | Which optional lines show | only those whose llama-server binary and GGUF are on disk (`%CROW_MODELS%` or `<install>\models`, `CROW_LLAMA_SERVER_<KEY>`); the others are left out |
-| Contract file | `%LOCALAPPDATA%\Crow\active-point.json` (`point`, `base_url`, `started_at`, `pids`), for the baseline points only. The window reads it |
+| Contract file | `%LOCALAPPDATA%\Crow\active-point.json` (`point`, `base_url`, `started_at`, `pids`; `variant` only for a variant start, e.g. `"text"`), for the baseline points only. The window reads it. A point found by the process scan instead counts as its text-only variant when `/props` says `modalities.vision` false |
 | Logs | `runs\serve-8099.log`, `runs\sd-server-8097.log`, `runs\llama-server-<port>.out.log` / `.err.log` under the folder the menu was started from (the shortcut starts it in the install folder). The previous run is kept as `.prev.log` |
 | Without a modern console | plain ASCII, no colours, no animation. `NO_COLOR` drops only the colours |
 
@@ -78,6 +82,7 @@ python cli\crow_boot.py
 | *(none)* | the menu |
 | `--status` | what runs. Exit 0, or 1 when nothing runs |
 | `--start <point>` | `flash-next`, `27b`, `image-stack`, or an optional line's key (`qwen35-q4-k-xl`, `flash-next-q2-k-xl`, `operating-point`). No animation when the output is not a terminal |
+| `--variant <key>` | with `--start`: one of the point's variants from `stack.json`, today `text` for `flash-next` and `27b` (#397, not measured): `--start flash-next --variant text`. A key the point does not have is exit 2 |
 | `--stop` | stop the running point |
 | `--start-crow` | open the window on the running point |
 | `--gui` | the operating-point window instead of the terminal menu |
@@ -87,7 +92,7 @@ python cli\crow_boot.py
 | `--models <dir>` | the models root `${MODELS}` (default `%CROW_MODELS%`, else `<install>\models`); also handed to the optional lines as `CROW_MODELS` |
 | `--stack <file>` | another `stack.json` |
 
-Exit codes: 0 done, 1 failed, 2 setup error (missing file, unknown point), 3 refused because a point already runs.
+Exit codes: 0 done, 1 failed, 2 setup error (missing file, unknown point or variant), 3 refused because a point already runs.
 
 ## Linux
 
