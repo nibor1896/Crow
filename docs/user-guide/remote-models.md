@@ -6,11 +6,11 @@
 lands and on `ask again`. Nothing is asked of a provider while a window opens.
 
 <div align="center">
-<img src="../images/CrowAPI.png" alt="Settings, API Keys: one key per provider, shown as a mask once saved" width="900">
+<img src="../images/CrowAPI-2026-10-15.png" alt="Settings, API Keys: OpenRouter's key box, then GitHub" width="900">
 </div>
 
 <div align="center">
-<img src="../images/CrowModelLocal.png" alt="Settings, Model page: this machine, OpenRouter, Anthropic and OpenAI as providers" width="900">
+<img src="../images/CrowModel-2026-10-15.png" alt="Settings, Model page: This machine and Claude (subscription) as providers" width="900">
 </div>
 
 A key is kept in its own file that no view reads back — what the box shows afterwards is a mask.
@@ -36,8 +36,6 @@ Three files, in `%LOCALAPPDATA%\Crow\` on Windows and `~/.config/crow/` on Linux
 |---|---|---|
 | This machine | `--base-url`, default `http://127.0.0.1:8083/v1` since 2.0.0 | none |
 | OpenRouter | `https://openrouter.ai/api/v1` | `sk-or-...` |
-| Anthropic | `https://api.anthropic.com/v1` (Messages) | `sk-ant-...` |
-| OpenAI | `https://api.openai.com/v1` | `sk-...` |
 | Claude (subscription) | Claude Code, one `claude -p` per turn | none in Crow: `claude auth login` |
 
 | | |
@@ -53,7 +51,7 @@ requests through Free, Pro or Max credentials, or collect, store or intermediate
 allow is signing in to the unmodified Claude Code program with your own subscription. So Crow
 starts Claude Code and reads what it prints; it never sees, keeps or refreshes a token (#390).
 The setup-token paste, the borrowed `~/.claude/.credentials.json` sign-in and Crow's own browser
-sign-in are gone, and so is the OpenAI sign-in for now. A `provider_tokens.json` left from them is
+sign-in are gone, and so are the Anthropic and OpenAI key providers with their own Messages dialect; OpenAI comes back in its own ticket. A `provider_tokens.json` left from them is
 deleted on the next start, with one log line.
 
 ```bash
@@ -103,29 +101,14 @@ review do not run; Claude Code compacts its own session.
 | context after the first turn | 42,058 and 42,073 tokens of 1,000,000 — most of it Claude Code's prompt and the owner's setup |
 | not measured | quota per turn (Hermes' docs say about 1.7× the interactive TUI), Stop mid-turn, `--effort` against the real CLI, the window live |
 
-## Two dialects
+## One dialect
 
 | transport | endpoint | who |
 |---|---|---|
-| `chat_completions` | `<base>/chat/completions` | the local server, OpenRouter, OpenAI |
-| `anthropic_messages` | `<base>/messages` | Anthropic, with a key |
+| `chat_completions` | `<base>/chat/completions` | the local server, OpenRouter |
 | `claude_cli` | none: a `claude -p` child | Claude (subscription) |
 
-The dialect belongs to the provider, not to the credential.
-
-What `anthropic_messages` translates, each mandatory:
-
-| | |
-|---|---|
-| System prompt | moves to the top level |
-| Tools | `input_schema` instead of `function` |
-| Tool call | `tool_use` blocks with an object `input` |
-| Tool results | every result answering one turn batched into **one** user message |
-| `max_tokens` | required |
-| `temperature`, `top_p`, `top_k` | removed on current models, not sent |
-| Stream back | `text_delta` → content, `thinking_delta` → reasoning, `input_json_delta` → tool arguments. One loop, not two |
-
-An Anthropic key travels as `x-api-key`, nothing else.
+Anthropic's native `/v1/messages` dialect went with the `anthropic` provider (#390, 2026-10-15).
 
 ## One answer's ceiling
 
