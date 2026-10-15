@@ -20283,5 +20283,70 @@ class TheClaudeChipAndTurnTests(ApiCase):
         self.assertEqual(out["label"], " · max (env)")
 
 
+class TheLocalServerIsWatchedTests(ApiCase):
+    """#391, reopened on the owner's live check of 2026-10-15: a crow-nest point
+    stopped mid-session left the composer dot green, because the state was
+    asked at `ready()` and on a reload and never again."""
+
+    LOCAL = {"remote": False, "base_url": "http://127.0.0.1:1/v1"}
+
+    def _ups_and_downs(self, api) -> list:
+        return [m["k"] for m in self.drained(api) if m.get("k") in ("up", "down")]
+
+    def test_a_stopped_server_says_so_once_and_a_return_asks_again(self):
+        api = self.api()
+        gone = crow_core.CrowError("no endpoint at http://127.0.0.1:1/health")
+        with mock.patch.object(api, "_endpoint", return_value=self.LOCAL), \
+             mock.patch.object(crow_gui, "check_endpoint", side_effect=gone):
+            api._health_tick()
+            api._health_tick()
+        self.assertEqual(self._ups_and_downs(api), ["down"], "said once, not every tick")
+        probed = []
+        with mock.patch.object(api, "_endpoint", return_value=self.LOCAL), \
+             mock.patch.object(crow_gui, "check_endpoint", return_value="ok"), \
+             mock.patch.object(api, "_probe",
+                               side_effect=lambda redraw=False: probed.append(redraw)):
+            api._health_tick()
+        self.assertEqual(probed, [True], "the server that came back is asked again")
+
+    def test_a_server_that_stays_up_is_not_reprobed(self):
+        api = self.api()
+        with mock.patch.object(api, "_endpoint", return_value=self.LOCAL), \
+             mock.patch.object(crow_gui, "check_endpoint", return_value="ok"), \
+             mock.patch.object(api, "_probe") as probe:
+            api._health_tick()
+            api._health_tick()
+        probe.assert_not_called()
+        self.assertEqual(self._ups_and_downs(api), [])
+
+    def test_the_subscription_never_asks_the_local_server(self):
+        """The owner, 2026-10-15: on the Claude subscription a stopped crow-nest
+        point must not turn the lamp red -- the turns do not go there."""
+        api = self.api()
+        api._health_down = False
+        claude = {"remote": True, "transport": crow_core.TRANSPORT_CLAUDE_CLI,
+                  "base_url": ""}
+        with mock.patch.object(api, "_endpoint", return_value=claude), \
+             mock.patch.object(crow_gui, "check_endpoint") as asked:
+            api._health_tick()
+        asked.assert_not_called()
+        self.assertEqual(self._ups_and_downs(api), [])
+
+    def test_the_window_starts_the_watcher_and_ready_does_not(self):
+        """Started beside `pump` in `main`. In `ready()` the never-ending loop
+        ran inline under the suites' `_RunsNow` Thread and hung the gate for 55
+        minutes on 2026-10-15."""
+        self.assertIn("target=api._health_watch", inspect.getsource(crow_gui.main))
+        self.assertNotIn("_health_watch", inspect.getsource(crow_gui.Api.ready))
+
+    def test_a_running_turn_is_not_talked_over(self):
+        api = self.api()
+        api._worker = mock.Mock(is_alive=lambda: True)
+        with mock.patch.object(api, "_endpoint", return_value=self.LOCAL), \
+             mock.patch.object(crow_gui, "check_endpoint") as asked:
+            api._health_tick()
+        asked.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

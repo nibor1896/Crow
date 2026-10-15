@@ -13168,6 +13168,9 @@ class Api:
         # in flight, because the loop that asks is the one that blocks.
         self._asked = threading.Event()
         self._answer = "no"
+        # #391: what the page was last told about the LOCAL server -- the
+        # health watcher pushes only a change, never the same state twice.
+        self._health_down = False
         # #156. The device-flow poller reads this between sleeps; the card's
         # cancel button sets it. A plain flag and not an Event, because nobody
         # waits on it -- the thread checks it and gives up.
@@ -13662,6 +13665,49 @@ class Api:
         # der erste Blick auf das Fenster nicht darauf warten darf.
         self.git_refresh()
         threading.Thread(target=self._probe, daemon=True).start()
+
+    # #391. THE DOT FOLLOWS THE LOCAL SERVER WITHOUT A LINE BEING SENT. Before
+    # this the state was asked twice in a window's life -- at `ready()` and on a
+    # page reload -- so a crow-nest point stopped mid-session left the dot green
+    # until a turn failed (the owner, live 2026-10-15). The question is the one
+    # `_look` already asks, `GET /health`, every HEALTH_EVERY seconds.
+    #
+    # LOCAL ONLY (the owner, 2026-10-15: "on the subscription the lamp must not
+    # turn red, you are using your subscription"). A remote provider and the
+    # Claude subscription are never asked here: their state is on disk (`_look`)
+    # and a stopped crow-nest point is nothing to them.
+    #
+    # NOT DURING A TURN: the turn's own failure says it then, and a second voice
+    # on the same breath would be the noise. ONLY CHANGES ARE PUSHED: up -> down
+    # once, down -> up re-runs the probe, so name, window and levels come from
+    # the server that came back rather than from the one that went.
+    HEALTH_EVERY = 5.0
+    HEALTH_TIMEOUT = 2.0
+
+    def _health_tick(self) -> None:
+        """One look at the local server; a push only when the state changed."""
+        spot = self._endpoint()
+        if spot.get("remote"):
+            return
+        if self._worker and self._worker.is_alive():
+            return
+        try:
+            check_endpoint(spot["base_url"], timeout=self.HEALTH_TIMEOUT)
+        except Exception as exc:           # noqa: BLE001 - said on the chip
+            if not self._health_down:
+                self._health_down = True
+                self.push({"k": "down", "why": str(exc)[:120]})
+            return
+        if self._health_down:
+            self._probe(redraw=True)
+
+    def _health_watch(self) -> None:
+        while True:
+            time.sleep(self.HEALTH_EVERY)
+            try:
+                self._health_tick()
+            except Exception:              # noqa: BLE001 - the next tick asks again
+                pass
 
     def _ready_again(self) -> None:
         """#209: THE SAME WINDOW, A NEW PAGE. `pywebviewready` fires once per
@@ -14519,7 +14565,9 @@ class Api:
             self.push({"k": "up", "model": name, "n_ctx": self._n_ctx,
                        "tokens": self._context_tokens, "state": state,
                        **self._chip_menu(spot, name)})
+            self._health_down = False      # #391
         except Exception as exc:           # noqa: BLE001 - shown, never raised
+            self._health_down = True       # #391
             self.push({"k": "down", "why": str(exc)[:120]})
             return
         if redraw or not self._args.session:
@@ -18255,8 +18303,10 @@ class Api:
         try:
             state, name, window = self._look(spot)
         except Exception as exc:           # noqa: BLE001 - shown, never raised
+            self._health_down = True       # #391
             self.push({"k": "down", "why": str(exc)[:120]})
             return
+        self._health_down = False          # #391
         self._model = name
         self._n_ctx = window
         self.push({"k": "up", "model": name, "n_ctx": self._n_ctx,
@@ -20284,6 +20334,12 @@ def main(argv: list[str] | None = None) -> int:
     if not crow_platform.IS_WINDOWS:
         window.events.before_show += api.pane_embed
     threading.Thread(target=api.pump, daemon=True).start()
+    # #391: the local server's health, every HEALTH_EVERY seconds for the
+    # window's life. Started HERE, beside `pump`, and not in `ready()`: a loop
+    # that never returns does not belong in a method the suites drive with a
+    # Thread that runs its target inline (`_RunsNow`) -- that hung the gate
+    # for 55 minutes on 2026-10-15.
+    threading.Thread(target=api._health_watch, daemon=True, name="crow-health").start()
     # #390: the token file of the removed sign-in, deleted once with one line.
     crow_core.retire_provider_tokens()
     # #300: the image server warms while the window opens, if the core has one.
