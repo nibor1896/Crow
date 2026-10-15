@@ -286,7 +286,7 @@ $SHIP_ROOT_FILES   = @('LICENSE', 'NOTICE', 'README.md')
 $SHIP_TOP_DIRS     = @('bin', 'cli', 'kits')
 $SHIP_SINGLE_FILES = @('templates\0731-chat-template.jinja', 'manifests\operating-point.json', 'manifests\stack.json',
                        'tools\te_rename.py')
-$EXCLUDE_DIRS      = @('runs', '__pycache__', '.crow', 'digests', 'sessions')
+$EXCLUDE_DIRS      = @('runs', '__pycache__', '.crow', 'digests', 'sessions', 'fixtures')
 $EXCLUDE_FILES     = @('*.log', '*.pyc', '*.pyo', '*.jsonl', 'test_*.py', '.env*', 'secrets.json',
                        'session*.json', 'state*.json', 'settings.json', '*_tokens.json')
 $KIT_REQUIRED      = @('crow-pathtracer.js', 'kit.json', 'voxel-kit.js', 'SKILL.md', 'check_diorama.py',

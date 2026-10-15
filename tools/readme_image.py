@@ -88,7 +88,7 @@ FEATURES = [
  ("Lightbox", "folder, download, size in MB; on the phone too", "gold"),
  ("Session search", "SQLite FTS5 over every archived conversation", "sub"),
  ("MCP", "stdio and Streamable HTTP, OAuth, per-tool classes", "ok"),
- ("Remote models", "OpenRouter, Anthropic, OpenAI. Default: this machine", "gold"),
+ ("Remote models", "OpenRouter, Claude sub. Default: this machine", "gold"),
  ("Phone", "the window on a paired phone, LAN or Tailscale", "sub"),
  ("Voice", "dictation via faster-whisper, nothing written to disk", "ok"),
  ("Secrets", "a file with an ACL, not an inherited env variable", "gold"),
