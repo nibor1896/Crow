@@ -1197,15 +1197,28 @@ class TheTextVariantsArePlannedFromTheirBaseTests(BootCase):
         self.assertIs(base["identity"]["vision"], True, "planning the variant changed the stack")
         self.assertIn("CROW_VIT_MMPROJ", base["serve"]["env"])
 
-    def test_the_27b_text_has_the_tower_off_at_200k(self):
+    def test_the_27b_text_has_the_tower_off_and_says_128k(self):
+        # the first draft gave it 200,000 on paper; the owner's 131,072 stands
         plan = crow_boot.plan_point(STACK, "27b", self.install, self.models, variant="text")
         env = plan["serve"]["env"]
-        self.assertEqual((env["CROW_VIT"], env["CROW_CONTEXT"]), ("0", "200000"))
+        self.assertEqual(env["CROW_VIT"], "0")
         self.assertNotIn("CROW_VIT_MMPROJ", env)
-        self.assertIn("200k context", plan["line"])
-        self.assertIn("200k context", plan["gui"])
-        point = next(p for p in STACK["points"] if p["id"] == "27b")
-        self.assertEqual(point["variants"][0]["context"], 200000)
+        self.assertEqual(plan["line"], "128k context — text only, without the vision tower")
+        self.assertEqual(plan["gui"], "128k context. Text only.")
+        self.assertIs(plan["identity"]["vision"], False)
+
+    def test_the_27b_text_inherits_the_context_131072_from_its_base(self):
+        # owner decision 2026-10-07 (crow-nest #88, the 8-bit KV gate failed): the 27B
+        # stays at 131,072; 200k was refused for VRAM on 2026-10-01. The ~1 GiB the
+        # tower frees is not used by the dense model, so the variant sets no context.
+        plan = crow_boot.plan_point(STACK, "27b", self.install, self.models, variant="text")
+        base = crow_boot.plan_point(STACK, "27b", self.install, self.models)
+        env = plan["serve"]["env"]
+        self.assertEqual((env["CROW_VIT"], env["CROW_CONTEXT"]), ("0", "131072"))
+        self.assertEqual(env["CROW_CONTEXT"], base["serve"]["env"]["CROW_CONTEXT"])
+        variant = next(p for p in STACK["points"] if p["id"] == "27b")["variants"][0]
+        self.assertNotIn("CROW_CONTEXT", variant["env"], "inherited, not set again")
+        self.assertNotIn("context", variant)
 
     def test_a_base_plan_is_what_it_was_before_variants(self):
         old = without_variants(STACK)

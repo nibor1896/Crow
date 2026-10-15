@@ -360,7 +360,8 @@ an older engine can still lose a long tool call to `finish length`.
 ### Text only — Flash-Next and the 27B without the vision tower (#397)
 
 **NOT MEASURED.** The owner's request of 2026-10-15: both Qwen points can also start without the
-vision tower, so its VRAM goes to the model. Same files, another env: `variants` in
+vision tower, so its VRAM stays free: Flash-Next puts it into the expert hot set, the dense 27B
+has no use for it. Same files, another env: `variants` in
 [`manifests/stack.json`](../manifests/stack.json), key `text`, started from the boot menu's own
 line or with `--start <point> --variant text` ([boot menu](user-guide/boot.md#terminal-menu)). The
 criteria are fixed in [`runs/397-text-variants/PREREG.md`](../runs/397-text-variants/PREREG.md)
@@ -369,11 +370,11 @@ the variants. The Image and Media Stacks keep vision, and GLM-5.3-Flash has no t
 
 | | Flash-Next · text only | 27B · text only |
 |---|---|---|
-| Env | the base env, plus `CROW_VIT=0`, without `CROW_VIT_MMPROJ` | the same, plus `CROW_CONTEXT=200000` |
-| Context | 200,000 | 200,000 (the base point serves 131,072) |
+| Env | the base env, plus `CROW_VIT=0`, without `CROW_VIT_MMPROJ` | the same; no `CROW_CONTEXT` of its own, the base's 131072 applies |
+| Context | 200,000 | 131,072, like the base point |
 | Vision | none: `/props` says `modalities.vision` false, and Crow answers a pasted image with its no-vision sentence | the same |
-| Freed VRAM, on paper | about 1.16 GiB: the F16 projector's 0.83 GiB on the card and the image reserve's 0.33 GiB at 200k (crow-nest `docs/env.md`, `CROW_VIT_MMPROJ` and `CROW_VIT_RESERVE_MB`), about 9.4 hot-set units of 132,710,400 B | the same 1.16 GiB, against the 0.86 GiB that 200,000 lacked at boot with the tower (2026-10-01: 13.03 GiB of states needed, 12.17 GiB free), about 0.3 GiB to spare |
-| Limit | the hot set rises at most to `n_hot` 160 (crow-nest `geo.rs:250`); today's N with vision is not measured | provisional: if the boot refuses 200,000, the variant goes back to 131,072 on the owner's word |
+| Freed VRAM, on paper | about 1.16 GiB: the F16 projector's 0.83 GiB on the card and the image reserve's 0.33 GiB at 200k (crow-nest `docs/env.md`, `CROW_VIT_MMPROJ` and `CROW_VIT_RESERVE_MB`), about 9.4 hot-set units of 132,710,400 B | about 1 GiB, not used by the dense model: the context stays at 131,072 |
+| Limit | the hot set rises at most to `n_hot` 160 (crow-nest `geo.rs:250`); today's N with vision is not measured | owner decision 2026-10-07: the 27B stays at 131,072. 200,000 was refused for VRAM on 2026-10-01 and the 8-bit KV gate that was to make it possible failed (crow-nest #88); the owner confirmed 2026-10-15 that the 27B does not boot at 200k |
 | Install | nothing of its own; the projector stays for the base point | the same |
 
 ---

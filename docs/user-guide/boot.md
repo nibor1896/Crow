@@ -63,7 +63,7 @@ python cli\crow_boot.py
    3  🧠 Qwen3.8-Flash-Next                     200k context — great for coding & vision
    4  🧠 Qwen3.8-Flash-Next · text only         200k context — text only, the vision tower's VRAM goes to experts
    5  ⚡ Qwen3.8-27B                            128k context — great speed, awesome for coding & vision
-   6  ⚡ Qwen3.8-27B · text only                200k context — text only, the vision tower's VRAM goes to the context
+   6  ⚡ Qwen3.8-27B · text only                128k context — text only, without the vision tower
    7  🐋 GLM-5.3-Flash                          200k context — the big MoE, experts streamed from NVMe
    8  🎨 Image Stack                            27B + Qwen-Image 2.1 — create AWESOME pictures
    9  🎬 Media Stack                            9B + Qwen-Image 2.1 + LTX-2.5 — pictures and short videos
@@ -83,7 +83,7 @@ python cli\crow_boot.py
 | Qwen3.8-Flash-Next | starts crow-nest's `serve` with the Flash-Next container (200k context) |
 | Qwen3.8-Flash-Next · text only | the same point without the vision tower (#397): `CROW_VIT=0`, no `CROW_VIT_MMPROJ`, so the projector's and the image reserve's VRAM stay with the expert hot set (at most N 160). No images: `/props` says vision false, and Crow answers a pasted image with its no-vision sentence. **Not measured** |
 | Qwen3.8-27B | starts `serve` with the 27B container at 131,072 context (`CROW_CONTEXT`; 200k waits for an 8-bit KV cache in crow-nest) |
-| Qwen3.8-27B · text only | the 27B without the vision tower at 200,000 context (#397: `CROW_VIT=0`, no `CROW_VIT_MMPROJ`, `CROW_CONTEXT=200000`). **Not measured**: with the tower 200,000 was refused at boot for lack of 0.86 GiB; on paper the tower frees 1.16 GiB. If the boot refuses, the line goes back to 131,072 |
+| Qwen3.8-27B · text only | the 27B without the vision tower, at the base's 131,072 context (#397: `CROW_VIT=0`, no `CROW_VIT_MMPROJ`, no `CROW_CONTEXT` of its own). The ~1 GiB of VRAM the tower frees is not used by the dense model. **Not measured** |
 | GLM-5.3-Flash | starts `serve` with the GLM-5.3-Flash container (200k context) and crow-nest's `arm4.env` operating set plus the three prefill-reuse switches `CROW_GLM_SMALL_PROMPT`, `CROW_GLM_ANSWER_REUSE`, `CROW_GLM_PREFIX_ANCHOR` (#365, 2026-10-12; needs crow-nest v0.12.0 or later, pinned v0.13.2) |
 | Image Stack | starts the 27B at 65,536 context (room for Qwen-Image beside it), then `sd-server` with Qwen-Image 2.1 once `serve` is ready |
 | Media Stack | Windows only. Starts `llama-server` with Qwen3.5-9B Q8_0 and its projector on 8099 at 65,536 context. Crow's window warms `sd-server` when it opens; ComfyUI (LTX-2.5) starts on the first `animate_image`; for a clip the language model leaves the card and comes back afterwards ([operating points](../operating-points.md#media-stack--pictures-and-short-videos-windows)) |

@@ -1135,18 +1135,16 @@
      "key": "text",
      "vision": false,
      "menu": {
-      "line": "200k context — text only, the vision tower's VRAM goes to the context",
-      "gui": "200k context. Text only, more room for the context."
+      "line": "128k context — text only, without the vision tower",
+      "gui": "128k context. Text only."
      },
      "env": {
-      "CROW_VIT": "0",
-      "CROW_CONTEXT": "200000"
+      "CROW_VIT": "0"
      },
      "env_unset": [
       "CROW_VIT_MMPROJ"
      ],
-     "context": 200000,
-     "_status": "NOT MEASURED (#397), provisional: 200,000 was refused at boot with the F16 projector, 13.03 GiB of states needed against 12.17 GiB free (2026-10-01, engine._context). Without the tower about 1.16 GiB comes free on paper, about 0.3 GiB to spare. If the boot refuses 200,000, the variant goes back to 131072 on the owner's word. Criteria: runs/397-text-variants/PREREG.md; the measured figures replace this before a release ships the variant."
+     "_status": "NOT MEASURED (#397): 131,072 context like the base (owner decision 2026-10-07: crow-nest #88, the 8-bit KV gate that was to make 200k possible failed; 200k was refused for VRAM on 2026-10-01, engine._context). The ~1 GiB of VRAM the missing tower frees is not used by the dense model. Criteria: runs/397-text-variants/PREREG.md (Amendment 2026-10-15); the measured figures replace this before a release ships the variant."
     }
    ]
   },

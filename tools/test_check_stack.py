@@ -556,8 +556,7 @@ class Variants(Base):
         self.assertEqual(got, {"flash-next": ["text"], "27b": ["text"], "glm53-flash": [],
                                "image-stack": [], "media-stack": []})
         self.assertEqual(point(REAL, "flash-next")["variants"][0]["env"], {"CROW_VIT": "0"})
-        self.assertEqual(point(REAL, "27b")["variants"][0]["env"],
-                         {"CROW_VIT": "0", "CROW_CONTEXT": "200000"})
+        self.assertEqual(point(REAL, "27b")["variants"][0]["env"], {"CROW_VIT": "0"})
 
     def test_a_key_twice(self):
         pt = point(self.doc, "flash-next")
@@ -573,8 +572,8 @@ class Variants(Base):
         self.red("variants", "unsets CROW_HOTSETS_EXTRA, which the base env does not set")
 
     def test_an_env_value_that_is_not_a_string(self):
-        self.variant("27b")["env"]["CROW_CONTEXT"] = 200000
-        self.red("variants", "env CROW_CONTEXT=200000 is not a string")
+        self.variant("27b")["env"]["CROW_CONTEXT"] = 131072
+        self.red("variants", "env CROW_CONTEXT=131072 is not a string")
 
     def test_no_menu_line(self):
         del self.variant()["menu"]["line"]

@@ -43,7 +43,7 @@ THE DECISIONS, and why each is this way:
   Flash-Next cannot reach the 27B, nor a shell's `CROW_VIT=0` a base start.
 * A VARIANT IS THE SAME POINT WITH ANOTHER ENV (#397): stack.json `variants`,
   today `text` on Flash-Next and the 27B (`CROW_VIT=0`, no `CROW_VIT_MMPROJ`;
-  the 27B at 200k). `plan_point(..., variant=)` takes the base env minus the
+  the 27B keeps its base's 131,072). `plan_point(..., variant=)` takes the base env minus the
   variant's `env_unset` plus its `env`, its menu line and gui text, and
   `identity.vision` from its `vision`; the title stays the base's. It installs
   nothing: the projector stays for the base point. The menu lists each variant

@@ -55,3 +55,32 @@ written before the result it judges.
 ## Addenda
 
 None yet.
+
+## Amendment 2026-10-15 (before any run)
+
+Written before any run of either variant; nothing below has been measured. The original text above is
+unchanged.
+
+**Criterion 2 is withdrawn** (27B text: boot at 200,000, a prompt of about 150,000 tokens, decode at
+200k). The 27B stays at 131,072 by a standing owner decision. 200k was refused for VRAM on 2026-10-01
+(`manifests/stack.json`, point `27b`, `engine._context`: 13.03 GiB of states needed against 12.17 GiB
+free). The 8-bit KV gate that was to make 200k possible failed on 2026-10-07 (crow-nest #88). The owner
+confirmed on 2026-10-15 that the 27B does not boot at 200k. The 27B text variant therefore stays at the
+base point's 131,072 and only drops the vision tower; the ~1 GiB of VRAM that frees is not used by the
+dense 27B. In *The arms*, the 27B's `CROW_CONTEXT=200000` no longer applies: B = text is the base env
+without `CROW_VIT_MMPROJ`, plus `CROW_VIT=0`, nothing else. The open item about a prompt of about
+150,000 tokens for the 27B falls away with the criterion.
+
+**The 27B text variant is checked instead for** (A = the 128k vision base, B = `--start 27b --variant
+text`, same machine state):
+
+- **(a) Boot:** it boots at 131,072 and the `[vit]` boot line says the tower is off.
+- **(b) VRAM:** the VRAM in use after boot is at least 0.8 GiB below the vision base's, same machine
+  state, n = 3 alternating (A B A B A B).
+- **(c) Decode:** decode tok/s at short context is at least 0.97 x the vision base's mean (n = 5
+  alternating, as in criterion 1: the same prompt, `probe-f-coding.txt`, one discarded warmup turn per
+  boot).
+- **(d) Images:** a pasted image is refused with Crow's existing no-vision sentence (criterion 3 for
+  the 27B, unchanged).
+
+Criterion 1 (Flash-Next text) and criterion 3 stand as written.
