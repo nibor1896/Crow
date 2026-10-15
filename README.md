@@ -1,8 +1,8 @@
 <picture>
-  <source media="(max-width: 700px) and (prefers-color-scheme: dark)" srcset="docs/images/readme/crow-mobile-dark.svg?v=20261012">
-  <source media="(max-width: 700px)" srcset="docs/images/readme/crow-mobile-light.svg?v=20261012">
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/crow-dark.svg?v=20261012">
-  <img src="docs/images/readme/crow-light.svg?v=20261012" width="100%" alt="Crow: an agent, not a chat box. A local model at 200k context with 31 tools and MCP, memory, skills, goals, subagents, a browser panel and vision. It makes and edits images with Qwen-Image 2.1 beside crow-nest's 27B on one 32 GB card. Default engine crow-nest (Rust), 35.8 tok/s decode at 122k context on Linux.">
+  <source media="(max-width: 700px) and (prefers-color-scheme: dark)" srcset="docs/images/readme/crow-mobile-dark.svg?v=20261015">
+  <source media="(max-width: 700px)" srcset="docs/images/readme/crow-mobile-light.svg?v=20261015">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/crow-dark.svg?v=20261015">
+  <img src="docs/images/readme/crow-light.svg?v=20261015" width="100%" alt="Crow v4.0.0: an agent, not a chat box. A local model at 200k context with 31 tools and MCP, memory, skills, goals, subagents, a browser panel and vision. It makes and edits images with Qwen-Image 2.1 beside crow-nest's 27B on one 32 GB card. Runs on this machine, on OpenRouter, or on your Claude subscription through Claude Code. crow-nest CNQ4.5-M on an RTX 5090, Windows, 2026-10-06: 40 tok/s decode in Crow at 8k, 780 tok/s prefill at 100k–175k.">
 </picture>
 
 **Linux**
@@ -27,6 +27,12 @@ irm https://github.com/nibor1896/Crow/releases/latest/download/CrowSetup.exe -Ou
 
 ```powershell
 irm https://raw.githubusercontent.com/nibor1896/Crow/main/install.ps1 | iex
+```
+
+**Claude subscription** (optional: Claude Code signs in, Crow never sees a token; then Settings → Model → Claude (subscription), [details](docs/user-guide/remote-models.md#claude-subscription))
+
+```bash
+npm install -g @anthropic-ai/claude-code && claude auth login
 ```
 
 <p align="center">
