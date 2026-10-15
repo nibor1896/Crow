@@ -7503,11 +7503,10 @@ class TheRemoteEndpointTests(ApiCase):
         """
         page = crow_gui.PAGE
         self.assertIn('anthropic: {box: "0 0 35 24"', page)
-        self.assertIn('openai: {box: "29 29 122 122"', page)
-        # The wordmark's counter and the knot's first curve, each long enough
-        # to be that path and nothing else.
+        # The wordmark's counter, long enough to be that path and nothing else.
+        # #390: the OpenAI knot went with the OpenAI sign-in and provider.
         self.assertIn("M24.5475 0H19.3384L28.8374 24H34.0465L24.5475 0Z", page)
-        self.assertIn("M75.91 73.628V62.232c0-.96.36-1.68 1.199-2.16", page)
+        self.assertNotIn("M75.91 73.628V62.232c0-.96.36-1.68 1.199-2.16", page)
         self.assertNotIn("M12 2l2.3 6.4L20.6 10", page)          # the old spark
         self.assertNotIn("M12 3.2 18.6 7v7.6L12 18.4", page)     # the old hexagon
         self.assertIn(".sub .mark{width:26px;height:26px;color:var(--text-hi)}", page)
@@ -7588,52 +7587,6 @@ class TheRemoteEndpointTests(ApiCase):
             api._run("hello")
         self.assertEqual(seen["turn"], {})
         self.assertEqual(seen["review"], {})
-
-    def test_both_senders_are_told_which_dialect_the_endpoint_speaks(self):
-        """Anthropic answers `POST /v1/messages` and nothing else; the OpenAI
-        shape is a different door at the same host. A transport that reached
-        only the visible turn would leave the background review posting an
-        OpenAI body to an endpoint that does not read one -- and that is the
-        request nobody is watching."""
-        crow_core.provider_key_set("anthropic", "not-a-real-anthropic-key-abcd")
-        doc = crow_core.provider_doc()
-        doc["catalog"] = {"anthropic": {"fetched": 1, "models": [
-            {"id": "claude-opus-5", "name": "Opus", "context": 1000000}]}}
-        crow_core.provider_write(doc)
-        crow_core.provider_pick("anthropic", "claude-opus-5")
-        seen = {}
-
-        def fake_run(conversation, **kw):
-            seen["turn"] = kw.get("transport")
-            seen["cap"] = kw.get("max_tokens")
-            conversation.append("assistant", "done")
-            return crow_core.TurnResult(cost="", context_tokens=9,
-                                        promised_warm=False, rolled=False,
-                                        stopped=False, reported=True)
-
-        def fake_review(conversation, **kw):
-            seen["review"] = kw.get("transport")
-            return []
-
-        api = self.api()
-        api._conversation.append("user", "hello")
-        with mock.patch.object(crow_gui, "run_turn", fake_run),              mock.patch.object(crow_core, "review_turn", fake_review),              mock.patch.object(crow_core, "review_due", lambda *a, **k: 1.0):
-            api._run("hello")
-        self.assertEqual(seen.get("turn"), crow_core.TRANSPORT_MESSAGES)
-        self.assertEqual(seen.get("review"), seen.get("turn"))
-        self.assertEqual(seen.get("cap"), crow_core.REMOTE_MAX_TOKENS)
-        # THE LOCAL SERVER IS THE NEGATIVE HALF: without it this would pass on a
-        # client that had started sending the Anthropic dialect everywhere.
-        crow_core.provider_pick(crow_core.LOCAL_PROVIDER)
-        api = self.api()
-        api._conversation.append("user", "hello")
-        with mock.patch.object(crow_gui, "run_turn", fake_run),              mock.patch.object(crow_core, "review_turn", fake_review),              mock.patch.object(crow_core, "review_due", lambda *a, **k: 1.0):
-            api._run("hello")
-        self.assertEqual(seen.get("turn"), crow_core.TRANSPORT_CHAT)
-        # AND THE SAME CAP AT HOME, which is the half that used to be None: a
-        # body without the field inherits the server's default, and crow-nest's
-        # 1024 cut a tool call off mid-argument on 2026-09-18.
-        self.assertEqual(seen.get("cap"), crow_core.MAX_TOKENS)
 
     def test_a_model_can_be_typed_when_no_catalogue_answers(self):
         """The field is always there rather than appearing on failure: a control

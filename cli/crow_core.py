@@ -5104,8 +5104,7 @@ def rollover_digest(conversation: "Conversation", *, base_url: str,
             # beiden Werte -- der Boden lebt von der Messung oben.
             "max_tokens": max(ROLLOVER_DIGEST_TOKENS,
                               ROLLOVER_DIGEST_MIN_TOKENS)}
-    # #210: der Deckel, den die Kappungszeile nennt -- vor `anthropic_body`
-    # gelesen, das den Koerper in seinen Dialekt umschreibt.
+    # #210: der Deckel, den die Kappungszeile nennt.
     cap = body["max_tokens"]
     if model:
         body["model"] = model
@@ -5137,34 +5136,30 @@ def rollover_digest(conversation: "Conversation", *, base_url: str,
         body["reasoning_budget_message"] = (
             REASONING_BUDGET_MESSAGE if reasoning_budget_message is None
             else reasoning_budget_message)
-    if routing and transport != TRANSPORT_MESSAGES:
+    if routing:
         body.update(routing)
     if remote:
         remote_body(body)
-    if transport == TRANSPORT_MESSAGES:
-        body = anthropic_body(body)
-        url = f"{base_url.rstrip('/')}/messages"
-    else:
-        # #205: KEIN TEMPLATE-SCHALTER MEHR. Hier stand bis heute
-        # `chat_template_kwargs = {"enable_thinking": False}` -- der Stand
-        # von #157, gemessen am 2026-08-29 (8082, Qwen3.8-27B, max_tokens
-        # 400): mit dem Chat-Default frisst das Reasoning das Budget
-        # (400/400, 0 Zeichen Content), und `enable_thinking: False` hielt
-        # die Antwort auf 87 Tokens. Die Messung war echt; der SCHLUSS war
-        # es nicht. Der Schalter aendert den gerenderten Kopf DESSELBEN
-        # Praefix, auf dem die Lege sitzt -- Engine-Log vom 2026-09-20:
-        # COLD L 3, dann 181.745 bzw. 185.831 Tokens Neu-Prefill (217,1 s
-        # und 222,7 s, rund 835 tok/s), das 120s-Timeout schon tot
-        # ("Broken pipe", "client gone"), die Antwort verworfen, der Roll
-        # lief trotzdem. Der ganze Sinn von #154 ist EINE Frage auf dem
-        # warmen Praefix; dieser Koerper garantierte den 180k-Prefill.
-        # Deshalb denkt die Lege jetzt MIT dem Zug -- dieselben Felder wie
-        # er -- und `_strip_think` waescht die Gedanken unten aus der
-        # Antwort, statt sie hier zu verbieten. Templates ohne den Schalter
-        # lassen unbekannte Kwarg ohnehin still fallen (gemessen: `no_think`
-        # wirkte nicht) -- der Kwarg war dort inert und nur im
-        # chat_completions-Dialekt eine Waffe.
-        url = f"{base_url.rstrip('/')}/chat/completions"
+    # #205: KEIN TEMPLATE-SCHALTER MEHR. Hier stand bis heute
+    # `chat_template_kwargs = {"enable_thinking": False}` -- der Stand
+    # von #157, gemessen am 2026-08-29 (8082, Qwen3.8-27B, max_tokens
+    # 400): mit dem Chat-Default frisst das Reasoning das Budget
+    # (400/400, 0 Zeichen Content), und `enable_thinking: False` hielt
+    # die Antwort auf 87 Tokens. Die Messung war echt; der SCHLUSS war
+    # es nicht. Der Schalter aendert den gerenderten Kopf DESSELBEN
+    # Praefix, auf dem die Lege sitzt -- Engine-Log vom 2026-09-20:
+    # COLD L 3, dann 181.745 bzw. 185.831 Tokens Neu-Prefill (217,1 s
+    # und 222,7 s, rund 835 tok/s), das 120s-Timeout schon tot
+    # ("Broken pipe", "client gone"), die Antwort verworfen, der Roll
+    # lief trotzdem. Der ganze Sinn von #154 ist EINE Frage auf dem
+    # warmen Praefix; dieser Koerper garantierte den 180k-Prefill.
+    # Deshalb denkt die Lege jetzt MIT dem Zug -- dieselben Felder wie
+    # er -- und `_strip_think` waescht die Gedanken unten aus der
+    # Antwort, statt sie hier zu verbieten. Templates ohne den Schalter
+    # lassen unbekannte Kwarg ohnehin still fallen (gemessen: `no_think`
+    # wirkte nicht) -- der Kwarg war dort inert und nur im
+    # chat_completions-Dialekt eine Waffe.
+    url = f"{base_url.rstrip('/')}/chat/completions"
     # #210. ZWEI VERSCHE, KEIN DRITTER. Der erste stellt die Frage, der
     # zweite stellt sie schaerfer, nachdem das Modell sie mit einem Tool-Call
     # beantwortet hat (gemessen 2026-09-22: finish=tool_calls, 482 Tokens,
@@ -5180,7 +5175,7 @@ def rollover_digest(conversation: "Conversation", *, base_url: str,
         # geht in den Sampler, nicht ins Template: der warme Praefix bleibt,
         # wofuer die Leg existiert (#154/#205). Lokal und im Chat-Dialekt nur,
         # aus demselben Grund wie beim Zug (`_REMOTE_DROPS`).
-        if not remote and transport != TRANSPORT_MESSAGES:
+        if not remote:
             body["seed"] = draw_seed(avoid=body.get("seed"))
             if seeds is not None:
                 seeds.append(body["seed"])
@@ -5193,19 +5188,13 @@ def rollover_digest(conversation: "Conversation", *, base_url: str,
                     request,
                     timeout=_digest_timeout(prompt_tokens, timeout)) as resp:
                 answer = json.loads(resp.read().decode("utf-8") or "{}")
-            if transport == TRANSPORT_MESSAGES:
-                text = "".join(block.get("text") or ""
-                               for block in answer.get("content") or []
-                               if block.get("type") == "text")
-                finish = answer.get("stop_reason") or ""
-            else:
-                choice = (answer.get("choices") or [{}])[0]
-                # #205: DAS DENKEN WIRD NICHT GELESEN. llama-server legt die
-                # Gedanken in `message.reasoning_content` und die Antwort in
-                # `message.content` -- indem hier nur `content` geerntet wird,
-                # ist der Nicht-Strom-Arm des Feldtrenners schon erledigt.
-                text = (choice.get("message", {}).get("content") or "")
-                finish = choice.get("finish_reason") or ""
+            choice = (answer.get("choices") or [{}])[0]
+            # #205: DAS DENKEN WIRD NICHT GELESEN. llama-server legt die
+            # Gedanken in `message.reasoning_content` und die Antwort in
+            # `message.content` -- indem hier nur `content` geerntet wird,
+            # ist der Nicht-Strom-Arm des Feldtrenners schon erledigt.
+            text = (choice.get("message", {}).get("content") or "")
+            finish = choice.get("finish_reason") or ""
         except Exception:          # noqa: BLE001 - Beifang, nie der Roll selbst
             return DIGEST_FAILED
         # #217 / crow-nest #99: ein abgebrochenes Dokument ist kein Digest.
@@ -6387,28 +6376,13 @@ class Conversation:
         return len(self._messages)
 
 
-# ------------------------------------------------------- the second transport
+# ------------------------------------------------------------ the transports
 
-# TWO DIALECTS, ONE LOOP. Everything above speaks OpenAI's `chat/completions`,
-# and that is the only shape `stream_reply` has ever parsed. Anthropic's own API
-# is a different one -- `POST /v1/messages`, a system prompt hoisted out of the
-# message list, tools carrying `input_schema`, a stream of typed content blocks
-# -- and Hermes' provider page names it as its own transport beside
-# `chat_completions` and `codex_responses`.
-#
-# WHY IT HAD TO EXIST AT ALL, measured 2026-08-23: a subscription token does not
-# reach the OpenAI-shaped layer. Codex's answered `GET api.openai.com/v1/models`
-# with 403 -- authenticated, then refused the resource. A borrowed Claude Code
-# sign-in is a credential for THIS transport, and no header turns one into the
-# other.
-#
-# THE SEAM IS THE WIRE, NOT THE LOOP. This file translates Anthropic's events
-# into the chunk shape `stream_reply` already reads, so the reasoning/content
-# state machine, the tool-call accumulator, the events and every case that pins
-# them stay exactly as they are. A second copy of that loop would be the
-# divergence #90 exists to prevent, one layer down.
+# ONE WIRE CROW SPEAKS ITSELF, OpenAI's `chat/completions`: the local server
+# and OpenRouter. Anthropic's native `/v1/messages` dialect lived here until
+# #390 (2026-10-15) and went with the `anthropic` provider, the only one that
+# spoke it; the subscription runs through Claude Code instead.
 TRANSPORT_CHAT = "chat_completions"
-TRANSPORT_MESSAGES = "anthropic_messages"
 # #390: the subscription. Not a wire Crow speaks -- a `claude -p` child per
 # turn, and Claude Code's own tools. See "the claude CLI" further down.
 TRANSPORT_CLAUDE_CLI = "claude_cli"
@@ -6511,13 +6485,9 @@ def subtask_budget_set(n: "int | None") -> None:
 
 def subtask_max_tokens() -> int:
     return _SUBTASK_MAX or REMOTE_MAX_TOKENS
-ANTHROPIC_MAX_TOKENS = REMOTE_MAX_TOKENS
 
 
-# NOT SENT AWAY FROM HOME: a remote OpenAI-shaped endpoint takes the sampling
-# pair that Anthropic refuses (anthropic_body builds its own body from a
-# whitelist). What
-# goes is only what llama-server alone can act on. `timings_per_token` and
+# NOT SENT AWAY FROM HOME. What goes is only what llama-server alone can act on. `timings_per_token` and
 # `chat_template_kwargs` are its extensions, and `min_p` is a sampler measured
 # against it.
 #
@@ -6572,9 +6542,7 @@ _REMOTE_BODY_PARAMETERS = ("tools", "temperature", "top_p", "max_tokens")
 def remote_body(body: dict) -> dict:
     """The same request with llama-server's own fields taken back out.
 
-    IN PLACE, UNLIKE `anthropic_body`, and the difference is the job: that one
-    translates into a second dialect and builds a new object, this one only
-    takes away. The body the caller is about to send is the thing that must not
+    IN PLACE: it only takes away. The body the caller is about to send is the thing that must not
     carry these fields.
     """
     for field in _REMOTE_DROPS:
@@ -6582,229 +6550,9 @@ def remote_body(body: dict) -> dict:
     return body
 
 
-def anthropic_tools(tools: list) -> list:
-    """OpenAI's `function` wrapper off, `input_schema` on. Same tools."""
-    out = []
-    for tool in tools or []:
-        fn = tool.get("function") if isinstance(tool, dict) else None
-        if not isinstance(fn, dict) or not fn.get("name"):
-            continue
-        out.append({"name": fn["name"],
-                    "description": fn.get("description") or "",
-                    "input_schema": fn.get("parameters")
-                    or {"type": "object", "properties": {}}})
-    return out
-
-
-def anthropic_messages(payload: list) -> "tuple[str, list]":
-    """Crow's history in Anthropic's shape. Returns (system, messages).
-
-    THREE THINGS MOVE, and each of them is a rejection if it does not:
-
-      * the SYSTEM prompt is hoisted out of the list. That API takes one, at the
-        top level, and a `role: "system"` entry inside `messages` is refused.
-      * an assistant turn that called tools becomes CONTENT BLOCKS -- its text,
-        then one `tool_use` block per call, with `input` as an OBJECT. Crow
-        carries the arguments as the JSON string the wire gave it.
-      * RESULTS ARE BATCHED. Crow appends one `tool` message per call, which is
-        OpenAI's shape; here every result answering the same assistant turn has
-        to sit in ONE user message. Left unbatched, a turn with two parallel
-        calls is two user messages in a row and the second one answers a turn
-        that no longer looks unanswered.
-    """
-    system, out = "", []
-    pending: list = []
-
-    def flush() -> None:
-        if pending:
-            out.append({"role": "user", "content": list(pending)})
-            pending.clear()
-
-    for message in payload or []:
-        role = message.get("role")
-        content = message.get("content") or ""
-        if role == "system":
-            system = content
-            continue
-        if role == "tool":
-            pending.append({"type": "tool_result",
-                            "tool_use_id": message.get("tool_call_id") or "",
-                            "content": content or "(no output)"})
-            continue
-        flush()
-        if role == "assistant":
-            blocks = []
-            if content:
-                blocks.append({"type": "text", "text": content})
-            for call in message.get("tool_calls") or []:
-                fn = call.get("function") or {}
-                try:
-                    arguments = json.loads(fn.get("arguments") or "{}")
-                except ValueError:
-                    # A CALL THAT DID NOT PARSE IS STILL A CALL THAT HAPPENED.
-                    # Dropping it would leave the result below answering
-                    # nothing, which is the broken prefix #88 already names.
-                    arguments = {}
-                if not isinstance(arguments, dict):
-                    arguments = {}
-                blocks.append({"type": "tool_use", "id": call.get("id") or "",
-                               "name": fn.get("name") or "", "input": arguments})
-            # AN EMPTY ASSISTANT TURN IS REFUSED by that API, and one can exist
-            # here: an interrupted reply that produced nothing.
-            if blocks:
-                out.append({"role": "assistant", "content": blocks})
-            continue
-        if isinstance(content, list):
-            # #142. A user turn with images: the text block moves as text, and
-            # every image_url block becomes Anthropic's image/source shape --
-            # the data URL split back into media_type and payload. A URL that
-            # is not a data URL is dropped rather than sent broken: image_part
-            # is the only builder and it never writes another kind.
-            blocks = []
-            for part in content:
-                if not isinstance(part, dict):
-                    continue
-                if part.get("type") == "image_url":
-                    url = (part.get("image_url") or {}).get("url") or ""
-                    head, sep, data = url.partition(";base64,")
-                    if sep and head.startswith("data:"):
-                        blocks.append({"type": "image",
-                                       "source": {"type": "base64",
-                                                  "media_type": head[len("data:"):],
-                                                  "data": data}})
-                elif part.get("type") == "text" and part.get("text"):
-                    blocks.append({"type": "text", "text": part["text"]})
-            if blocks:
-                out.append({"role": "user", "content": blocks})
-            continue
-        if content:
-            out.append({"role": "user", "content": content})
-    flush()
-    return system, out
-
-
-def anthropic_body(body: dict) -> dict:
-    """The same request, in the other dialect."""
-    system, messages = anthropic_messages(body.get("messages") or [])
-    out = {"model": body.get("model") or "",
-           "messages": messages,
-           "max_tokens": body.get("max_tokens") or ANTHROPIC_MAX_TOKENS}
-    if system:
-        out["system"] = system
-    tools = anthropic_tools(body.get("tools") or [])
-    if tools:
-        out["tools"] = tools
-    if body.get("stream"):
-        out["stream"] = True
-    return out
-
-
-def _anthropic_chunks(event: dict, state: dict) -> list:
-    """One Anthropic event in, zero or more OpenAI-shaped chunks out.
-
-    `state` carries what the wire splits across events: which content block
-    index is a tool call, and which slot that call occupies. The API sends the
-    tool's NAME and ID once, in `content_block_start`, and its arguments as
-    partial JSON afterwards -- so the name cannot be recovered from the deltas,
-    and the mapping has to be kept.
-    """
-    kind = event.get("type")
-    if kind == "content_block_start":
-        block = event.get("content_block") or {}
-        if block.get("type") in ("tool_use", "server_tool_use"):
-            slot = state["slots"]
-            state["tools"][event.get("index")] = slot
-            state["slots"] = slot + 1
-            return [{"choices": [{"delta": {"tool_calls": [
-                {"index": slot, "id": block.get("id") or "",
-                 "function": {"name": block.get("name") or "", "arguments": ""}}]}}]}]
-        return []
-    if kind == "content_block_delta":
-        delta = event.get("delta") or {}
-        what = delta.get("type")
-        if what == "text_delta":
-            return [{"choices": [{"delta": {"content": delta.get("text") or ""}}]}]
-        if what == "thinking_delta":
-            # THE SAME FIELD THE LOCAL SERVER USES, so `ReasoningBlocks` sees a
-            # thought here exactly as it does there and the window folds it the
-            # same way.
-            return [{"choices": [{"delta": {
-                "reasoning_content": delta.get("thinking") or ""}}]}]
-        if what == "input_json_delta":
-            slot = state["tools"].get(event.get("index"))
-            if slot is None:
-                return []
-            return [{"choices": [{"delta": {"tool_calls": [
-                {"index": slot,
-                 "function": {"arguments": delta.get("partial_json") or ""}}]}}]}]
-        # `signature_delta` carries the integrity signature of a thinking block.
-        # It is not text and it is not shown; dropping it is the whole handling.
-        return []
-    if kind == "message_start":
-        usage = ((event.get("message") or {}).get("usage")) or {}
-        state["input"] = int(usage.get("input_tokens") or 0)
-        return []
-    if kind == "message_delta":
-        # THE CONTEXT SIZE, ASSEMBLED. That API reports input and output
-        # separately and never their sum; the local server sends `total_tokens`
-        # on the last chunk and the whole context line is built from it.
-        out = int(((event.get("usage") or {}).get("output_tokens")) or 0)
-        stop = (event.get("delta") or {}).get("stop_reason")
-        chunk = {"choices": [{"delta": {}, "finish_reason":
-                              "tool_calls" if stop == "tool_use" else stop}]}
-        if state.get("input") or out:
-            chunk["usage"] = {"total_tokens": state.get("input", 0) + out}
-        return [chunk]
-    if kind == "error":
-        problem = (event.get("error") or {}).get("message") or "the stream failed"
-        raise CrowError("the model refused: %s"
-                        % strip_tag_characters(str(problem))[:300])
-    return []
-
-
-def _post_messages(url: str, body: dict, api_key: str, timeout: float,
-                   extra: "dict | None" = None):
-    """`/v1/messages` in, `chat/completions` chunks out.
-
-    IT WRAPS `_post_stream` RATHER THAN REPLACING IT. Every line that made that
-    function interruptible on Windows -- the reader thread, the poll, the
-    daemon that is left behind -- is the same work here, and a second socket
-    loop would be a second place for Ctrl+C to stop working.
-    """
-    state = {"tools": {}, "slots": 0, "input": 0}
-    for payload in _post_stream(url, body, api_key, timeout, extra):
-        try:
-            event = json.loads(payload)
-        except ValueError:
-            continue
-        for chunk in _anthropic_chunks(event, state):
-            yield json.dumps(chunk)
-
-
-def anthropic_calls(answer: dict) -> list:
-    """`tool_use` blocks out of a non-streamed reply, in OpenAI's call shape.
-
-    For the background review, which is the one path that does not stream.
-    """
-    calls = []
-    for block in (answer.get("content") or []):
-        if not isinstance(block, dict) or block.get("type") != "tool_use":
-            continue
-        calls.append({"id": block.get("id") or "", "type": "function",
-                      "function": {"name": block.get("name") or "",
-                                   "arguments": json.dumps(block.get("input") or {})}})
-    return calls
-
-
 def _stream_headers(api_key: str, extra: "dict | None" = None) -> dict:
-    """What goes on the wire, and WHO SAYS SO when two dialects disagree.
-
-    `Authorization: Bearer` is right for every OpenAI-shaped endpoint and for an
-    Anthropic OAuth token. It is NOT how an Anthropic API key travels -- that one
-    is `x-api-key` -- and a request carrying both is a request with two opinions
-    about who is asking. So a caller that has already named an auth header keeps
-    it, and this only fills in the default.
-    """
+    """What goes on the wire. A caller that already named an `Authorization`
+    header keeps it; this only fills in the default bearer."""
     head = {
         "Content-Type": "application/json",
         "Accept": "text/event-stream",
@@ -6814,7 +6562,7 @@ def _stream_headers(api_key: str, extra: "dict | None" = None) -> dict:
         # `Python-urllib` and 200 to this line.
         "User-Agent": crow_agent(),
     }
-    if not any(k.lower() in ("authorization", "x-api-key") for k in (extra or {})):
+    if not any(k.lower() == "authorization" for k in (extra or {})):
         head["Authorization"] = "Bearer %s" % api_key
     # WHAT THE PROVIDER ASKED FOR, LAST, so a header this client considers part
     # of the transport cannot be replaced by configuration. Same order the MCP
@@ -7682,7 +7430,7 @@ def stream_reply(
     # knows them. `turn_routing` decides what they are; this is where they land.
     # Empty for the machine and for every direct connection, which is every turn
     # taken before today.
-    if routing and transport != TRANSPORT_MESSAGES:
+    if routing:
         body.update(routing)
     # #217: EVERY LOCAL REQUEST NAMES ITS SEED. Set before `remote_body` like
     # every other field, so the one place that decides what leaves the machine
@@ -7692,9 +7440,7 @@ def stream_reply(
     # field so a field added above cannot travel by being forgotten.
     if remote:
         remote_body(body)
-    # WHAT WAS SENT IS WHAT IS RECORDED: `anthropic_body` builds its own object
-    # and carries no seed, so that dialect records none either.
-    sent_seed = body.get("seed") if transport != TRANSPORT_MESSAGES else None
+    sent_seed = body.get("seed")
 
     text_parts: list[str] = []
     # THE THOUGHT BLOCKS, and this used to be a flat list plus an `in_reasoning`
@@ -7754,15 +7500,6 @@ def stream_reply(
             # unconditionally breaks all of them, including the ones outside
             # this repository; widening it only when a provider actually asked
             # for a header leaves the old shape intact.
-            if transport == TRANSPORT_MESSAGES:
-                # THE BODY IS TRANSLATED, THE LOOP IS NOT. `_post_messages`
-                # yields the same chunk shape this loop has always read, so
-                # the reasoning state machine, the tool-call accumulator and
-                # every case pinning them are untouched by a second endpoint
-                # existing.
-                return _post_messages(f"{base_url.rstrip('/')}/messages",
-                                      anthropic_body(body), api_key, timeout,
-                                      extra_headers)
             where = f"{base_url}/chat/completions"
             return (_post_stream(where, body, api_key, timeout, extra_headers)
                     if extra_headers else
@@ -26052,7 +25789,7 @@ def review_turn(conversation: "Conversation", *, base_url: str, model: str,
     # body, nobody watching -- without this it is a second session inside the
     # first, answered by whichever upstream happened to be cheapest that second.
     # Hermes shipped exactly that gap and fixed it as their #70820.
-    if routing and transport != TRANSPORT_MESSAGES:
+    if routing:
         body.update(routing)
     # #217: A SEED OF ITS OWN, like every round of the turn. Without it
     # crow-nest samples this pass at seed 0 -- the seed that reproduced the
@@ -26063,17 +25800,9 @@ def review_turn(conversation: "Conversation", *, base_url: str, model: str,
     # a fix applied once would leave this the only request still carrying them.
     if remote:
         remote_body(body)
-    if seeds is not None and "seed" in body and transport != TRANSPORT_MESSAGES:
+    if seeds is not None and "seed" in body:
         seeds.append(body["seed"])
-    # THE UNASKED PASS SPEAKS THE SAME DIALECT AS THE TURN IT FOLLOWS. It builds
-    # its own body and its own headers -- that is what makes it the one easiest
-    # to forget -- so the translation happens here as well or this pass alone
-    # talks to an endpoint in a language it does not answer.
-    if transport == TRANSPORT_MESSAGES:
-        body = anthropic_body(body)
-        url = f"{base_url.rstrip('/')}/messages"
-    else:
-        url = f"{base_url.rstrip('/')}/chat/completions"
+    url = f"{base_url.rstrip('/')}/chat/completions"
     try:
         request = urllib.request.Request(
             url, data=json.dumps(body).encode("utf-8"), method="POST",
@@ -26087,12 +25816,11 @@ def review_turn(conversation: "Conversation", *, base_url: str, model: str,
         # #217 / crow-nest #99: A PASS THE SERVER ABORTED WRITES NOTHING. Its
         # calls are whatever stood when the generation was cut, and this pass
         # has nobody at the keyboard to notice half a memory entry.
-        if transport != TRANSPORT_MESSAGES and (
-                (answer.get("choices") or [{}])[0].get("finish_reason")
+        if ((answer.get("choices") or [{}])[0].get("finish_reason")
                 == FINISH_ABORT):
             return []
-        calls = (anthropic_calls(answer) if transport == TRANSPORT_MESSAGES else
-                 (answer.get("choices") or [{}])[0].get("message", {}).get("tool_calls") or [])
+        calls = ((answer.get("choices") or [{}])[0].get("message", {})
+                 .get("tool_calls") or [])
     except Exception:                       # noqa: BLE001 - see the docstring
         return []
     saved, staged = [], []
@@ -27308,11 +27036,6 @@ PROVIDER_KEYS_FILE = os.path.join(crow_platform.config_dir(), "provider_keys.jso
 
 LOCAL_PROVIDER = "local"
 
-# Anthropic's native endpoints refuse a request without it, and the value is a
-# date rather than a number: it pins the request shape, so a client that stopped
-# sending it would be asking for whatever is current.
-ANTHROPIC_VERSION = "2023-06-01"
-
 # #390, 2026-10-15: NO SIGN-IN CREDENTIAL TRAVELS ANY MORE, so no header for one
 # either. A remote provider here is a pasted key or nothing; the Claude
 # subscription is its own provider, `claude`, and Claude Code signs in by itself.
@@ -27376,53 +27099,10 @@ PROVIDERS = {
         # says no more than that asking here is meaningful.
         "filter": True,
     },
-    # THE OPENAI-SHAPED LAYER, NOT THE NATIVE API. Read as raw text on
-    # 2026-08-22: `https://api.anthropic.com/v1/` answers `chat/completions`,
-    # `authorization` is "fully supported", and so are `stream`, `stream_options`
-    # and `tools`. So this is an ENTRY and not a second transport -- which the
-    # native `/v1/messages` with its own body shape would have been.
-    #
-    # WHAT THE PAGE ALSO SAYS, and it belongs beside the entry rather than in a
-    # release note: the layer exists to compare models, is not offered as a
-    # production path, and prompt caching does not work through it. The last one
-    # costs nothing here -- there is no cache on a remote endpoint anyway.
-    #
-    # `temperature` is capped at 1 and Crow sends exactly 1.0; `min_p` and
-    # `timings_per_token` are not fields it knows and are ignored rather than
-    # refused.
-    "anthropic": {
-        "label": "Anthropic",
-        "base_url": "https://api.anthropic.com/v1",
-        "needs_key": True,
-        "key_hint": "sk-ant-...",
-        "catalog": "https://api.anthropic.com/v1/models",
-        "catalog_auth": "anthropic",
-        # ITS OWN DIALECT. The OpenAI-shaped layer at the same host takes an API
-        # key and is documented by Anthropic as a way to compare models rather
-        # than a way to run on them. A pasted `sk-ant-` key only, since #390
-        # (2026-10-15): the subscription is the `claude` entry below.
-        "transport": TRANSPORT_MESSAGES,
-        # `max_input_tokens` is where Anthropic reports the window; there is no
-        # `context_length` field on that endpoint at all.
-        "context_keys": ("max_input_tokens", "context_length"),
-        "blurb": "Claude, on its own Messages API.",
-    },
-    "openai": {
-        "label": "OpenAI",
-        "base_url": "https://api.openai.com/v1",
-        "needs_key": True,
-        "key_hint": "sk-...",
-        "catalog": "https://api.openai.com/v1/models",
-        # ITS CATALOGUE REPORTS NO WINDOW, so every model off it carries 0 and
-        # the bar stays off. That is the honest outcome of the rule one line
-        # further down in `provider_context`, not an oversight here.
-        "blurb": "GPT models, straight from the source.",
-        # A PASTED `sk-...` KEY ONLY. The ChatGPT sign-in went with #390
-        # (the owner, 2026-10-15) and comes back in its own ticket, once OpenAI's
-        # terms are read the way Anthropic's were.
-    },
-    # #390. THE SUBSCRIPTION, as its own provider and not a credential kind of
-    # `anthropic`: no base URL, no key, no catalogue -- Claude Code is the
+    # #390, 2026-10-15: THE ANTHROPIC AND OPENAI KEY PROVIDERS ARE GONE (the
+    # owner: the old Anthropic and OpenAI entries go). Claude is the
+    # subscription below; OpenAI comes back in its own ticket.
+    # #390. THE SUBSCRIPTION, as its own provider: no base URL, no key, no catalogue -- Claude Code is the
     # endpoint and it signs in by itself. The models come from CLAUDE_MODELS.
     "claude": {
         "label": "Claude (subscription)",
@@ -27604,15 +27284,7 @@ def provider_fetch_models(name: str, key: "str | None" = None,
     if not url:
         return [], "%s does not publish a model list" % (spec.get("label") or name)
     headers = {"Accept": "application/json", "User-Agent": crow_agent()}
-    # THE CATALOGUE IS NOT ALWAYS ON THE SAME DOOR AS THE CHAT. Anthropic's
-    # OpenAI-shaped layer answers `chat/completions` with a bearer, while
-    # `/v1/models` is the native API and wants `x-api-key` and a version -- one
-    # provider, two dialects, and a client that assumed one of them gets a 401
-    # from an endpoint it can otherwise talk to.
-    if key and spec.get("catalog_auth") == "anthropic":
-        headers["x-api-key"] = key
-        headers["anthropic-version"] = ANTHROPIC_VERSION
-    elif key:
+    if key:
         headers["Authorization"] = "Bearer %s" % key
     try:
         request = urllib.request.Request(url, headers=headers, method="GET")
@@ -27808,18 +27480,12 @@ def provider_active(doc: "dict | None" = None) -> str:
 def provider_headers(name: str, kind: str, credential: str) -> dict:
     """What this provider wants on top of the transport's own headers.
 
-    ANTHROPIC TAKES ITS KEY AS `x-api-key`, every other provider as
-    `Authorization: Bearer` -- which the transport writes itself when nobody
-    named a key header. Sending both is a request with two opinions about who
-    is asking. Since #390 a key is the only credential kind there is.
+    NOTHING, since #390 took the `anthropic` provider and its `x-api-key`:
+    every provider left takes its key as `Authorization: Bearer`, which the
+    transport writes itself. Kept as the one place a provider's own header
+    would go.
     """
-    spec = PROVIDERS.get(name) or {}
-    head = {}
-    if spec.get("transport") == TRANSPORT_MESSAGES:
-        head["anthropic-version"] = ANTHROPIC_VERSION
-    if kind == "key" and spec.get("catalog_auth") == "anthropic" and credential:
-        head["x-api-key"] = credential
-    return head
+    return {}
 
 
 def provider_endpoint(fallback_base_url: str = "", fallback_model: str = "",
@@ -28354,9 +28020,8 @@ def claude_model_needs(row: dict) -> str:
 # NOT sent: there is no MCP bridge (the owner, 2026-10-15), so image tools and
 # goals stay on the local model.
 #
-# THE SEAM IS STILL THE WIRE, one level up. `_anthropic_chunks` turns
-# Anthropic's events into chunks for `stream_reply`; `ClaudeStream` turns the
-# same events, wrapped in `stream_event`, into the TURN's events -- because
+# THE SEAM IS THE WIRE, one level up. `ClaudeStream` turns Anthropic's
+# events, wrapped in `stream_event`, into the TURN's events -- because
 # here the rounds run inside the child, and replaying them through `run_turn`
 # would run the loop twice. Measured 2026-10-15 (Claude Code 2.1.300, the two
 # turns in cli/fixtures/): 12.5 s and 5.0 s per turn, one process each.
@@ -30479,15 +30144,9 @@ def _judge_ask(spot: dict, prompt: str, paths: "list[str]") -> str:
             "min_p": sampling["min_p"], "max_tokens": JUDGE_MAX_TOKENS}
     if sampling.get("top_k") is not None:
         body["top_k"] = sampling["top_k"]
-    transport = spot.get("transport") or TRANSPORT_CHAT
     if spot.get("remote"):
         remote_body(body)
-    base = str(spot["base_url"]).rstrip("/")
-    if transport == TRANSPORT_MESSAGES:
-        body = anthropic_body(body)
-        url = base + "/messages"
-    else:
-        url = base + "/chat/completions"
+    url = str(spot["base_url"]).rstrip("/") + "/chat/completions"
     request = urllib.request.Request(
         url, data=json.dumps(body).encode("utf-8"), method="POST",
         headers=dict(_stream_headers(spot.get("api_key") or "",
@@ -30506,12 +30165,8 @@ def _judge_ask(spot: dict, prompt: str, paths: "list[str]") -> str:
         finally:
             exc.close()
         raise CrowError("HTTP %s %s" % (exc.code, said.strip()[:200]))
-    if transport == TRANSPORT_MESSAGES:
-        text = "".join(b.get("text") or "" for b in answer.get("content") or []
-                       if b.get("type") == "text")
-    else:
-        text = (((answer.get("choices") or [{}])[0].get("message") or {})
-                .get("content") or "")
+    text = (((answer.get("choices") or [{}])[0].get("message") or {})
+            .get("content") or "")
     return _strip_think(text).strip()
 
 

@@ -3965,8 +3965,8 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
         </section>
         <section data-cat="model" hidden>
           <h3>Model</h3>
-          <p class="shint">Where a turn goes. This machine, or a provider you
-             brought a key for.</p>
+          <p class="shint">Where a turn goes. This machine, or your Claude
+             subscription through Claude Code.</p>
           <div class="fold open" id="provfold" onclick="crow.foldPane('prov')">
             <span class="caret">&#9654;</span>
             <div class="sname">Provider</div>
@@ -6512,16 +6512,13 @@ const crow = {
   // THE TWO MARKS, HELD HERE AND NOT FETCHED. The page has no external host to
   // load an image from -- and on the one screen where somebody is about to sign
   // in, a remote asset is also a request that says when they opened it. The
-  // geometry is the providers own: the wordmark off anthropic.com and the knot
-  // out of openai.com/favicon.svg, whose box is the PATH's own bounds rather
-  // than the file's 180-square -- most of that square is a background this does
-  // not draw, and inside a 26px tile the padding would have eaten the mark.
+  // geometry is the providers own: the wordmark off anthropic.com (the OpenAI knot
+  // went with the OpenAI sign-in, #390).
   //
   // `currentColor` AND NOTHING ELSE, so the colour stays a palette decision one
   // level up. A literal here would be the next theme's problem.
   MARKS: {
     anthropic: {box: "0 0 35 24", d: ["M24.5475 0H19.3384L28.8374 24H34.0465L24.5475 0Z", "M9.49897 0L0 24H5.31125L7.25395 18.96H17.1914L19.1341 24H24.4454L14.9464 0H9.49897ZM8.97193 14.5029L12.2227 6.06857L15.4735 14.5029H8.97193Z"]},
-    openai: {box: "29 29 122 122", d: ["M75.91 73.628V62.232c0-.96.36-1.68 1.199-2.16l22.912-13.194c3.119-1.8 6.838-2.639 10.676-2.639 14.394 0 23.511 11.157 23.511 23.032 0 .839 0 1.799-.12 2.758l-23.752-13.914c-1.439-.84-2.879-.84-4.318 0L75.91 73.627Zm53.499 44.383v-27.23c0-1.68-.72-2.88-2.159-3.719L97.142 69.55l9.836-5.638c.839-.48 1.559-.48 2.399 0l22.912 13.195c6.598 3.839 11.035 11.995 11.035 19.912 0 9.116-5.397 17.513-13.915 20.992v.001Zm-60.577-23.99-9.836-5.758c-.84-.48-1.2-1.2-1.2-2.16v-26.39c0-12.834 9.837-22.55 23.152-22.55 5.039 0 9.716 1.679 13.676 4.678L70.993 55.516c-1.44.84-2.16 2.039-2.16 3.719v34.787-.002Zm21.173 12.234L75.91 98.339V81.546l14.095-7.917 14.094 7.917v16.793l-14.094 7.916Zm9.056 36.467c-5.038 0-9.716-1.68-13.675-4.678l23.631-13.676c1.439-.839 2.159-2.038 2.159-3.718V85.863l9.956 5.757c.84.48 1.2 1.2 1.2 2.16v26.389c0 12.835-9.957 22.552-23.27 22.552v.001Zm-28.43-26.75L47.72 102.778c-6.599-3.84-11.036-11.996-11.036-19.913 0-9.236 5.518-17.513 14.034-20.992v27.35c0 1.68.72 2.879 2.16 3.718l29.989 17.393-9.837 5.638c-.84.48-1.56.48-2.399 0Zm-1.318 19.673c-13.555 0-23.512-10.196-23.512-22.792 0-.959.12-1.919.24-2.879l23.63 13.675c1.44.84 2.88.84 4.32 0l30.108-17.392v11.395c0 .96-.361 1.68-1.2 2.16l-22.912 13.194c-3.119 1.8-6.837 2.639-10.675 2.639Zm29.748 14.274c14.515 0 26.63-10.316 29.39-23.991 13.434-3.479 22.071-16.074 22.071-28.91 0-8.396-3.598-16.553-10.076-22.43.6-2.52.96-5.039.96-7.557 0-17.153-13.915-29.99-29.989-29.99-3.239 0-6.358.48-9.477 1.56-5.398-5.278-12.835-8.637-20.992-8.637-14.515 0-26.63 10.316-29.39 23.991-13.434 3.48-22.07 16.074-22.07 28.91 0 8.396 3.598 16.553 10.075 22.431-.6 2.519-.96 5.038-.96 7.556 0 17.154 13.915 29.989 29.99 29.989 3.238 0 6.357-.479 9.476-1.559 5.397 5.278 12.835 8.637 20.992 8.637Z"]},
   },
 
   subMark(name){

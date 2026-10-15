@@ -11193,7 +11193,11 @@ class TheClaudeSubscriptionTileTests(unittest.TestCase):
     REMOVED = re.compile(r"credentials\.json|claudeAiOauth|oauth-2025-04-20|"
                          r"CLAUDE_CODE_OAUTH_TOKEN|provider_borrow|auth\.openai\.com|"
                          r"provider_authorise|provider_refresh_token|"
-                         r"PROVIDER_TOKEN_FILE|sub_blurb")
+                         r"PROVIDER_TOKEN_FILE|sub_blurb|"
+                         # amendment 3: the key providers and their dialect
+                         r"TRANSPORT_MESSAGES|anthropic_messages|anthropic_body|"
+                         r"_post_messages|ANTHROPIC_VERSION|catalog_auth|"
+                         r"api\.openai\.com|api\.anthropic\.com")
 
     def setUp(self) -> None:
         self.dir = tempfile.mkdtemp(prefix="crow-claude-tile-")
@@ -11244,8 +11248,10 @@ class TheClaudeSubscriptionTileTests(unittest.TestCase):
         self.assertEqual(rows[0]["transport"], crow_core.TRANSPORT_CLAUDE_CLI)
         self.assertEqual(rows[0]["label"], "Claude (subscription)")
         self.assertEqual(rows[0]["missing"], "image tools and goals: use the local model")
-        for name in ("anthropic", "openai"):
-            self.assertNotIn("oauth", crow_core.PROVIDERS[name])
+        # AMENDMENT 3 (the owner, 2026-10-15): the Anthropic and OpenAI key
+        # providers went too. Expected result 19.
+        self.assertEqual([p["name"] for p in crow_core.provider_view()["providers"]],
+                         [crow_core.LOCAL_PROVIDER, "openrouter", crow_core.CLAUDE_PROVIDER])
 
     def test_the_tile_says_what_auth_status_said(self):
         """Expected result 11: per `authMethod`, the amendment's sentence -- and
@@ -11334,14 +11340,14 @@ class TheClaudeSubscriptionTileTests(unittest.TestCase):
         rows = {p["name"]: p for p in crow_core.provider_view()["providers"]}
         self.assertIs(rows["claude"]["held"], False)
         self.assertEqual(rows["claude"]["unheld"], crow_core.CLAUDE_UNHELD)
-        self.assertIs(rows["openai"]["held"], False)
+        self.assertIs(rows["openrouter"]["held"], False)
         self.assertIs(rows[crow_core.LOCAL_PROVIDER]["held"], True)
         for row in rows.values():
             self.assertNotIn("signed_in", row)
             self.assertNotIn("borrowing", row)
         self.assertIsNone(crow_core.provider_pick("claude"))
         self.assertEqual(crow_core.provider_active(), "claude")
-        self.assertIn("needs a key", crow_core.provider_pick("openai") or "")
+        self.assertIn("needs a key", crow_core.provider_pick("openrouter") or "")
 
     # ------------------------------------------------------------- leftovers
 
@@ -11374,59 +11380,15 @@ class TheClaudeSubscriptionTileTests(unittest.TestCase):
 
     def test_an_oauth_block_left_in_providers_json_is_read_by_nobody(self):
         with open(crow_core.PROVIDERS_FILE, "w", encoding="utf-8") as fh:
-            json.dump({"oauth": {"anthropic": {"client_id": "invented"}},
-                       "borrow": {"anthropic": True}}, fh)
-        self.assertEqual(crow_core.provider_credential("anthropic"), ("", "", None))
-        crow_core.provider_key_set("anthropic", "not-a-real-anthropic-key-abcd")
-        self.assertEqual(crow_core.provider_credential("anthropic"),
-                         ("not-a-real-anthropic-key-abcd", "key", None))
+            json.dump({"oauth": {"openrouter": {"client_id": "invented"}},
+                       "borrow": {"openrouter": True}}, fh)
+        self.assertEqual(crow_core.provider_credential("openrouter"), ("", "", None))
+        crow_core.provider_key_set("openrouter", "sk-or-not-a-real-key-abcd")
+        self.assertEqual(crow_core.provider_credential("openrouter"),
+                         ("sk-or-not-a-real-key-abcd", "key", None))
         self.assertIn("oauth", crow_core.provider_doc())
 
     # --------------------------------------------------------- the key path
-
-    def test_a_pasted_key_is_spelled_the_other_way_and_carries_no_oauth_header(self):
-        """A KEY CARRIES NO BETA HEADER, and since #390 a key is all there is.
-
-        AND THE SPELLING IS THE POINT: Anthropic takes a key as `x-api-key`. A
-        request also carrying `Authorization: Bearer` is a request with two
-        opinions about who is asking, which is why `_stream_headers` fills the
-        default in only when nobody named one.
-
-        Moved here from TheSubscriptionSignInTests (#390); the body unchanged."""
-        crow_core.provider_key_set("anthropic", "not-a-real-anthropic-key-abcd")
-        crow_core.provider_pick("anthropic", "claude-opus-5")
-        head = crow_core.provider_endpoint()["headers"]
-        self.assertEqual(head.get("x-api-key"), "not-a-real-anthropic-key-abcd")
-        self.assertNotIn("anthropic-beta", head)
-        wire = crow_core._stream_headers("not-a-real-anthropic-key-abcd", head)
-        self.assertNotIn("Authorization", wire)
-
-    def test_an_openai_key_reaches_chat_completions_as_a_bearer(self):
-        """Expected result 13: OpenAI keeps its pasted `sk-...` key."""
-        key = "sk-invented-not-a-real-openai-key"
-        crow_core.provider_key_set("openai", key)
-        self.assertIsNone(crow_core.provider_pick("openai", "gpt-invented"))
-        spot = crow_core.provider_endpoint()
-        self.assertEqual((spot["base_url"], spot["transport"]),
-                         ("https://api.openai.com/v1", crow_core.TRANSPORT_CHAT))
-        sent = {}
-
-        def capture(url, body, api_key, timeout, extra=None):
-            sent.update(url=url, api_key=api_key, extra=extra)
-            return iter(())
-        talk = crow_core.Conversation("SYS")
-        talk.append("user", "hi")
-        with mock.patch.object(crow_core, "_post_stream", capture):
-            crow_core.stream_reply(talk, base_url=spot["base_url"],
-                                   model=spot["model"], api_key=spot["api_key"],
-                                   temperature=1.0, timeout=1.0,
-                                   extra_headers=spot["headers"] or None,
-                                   transport=spot["transport"])
-        self.assertEqual(sent["url"], "https://api.openai.com/v1/chat/completions")
-        wire = crow_core._stream_headers(sent["api_key"], sent["extra"])
-        self.assertEqual(wire.get("Authorization"), "Bearer " + key)
-        self.assertNotIn("x-api-key", wire)
-        self.assertNotIn("anthropic-beta", wire)
 
     def test_no_removed_sign_in_is_left_in_the_code(self):
         """Expected results 1 and 9. A comment may explain the removal."""
@@ -11438,51 +11400,6 @@ class TheClaudeSubscriptionTileTests(unittest.TestCase):
                         continue
                     self.assertIsNone(self.REMOVED.search(line),
                                       "%s:%d %s" % (name, n, line.strip()))
-
-
-class TheProviderDialectsTests(unittest.TestCase):
-    """One provider, two doors: the chat takes a bearer, the catalogue may not.
-
-    Anthropic's OpenAI-shaped layer answers `chat/completions` with an
-    `Authorization` header, while `/v1/models` is the native API and wants
-    `x-api-key` and a version. A client that assumed one dialect gets a 401 from
-    an endpoint it can otherwise talk to.
-    """
-
-    def setUp(self) -> None:
-        self.dir = tempfile.mkdtemp(prefix="crow-dia-")
-        self.addCleanup(shutil.rmtree, self.dir, True)
-        self._real = (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE,
-                      dict(crow_core.PROVIDERS["anthropic"]))
-        self.addCleanup(self._restore)
-        crow_core.PROVIDERS_FILE = os.path.join(self.dir, "providers.json")
-        crow_core.PROVIDER_KEYS_FILE = os.path.join(self.dir, "keys.json")
-        self.server = _QuietHttpServer(("127.0.0.1", 0), _FakeCatalogue)
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
-        self.addCleanup(self.server.server_close)
-        self.addCleanup(self.server.shutdown)
-        crow_core.PROVIDERS["anthropic"]["catalog"] = (
-            "http://127.0.0.1:%d/models" % self.server.server_address[1])
-        _FakeCatalogue.code = 200
-        _FakeCatalogue.seen = {}
-
-    def _restore(self) -> None:
-        (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE,
-         crow_core.PROVIDERS["anthropic"]) = self._real
-
-    def test_a_key_goes_in_x_api_key_with_a_version(self):
-        _FakeCatalogue.body = json.dumps({"data": [
-            {"id": "claude-opus-5", "display_name": "Opus", "max_input_tokens": 1000000}]})
-        models, problem = crow_core.provider_fetch_models("anthropic", "not-a-real-anthropic-key-x",
-                                                          kind="key")
-        self.assertIsNone(problem)
-        self.assertEqual(_FakeCatalogue.seen.get("x-api-key"), "not-a-real-anthropic-key-x")
-        self.assertTrue(_FakeCatalogue.seen.get("anthropic-version"))
-        self.assertNotIn("authorization", _FakeCatalogue.seen)
-        # `max_input_tokens` IS WHERE ANTHROPIC REPORTS THE WINDOW. There is no
-        # `context_length` on that endpoint, so a reader that only knew the
-        # OpenRouter field would have shown every Claude model as windowless.
-        self.assertEqual(models[0]["context"], 1000000)
 
 
 class TheRepositoryHoldsNobodysCredentialsTests(unittest.TestCase):
@@ -11599,378 +11516,6 @@ class _FakeMessagesEndpoint(http.server.BaseHTTPRequestHandler):
             self.wfile.flush()
 
 
-class TheAnthropicTransportTests(unittest.TestCase):
-    """The second dialect: `POST /v1/messages` behind the same reply loop.
-
-    WHY IT EXISTS, measured 2026-08-23: a subscription token does not reach the
-    OpenAI-shaped layer -- Codex's answered `GET api.openai.com/v1/models` with
-    403, authenticated and then refused the resource. Hermes' provider page
-    names three transports for the same reason (`chat_completions`,
-    `anthropic_messages`, `codex_responses`), and a borrowed Claude Code
-    sign-in is a credential for the second.
-
-    THE LOOP IS NOT DUPLICATED. Everything below feeds the SAME `stream_reply`
-    that reads the local server, so the reasoning state machine and the
-    tool-call accumulator are the ones already pinned elsewhere in this file.
-    """
-
-    # ------------------------------------------------------- the request
-
-    def test_the_system_prompt_is_hoisted_out_of_the_list(self):
-        """That API takes one system prompt at the top level, and refuses a
-        `role: "system"` entry inside `messages`."""
-        system, messages = crow_core.anthropic_messages([
-            {"role": "system", "content": "be brief"},
-            {"role": "user", "content": "hi"}])
-        self.assertEqual(system, "be brief")
-        self.assertEqual(messages, [{"role": "user", "content": "hi"}])
-
-    def test_a_tool_call_becomes_content_blocks_with_an_object_input(self):
-        _system, messages = crow_core.anthropic_messages([
-            {"role": "user", "content": "read it"},
-            {"role": "assistant", "content": "on it",
-             "tool_calls": [{"id": "call_1", "type": "function",
-                             "function": {"name": "read_file",
-                                          "arguments": '{"path": "a.txt"}'}}]}])
-        blocks = messages[-1]["content"]
-        self.assertEqual(messages[-1]["role"], "assistant")
-        self.assertEqual(blocks[0], {"type": "text", "text": "on it"})
-        self.assertEqual(blocks[1], {"type": "tool_use", "id": "call_1",
-                                     "name": "read_file",
-                                     "input": {"path": "a.txt"}})
-
-    def test_arguments_that_do_not_parse_still_leave_the_call_standing(self):
-        """NEGATIVE: dropping the block would leave the tool_result below
-        answering a call that is no longer in the history -- the broken prefix
-        #88 already names, arriving from the other direction."""
-        _system, messages = crow_core.anthropic_messages([
-            {"role": "assistant", "content": "",
-             "tool_calls": [{"id": "call_1", "type": "function",
-                             "function": {"name": "read_file",
-                                          "arguments": "{not json"}}]}])
-        blocks = messages[-1]["content"]
-        self.assertEqual(len(blocks), 1)
-        self.assertEqual(blocks[0]["input"], {})
-        self.assertEqual(blocks[0]["id"], "call_1")
-
-    def test_results_answering_one_turn_are_batched_into_one_user_message(self):
-        """Crow appends one `tool` message per call, which is OpenAI's shape.
-        Here every result answering the same assistant turn sits in ONE user
-        message -- unbatched, a turn with two parallel calls becomes two user
-        messages in a row and the second answers a turn nothing is waiting on."""
-        _system, messages = crow_core.anthropic_messages([
-            {"role": "user", "content": "read both"},
-            {"role": "assistant", "content": "",
-             "tool_calls": [
-                 {"id": "c1", "type": "function",
-                  "function": {"name": "read_file", "arguments": "{}"}},
-                 {"id": "c2", "type": "function",
-                  "function": {"name": "read_file", "arguments": "{}"}}]},
-            {"role": "tool", "content": "one", "tool_call_id": "c1"},
-            {"role": "tool", "content": "two", "tool_call_id": "c2"},
-            {"role": "user", "content": "thanks"}])
-        results = [m for m in messages
-                   if m["role"] == "user" and isinstance(m["content"], list)]
-        self.assertEqual(len(results), 1, messages)
-        self.assertEqual([b["tool_use_id"] for b in results[0]["content"]],
-                         ["c1", "c2"])
-        self.assertEqual(messages[-1], {"role": "user", "content": "thanks"})
-
-    def test_an_empty_assistant_turn_is_left_out(self):
-        """NEGATIVE: that API refuses a message with no content, and an
-        interrupted reply that produced nothing is exactly that."""
-        _system, messages = crow_core.anthropic_messages([
-            {"role": "user", "content": "hi"},
-            {"role": "assistant", "content": ""}])
-        self.assertEqual(messages, [{"role": "user", "content": "hi"}])
-
-    def test_the_tools_lose_the_function_wrapper_and_gain_input_schema(self):
-        out = crow_core.anthropic_tools(crow_core.TOOLS)
-        self.assertEqual(len(out), len(crow_core.TOOLS))
-        for tool, original in zip(out, crow_core.TOOLS):
-            self.assertNotIn("function", tool)
-            self.assertEqual(tool["name"], original["function"]["name"])
-            self.assertEqual(tool["input_schema"], original["function"]["parameters"])
-
-    def test_an_output_cap_travels_on_every_request_local_included(self):
-        """MEASURED 2026-08-23: OpenRouter answered `HTTP 402 -- you requested up
-        to 65536 tokens, but can only afford 313`. With no cap in the body a
-        provider RESERVES the model's maximum output and prices the request
-        against it, so a small balance cannot buy even a one-line answer.
-
-        THE LOCAL HALF USED TO BE THE NEGATIVE ONE -- this case asserted
-        `assertNotIn("max_tokens", sent)` until 2026-09-18, on the grounds that
-        a cap would cut long answers llama-server is happy to finish. robin's
-        live session measured the other side of that: a body with no cap does
-        not run uncapped, it runs on the SERVER's default. crow-nest's was 1024,
-        and a `write_file` carrying a whole SVG hit `finish length` before the
-        model had written its `path` argument -- the call arrived without one
-        and the file was never written. A server default is not this client's
-        to depend on."""
-        sent = {}
-
-        def fake(url, body, api_key, timeout, extra=None):
-            sent.update(body)
-            return iter(())
-
-        real, crow_core._post_stream = crow_core._post_stream, fake
-        self.addCleanup(lambda: setattr(crow_core, "_post_stream", real))
-        conversation = crow_core.Conversation("be brief")
-        conversation.append("user", "hi")
-        crow_core.stream_reply(conversation, base_url="http://127.0.0.1:1/v1",
-                               model="m", api_key="k", temperature=1.0,
-                               top_p=0.95, min_p=0.01, timeout=1)
-        self.assertEqual(sent.get("max_tokens"), crow_core.MAX_TOKENS)
-        self.assertEqual(crow_core.MAX_TOKENS, crow_core.REMOTE_MAX_TOKENS,
-                         "one cap for both paths, under either name")
-        sent.clear()
-        crow_core.stream_reply(conversation, base_url="http://127.0.0.1:1/v1",
-                               model="m", api_key="k", temperature=1.0,
-                               top_p=0.95, min_p=0.01, timeout=1,
-                               max_tokens=crow_core.REMOTE_MAX_TOKENS)
-        self.assertEqual(sent.get("max_tokens"), crow_core.REMOTE_MAX_TOKENS)
-
-    def test_a_caller_that_names_a_budget_still_wins(self):
-        """THE OVERRIDE IS THE POINT OF THE PARAMETER: #145's subtask budget is
-        a number the surface chose, and the module cap must not swallow it."""
-        sent = {}
-
-        def fake(url, body, api_key, timeout, extra=None):
-            sent.update(body)
-            return iter(())
-
-        real, crow_core._post_stream = crow_core._post_stream, fake
-        self.addCleanup(lambda: setattr(crow_core, "_post_stream", real))
-        crow_core.subtask_budget_set(512)
-        self.addCleanup(crow_core.subtask_budget_set, 0)
-        conversation = crow_core.Conversation("be brief")
-        conversation.append("user", "hi")
-        crow_core.stream_reply(conversation, base_url="http://127.0.0.1:1/v1",
-                               model="m", api_key="k", temperature=1.0,
-                               top_p=0.95, min_p=0.01, timeout=1,
-                               max_tokens=crow_core.subtask_max_tokens())
-        self.assertEqual(sent.get("max_tokens"), 512)
-
-    def test_the_sampling_triple_does_not_travel(self):
-        """`temperature`, `top_p` and `top_k` are REMOVED on the current Claude
-        models -- a request carrying them comes back 400 -- while the local
-        server needs all three. They belong to llama-server, the same way the
-        slot does."""
-        body = crow_core.anthropic_body({
-            "model": "claude-opus-5", "messages": [{"role": "user", "content": "hi"}],
-            "tools": crow_core.TOOLS, "temperature": 1.0, "top_p": 0.95,
-            "min_p": 0.01, "top_k": 20, "stream": True,
-            "stream_options": {"include_usage": True}, "timings_per_token": True,
-            "chat_template_kwargs": {"reasoning_effort": "high"}})
-        for banned in ("temperature", "top_p", "min_p", "top_k",
-                       "stream_options", "timings_per_token",
-                       "chat_template_kwargs"):
-            self.assertNotIn(banned, body)
-        self.assertEqual(body["max_tokens"], crow_core.ANTHROPIC_MAX_TOKENS)
-        self.assertTrue(body["stream"])
-
-    # -------------------------------------------------------- the stream
-
-    def _chunks(self, events: list) -> list:
-        state = {"tools": {}, "slots": 0, "input": 0}
-        out = []
-        for event in events:
-            out.extend(crow_core._anthropic_chunks(event, state))
-        return out
-
-    def test_text_deltas_arrive_as_content(self):
-        """The event shapes are the documented ones, copied from the streaming
-        page on 2026-08-23 rather than recalled."""
-        chunks = self._chunks([
-            {"type": "message_start", "message": {"usage": {"input_tokens": 25}}},
-            {"type": "content_block_start", "index": 0,
-             "content_block": {"type": "text", "text": ""}},
-            {"type": "ping"},
-            {"type": "content_block_delta", "index": 0,
-             "delta": {"type": "text_delta", "text": "Hello"}},
-            {"type": "content_block_delta", "index": 0,
-             "delta": {"type": "text_delta", "text": "!"}},
-            {"type": "content_block_stop", "index": 0},
-            {"type": "message_delta", "delta": {"stop_reason": "end_turn"},
-             "usage": {"output_tokens": 15}}])
-        text = "".join(c["choices"][0]["delta"].get("content", "") for c in chunks)
-        self.assertEqual(text, "Hello!")
-        self.assertEqual(chunks[-1]["usage"]["total_tokens"], 40)
-        self.assertEqual(chunks[-1]["choices"][0]["finish_reason"], "end_turn")
-
-    def test_a_tool_call_is_reassembled_from_its_partial_json(self):
-        """The NAME and the ID arrive once, in `content_block_start`, and the
-        arguments as partial JSON afterwards -- so the mapping from block index
-        to call has to be kept or the arguments belong to nobody."""
-        chunks = self._chunks([
-            {"type": "content_block_start", "index": 0,
-             "content_block": {"type": "text", "text": ""}},
-            {"type": "content_block_delta", "index": 0,
-             "delta": {"type": "text_delta", "text": "Okay"}},
-            {"type": "content_block_stop", "index": 0},
-            {"type": "content_block_start", "index": 1,
-             "content_block": {"type": "tool_use", "id": "toolu_01",
-                               "name": "get_weather", "input": {}}},
-            {"type": "content_block_delta", "index": 1,
-             "delta": {"type": "input_json_delta", "partial_json": '{"location":'}},
-            {"type": "content_block_delta", "index": 1,
-             "delta": {"type": "input_json_delta", "partial_json": ' "San Fra'}},
-            {"type": "content_block_delta", "index": 1,
-             "delta": {"type": "input_json_delta", "partial_json": 'ncisco"}'}},
-            {"type": "content_block_stop", "index": 1},
-            {"type": "message_delta", "delta": {"stop_reason": "tool_use"},
-             "usage": {"output_tokens": 89}}])
-        name, arguments, index = "", "", None
-        for chunk in chunks:
-            for call in chunk["choices"][0]["delta"].get("tool_calls") or []:
-                index = call["index"]
-                name = call["function"].get("name") or name
-                arguments += call["function"].get("arguments") or ""
-        self.assertEqual((index, name), (0, "get_weather"))
-        self.assertEqual(json.loads(arguments), {"location": "San Francisco"})
-        self.assertEqual(chunks[-1]["choices"][0]["finish_reason"], "tool_calls")
-
-    def test_thinking_arrives_where_the_local_server_puts_it(self):
-        """`ReasoningBlocks` reads `reasoning_content`, so a thought from this
-        endpoint folds in the window exactly like one from llama-server. The
-        signature that follows it is an integrity field, not text, and dropping
-        it is the whole handling."""
-        chunks = self._chunks([
-            {"type": "content_block_start", "index": 0,
-             "content_block": {"type": "thinking", "thinking": ""}},
-            {"type": "content_block_delta", "index": 0,
-             "delta": {"type": "thinking_delta", "thinking": "1071 = 2 x 462 + 147"}},
-            {"type": "content_block_delta", "index": 0,
-             "delta": {"type": "signature_delta", "signature": "EqQBCgIYAhIM"}},
-            {"type": "content_block_stop", "index": 0}])
-        self.assertEqual(len(chunks), 1)
-        self.assertEqual(chunks[0]["choices"][0]["delta"]["reasoning_content"],
-                         "1071 = 2 x 462 + 147")
-
-    def test_an_error_event_stops_the_turn_by_name(self):
-        """NEGATIVE: that API sends failures INSIDE the stream with HTTP 200 --
-        an overloaded_error is a `data:` line, not a status code. Ignoring it
-        would end the turn with a short answer and no reason."""
-        with self.assertRaises(crow_core.CrowError) as caught:
-            self._chunks([{"type": "error",
-                           "error": {"type": "overloaded_error",
-                                     "message": "Overloaded"}}])
-        self.assertIn("Overloaded", str(caught.exception))
-
-
-class TheAnthropicWireTests(unittest.TestCase):
-    """The same transport over a real socket, against a server that checks."""
-
-    def setUp(self) -> None:
-        self.server = _QuietHttpServer(("127.0.0.1", 0), _FakeMessagesEndpoint)
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
-        self.addCleanup(self.server.server_close)
-        self.addCleanup(self.server.shutdown)
-        self.base = "http://127.0.0.1:%d/v1" % self.server.server_address[1]
-        _FakeMessagesEndpoint.stream = True
-        _FakeMessagesEndpoint.seen = {}
-        _FakeMessagesEndpoint.headers_seen = {}
-        crow_core.INTERRUPT.clear()
-
-    def _talk(self, events: list, extra=None):
-        _FakeMessagesEndpoint.events = events
-        conversation = crow_core.Conversation("be brief")
-        conversation.append("user", "hello")
-        return crow_core.stream_reply(
-            conversation, base_url=self.base, model="claude-opus-5",
-            api_key="not-a-real-anthropic-key-abcd", temperature=1.0,
-            top_p=0.95, min_p=0.01, timeout=20,
-            extra_headers=extra, transport=crow_core.TRANSPORT_MESSAGES)
-
-    def test_a_whole_turn_goes_out_and_comes_back(self):
-        text, reasoning, _timings = self._talk([
-            {"type": "message_start", "message": {"usage": {"input_tokens": 9}}},
-            {"type": "content_block_start", "index": 0,
-             "content_block": {"type": "text", "text": ""}},
-            {"type": "content_block_delta", "index": 0,
-             "delta": {"type": "text_delta", "text": "Hallo"}},
-            {"type": "content_block_stop", "index": 0},
-            {"type": "message_delta", "delta": {"stop_reason": "end_turn"},
-             "usage": {"output_tokens": 3}}])
-        self.assertEqual(text, "Hallo")
-        self.assertEqual(reasoning, "")
-        # THE SERVER REFUSED NOTHING, which is the other half of the assertion:
-        # its checks are what say the body was in the right dialect.
-        self.assertEqual(_FakeMessagesEndpoint.seen.get("system"), "be brief")
-        self.assertTrue(_FakeMessagesEndpoint.seen.get("max_tokens"))
-
-    def test_a_tool_call_reaches_the_caller_through_the_same_loop(self):
-        _text, _reasoning, timings = self._talk([
-            {"type": "content_block_start", "index": 0,
-             "content_block": {"type": "tool_use", "id": "toolu_9",
-                               "name": "list_dir", "input": {}}},
-            {"type": "content_block_delta", "index": 0,
-             "delta": {"type": "input_json_delta", "partial_json": '{"path": "."}'}},
-            {"type": "content_block_stop", "index": 0},
-            {"type": "message_delta", "delta": {"stop_reason": "tool_use"},
-             "usage": {"output_tokens": 5}}])
-        calls = timings.get("_tool_calls") or []
-        self.assertEqual(len(calls), 1, timings)
-        self.assertEqual(calls[0]["name"], "list_dir")
-        self.assertEqual(calls[0]["id"], "toolu_9")
-        self.assertEqual(json.loads(calls[0]["arguments"]), {"path": "."})
-
-    def test_a_key_travels_as_x_api_key_and_not_as_a_bearer(self):
-        """The same endpoint takes a key one way and a token the other. Sending
-        both is a request with two opinions about who is asking."""
-        self._talk([{"type": "message_delta", "delta": {"stop_reason": "end_turn"}}],
-                   extra={"x-api-key": "not-a-real-anthropic-key-abcd",
-                          "anthropic-version": crow_core.ANTHROPIC_VERSION})
-        seen = _FakeMessagesEndpoint.headers_seen
-        self.assertEqual(seen.get("x-api-key"), "not-a-real-anthropic-key-abcd")
-        self.assertNotIn("authorization", seen)
-        self.assertEqual(seen.get("anthropic-version"), crow_core.ANTHROPIC_VERSION)
-
-    def test_a_borrowed_token_travels_as_a_bearer_with_its_beta_flag(self):
-        """NEGATIVE HALF: without it the case above would pass on a client that
-        had simply stopped sending Authorization at all."""
-        self._talk([{"type": "message_delta", "delta": {"stop_reason": "end_turn"}}],
-                   extra={"anthropic-version": crow_core.ANTHROPIC_VERSION,
-                          "anthropic-beta": "oauth-2025-04-20"})
-        seen = _FakeMessagesEndpoint.headers_seen
-        self.assertEqual(seen.get("authorization"),
-                         "Bearer not-a-real-anthropic-key-abcd")
-        self.assertEqual(seen.get("anthropic-beta"), "oauth-2025-04-20")
-        self.assertNotIn("x-api-key", seen)
-
-    def test_the_unasked_pass_speaks_the_same_dialect(self):
-        """THE ONE EASIEST TO FORGET. `review_turn` builds its own body, its own
-        headers and its own URL; left on the OpenAI shape it would be the only
-        request of the turn talking to an endpoint in a language it does not
-        answer -- and nobody is watching it."""
-        _FakeMessagesEndpoint.stream = False
-        _FakeMessagesEndpoint.reply = {"content": [
-            {"type": "text", "text": "worth keeping"},
-            {"type": "tool_use", "id": "toolu_1", "name": "memory",
-             "input": {"action": "add", "text": "invented"}}]}
-        conversation = crow_core.Conversation("be brief")
-        conversation.append("user", "hello")
-        conversation.append("assistant", "hi")
-        # STAGED, NOT WRITTEN, so the gate is what proves the block arrived --
-        # a review that ran for real would put an invented entry in whatever
-        # memory store this machine has.
-        held = []
-        real = crow_core.stage_memory
-        crow_core.stage_memory = lambda name, args: held.append((name, args)) or {
-            "summary": name}
-        self.addCleanup(setattr, crow_core, "stage_memory", real)
-        crow_core.review_turn(
-            conversation, base_url=self.base, model="claude-opus-5",
-            api_key="not-a-real-anthropic-key-abcd", temperature=1.0,
-            top_p=0.95, min_p=0.01, timeout=20, gate=True,
-            transport=crow_core.TRANSPORT_MESSAGES)
-        self.assertEqual(_FakeMessagesEndpoint.seen.get("system"), "be brief")
-        self.assertNotIn("temperature", _FakeMessagesEndpoint.seen)
-        self.assertEqual([n for n, _a in held], ["memory"],
-                         "the tool_use block did not reach the gate")
-        self.assertEqual(json.loads(held[0][1])["action"], "add")
-
-
 class TheStickyRoutingTests(unittest.TestCase):
     """Two fields for the broker, and both prevent a fault rather than express a
     taste. Read at the source 2026-08-23, openrouter.ai/docs/provider-routing and
@@ -12047,14 +11592,6 @@ class TheStickyRoutingTests(unittest.TestCase):
         field it ignores is still bytes in front of byte 0."""
         crow_core.provider_pick(crow_core.LOCAL_PROVIDER)
         self.assertEqual(crow_core.provider_endpoint("", "crow")["routing"], {})
-
-    def test_a_direct_connection_is_asked_for_no_routing(self):
-        """NEGATIVE, AND THIS ONE WOULD BE AN ERROR RATHER THAN A WASTE.
-        Routing belongs to the broker; Anthropic is a direct connection, and its
-        Messages endpoint refuses a body field it does not know."""
-        crow_core.provider_key_set("anthropic", "not-a-real-key-0123456789")
-        crow_core.provider_pick("anthropic", "claude-opus-5")
-        self.assertEqual(crow_core.provider_endpoint()["routing"], {})
 
     # -------------------------------------------------------- the sticky key
 
@@ -12145,16 +11682,6 @@ class TheStickyRoutingTests(unittest.TestCase):
         self.assertNotIn("session_id", sent)
         review = self._review_body()
         self.assertNotIn("session_id", review)
-
-    def test_the_block_never_reaches_the_messages_dialect(self):
-        """NEGATIVE, and it is a guard rather than a scenario: `routing` is
-        empty for every provider that speaks this dialect, so nothing should be
-        able to hand it one. If something ever does, the fields are dropped
-        rather than forwarded -- that API refuses a body key it does not know,
-        which would 400 every turn including the one nobody is watching."""
-        sent = self._review_body(routing={"session_id": "abc"},
-                                 transport=crow_core.TRANSPORT_MESSAGES)
-        self.assertNotIn("session_id", sent)
 
     def _review_body(self, routing=None, transport=None) -> dict:
         """Run one review against a captured urlopen and hand back its body."""
@@ -12392,15 +11919,6 @@ class TheParameterFilterTests(unittest.TestCase):
         crow_core.provider_pick(crow_core.LOCAL_PROVIDER)
         spot = crow_core.provider_endpoint("", "crow")
         self.assertEqual(crow_core.turn_routing(spot, "chat-1.json"), {})
-
-    def test_a_direct_connection_is_asked_for_no_filter(self):
-        """NEGATIVE, and here it would be an error rather than a waste: routing
-        belongs to the broker, and that Messages endpoint refuses a body field
-        it does not know."""
-        crow_core.provider_key_set("anthropic", "not-a-real-key-0123456789")
-        crow_core.provider_pick("anthropic", "claude-opus-5")
-        self.assertNotIn("provider", crow_core.turn_routing(
-            crow_core.provider_endpoint(), "chat-1.json"))
 
     def test_the_named_parameters_are_the_ones_a_remote_body_carries(self):
         """THE GUARD, and without it the list is a second answer to what the
@@ -13020,26 +12538,6 @@ class AnImageRidesTheMessageTests(unittest.TestCase):
         self.assertEqual(crow_core.message_text("plain"), "plain")
         self.assertEqual(len(crow_core.message_images(content)), 1)
         self.assertEqual(crow_core.message_images("plain"), [])
-
-    def test_the_anthropic_seam_splits_the_data_url(self):
-        """The other dialect names image blocks differently: image/source with
-        media_type and payload apart. The translation is the seam's job, the
-        history stays in the wire shape run_turn sends."""
-        content = crow_core.user_content("what is this",
-                                         [crow_core.image_part(self._png())])
-        _, out = crow_core.anthropic_messages([{"role": "user", "content": content}])
-        self.assertEqual(len(out), 1)
-        blocks = out[0]["content"]
-        kinds = [b["type"] for b in blocks]
-        self.assertEqual(kinds, ["text", "image"])
-        self.assertEqual(blocks[1]["source"]["media_type"], "image/png")
-        self.assertNotIn("data:", blocks[1]["source"]["data"])
-
-    def test_a_plain_history_translates_exactly_as_before(self):
-        """NEGATIVE PROBE for the seam: no image anywhere means the user turn
-        stays the bare string it was in every release before #142."""
-        _, out = crow_core.anthropic_messages([{"role": "user", "content": "hi"}])
-        self.assertEqual(out, [{"role": "user", "content": "hi"}])
 
     def test_an_image_survives_save_and_load(self):
         """The ticket's own warning -- 'this is the part that will hurt'. The
@@ -13669,18 +13167,6 @@ class TheRolloverCarriesADigestTests(unittest.TestCase):
                          "ohne Stufe kein Feld, wie beim Zug (#116)")
         self.assertEqual(conversation.payload(), before)
 
-    def test_the_messages_dialect_carries_no_template_kwargs(self):
-        """#157 NEGATIV: der Thinking-Schalter ist ein chat_completions-
-        Dialekt -- der Anthropic-Body darf keinen llama.cpp-Kwarg tragen,
-        den er nicht verstehen wuerde."""
-        seen = self._serve()
-        crow_core.rollover_digest(
-            self._conversation(), base_url="http://127.0.0.1:1/v1",
-            temperature=1.0, top_p=0.95, min_p=0.01,
-            transport=crow_core.TRANSPORT_MESSAGES)
-        self.assertTrue(seen["url"].endswith("/messages"))
-        self.assertNotIn("chat_template_kwargs", seen["body"])
-
     def test_a_cap_of_zero_sends_nothing(self):
         """NEGATIV: 0 ist aus -- kein Request, keine Wartezeit am Schnitt."""
         seen = self._serve()
@@ -13864,12 +13350,6 @@ class TheRolloverCarriesADigestTests(unittest.TestCase):
         self.assertNotIn("- **`", out, "the unfinished line rode across")
         self.assertEqual(len(seen), 1,
                          "a capped answer is state, not a reason to ask again")
-
-    def test_the_messages_dialect_names_its_cap_too(self):
-        """Der Anthropic-Dialekt sagt `max_tokens`, nicht `length`."""
-        out, _ = self._capped(finish="max_tokens",
-                              transport=crow_core.TRANSPORT_MESSAGES)
-        self.assertIn("[digest cut off at the", out)
 
     def test_a_finished_digest_carries_no_cut_line(self):
         """NEGATIV: finish=stop ist fertig -- kein Satz, der einen Schnitt
@@ -19740,19 +19220,6 @@ class TheThinkingCapTravelsAsAPairTests(unittest.TestCase):
         self.assertNotIn("reasoning_budget_tokens", sent)
         self.assertNotIn("reasoning_budget_message", sent)
 
-    def test_the_other_dialect_carries_neither(self):
-        """`anthropic_body` baut neu statt zu streichen, also kann hier nichts
-        durchrutschen -- gepruefte Selbstverstaendlichkeit, weil der Tag, an
-        dem daraus eine Streichliste wird, sonst still vorbeigeht."""
-        out = crow_core.anthropic_body(
-            {"model": "m", "messages": [{"role": "user", "content": "hi"}],
-             "reasoning_budget_tokens": 256,
-             "reasoning_budget_message": crow_core.REASONING_BUDGET_MESSAGE})
-        self.assertNotIn("reasoning_budget_tokens", out)
-        self.assertNotIn("reasoning_budget_message", out)
-
-    # -- was das Wort beantwortet ------------------------------------------
-
     def test_the_command_reports_sets_and_lifts(self):
         said, budget, changed = crow_core.budget_command("", "m", None)
         self.assertIsNone(budget)
@@ -21332,10 +20799,6 @@ class ThePresencePenaltyIsTheModelsTests(unittest.TestCase):
         Messages API has no such field at all."""
         self.assertNotIn("presence_penalty",
                          self._turn_body(presence_penalty=0.0, remote=True))
-        body = crow_core.anthropic_body({
-            "model": "m", "messages": [{"role": "user", "content": "x"}],
-            "presence_penalty": 0.0, "max_tokens": 16, "stream": True})
-        self.assertNotIn("presence_penalty", body)
 
     def test_the_unasked_pass_carries_it_too(self):
         """`review_turn` builds its own body, so a field wired into the turn
