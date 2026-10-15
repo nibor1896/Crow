@@ -1187,8 +1187,8 @@ PAGE = r"""<!doctype html>
   --barh:46px;
   /* #382. THE COLUMNS' WIDTHS, READ BY THE TITLE BAR TOO. The bar has three
      zones over the three columns: rail, chat panel, side column. Each zone and
-     its column read the SAME name, so the search sits on the panel's left edge
-     and the engine chip on its right one. These are the start values; a drag
+     its column read the SAME name, so the search sits on the panel's left edge.
+     These are the start values; a drag
      writes its value onto the two readers (#236: never onto <html> or <body>,
      where every node of a long chat would be restyled per mouse step).
      --railshut is the left zone's width while the rail is folded away: the
@@ -1344,7 +1344,7 @@ body{background:var(--bg);color:var(--dim);font:13px/1.55 var(--ui);
    8 px right margin is the panel's), #barr over the side column while that is
    open. Each zone reads the SAME variable as its column -- --railw, --codew,
    --railshut, all defined once in :root -- so the search sits on the panel's
-   left edge and the engine chip on its right one without any script measuring
+   left edge without any script measuring
    anything. "+ 1px": a grip is 5 px wide with -2 px either side, so it nets
    one pixel of the row, between the column and the panel. */
 #bar{display:flex;align-items:center;height:var(--barh);flex:none;
@@ -1465,29 +1465,6 @@ body.closing::after{content:"saving the chat and the cache...";position:fixed;
 .sopt.cmd .st{flex:none;font-family:var(--mono);font-size:12px;color:var(--text)}
 .sopt.cmd .ss{flex:1 1 auto}
 #searchnone:not(:empty){padding:9px;font-size:12px;color:var(--dim)}
-
-/* -- #382: the engine chip over the panel's right edge --------------------- */
-/* NARROW UNTIL CLICKED: a status dot and the model's name. A click (or Enter /
-   Space, it is a button) flips `aria-expanded` and slides out the level, the
-   last turn's decode rate and the context in use. The dot is the server's
-   state: amber until the first answer, green while up, red when it is gone. */
-.engine{display:inline-flex;align-items:center;height:32px;padding:0 13px;
-  border:1px solid var(--line-soft);border-radius:999px;background:var(--bg);
-  color:var(--text);font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap}
-.engine:hover{border-color:var(--line)}
-.engine.open{border-color:var(--line);background:var(--panel)}
-.engine .more{display:inline-flex;align-items:center;gap:10px;max-width:0;opacity:0;
-  overflow:hidden;padding-left:0;font-size:11.5px;color:var(--dim);
-  transition:max-width .3s ease,opacity .2s ease,padding .3s ease}
-.engine.open .more{max-width:280px;opacity:1;padding-left:10px}
-.engine .more .vsep{height:14px}
-.engine .more>[hidden]{display:none}
-.engine .erate{color:var(--text)}
-#engine .edot{width:7px;height:7px;border-radius:50%;flex:none;margin-right:9px;
-  background:var(--warn);box-shadow:0 0 0 3px var(--warn-soft)}
-#engine[data-state="up"] .edot{background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
-#engine[data-state="down"] .edot{background:var(--bad);
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--bad) 13%,transparent)}
 
 /* A LAYER IN THIS WINDOW, NOT A SECOND WINDOW. A second pywebview window would
    need its own bridge, its own theme attribute and its own close path, for a
@@ -2297,11 +2274,11 @@ body:not([data-git="shut"]) #gittoggle{color:var(--accent);background:var(--acce
 #main{transition:margin-left .16s ease}
 body[data-rail="shut"] #main{margin-left:calc(var(--railshut) - 1px)}
 /* #382. WENIGER BEWEGUNG, WENN DAS SYSTEM DARUM BITTET: die Breiten der
-   Spalten, der Zonen, des Blatts, der Suche und des Modell-Chips springen
+   Spalten, der Zonen, des Blatts und der Suche springen
    dann, statt zu gleiten (Media Queries 5, prefers-reduced-motion). Hinter
    allen Regeln, die einen dieser Uebergaenge setzen. */
 @media (prefers-reduced-motion:reduce){
-  #rail,#side,#main,#barl,.search,.search input,.s-kbd,.engine .more{transition:none}}
+  #rail,#side,#main,#barl,.search,.search input,.s-kbd{transition:none}}
 /* #125. THE STATUS BAR IS GONE, not hidden. Both chips it carried moved into
    the settings sheet -- the connection with its address, and the tool switch --
    and an empty bar is a band of nothing between the ribbon and the first line
@@ -3608,7 +3585,15 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
   /* #138c. DER LAENGSTE TEXT DER REIHE gibt nach, damit die Knoepfe rechts
      nicht aus der Maske gedraengt werden. */
   min-width:0;overflow:hidden}
-#model .dot{background:var(--ok)}
+/* #391. THE DOT IS THE SERVER'S STATE: amber until the first answer (`wait`, the
+   start value in the markup), green while the server answers (`up`), red once
+   it does not (`down`) -- the colours the title bar's engine chip drew before
+   the owner removed it (2026-10-15). `case "up"` / `case "down"` set data-state and
+   `showModel` redraws. The phone hides the dot (the sheet's rule below) and
+   says the same in the chip's word. */
+#model[data-state="wait"] .dot{background:var(--warn)}
+#model[data-state="up"] .dot{background:var(--ok)}
+#model[data-state="down"] .dot{background:var(--bad)}
 /* THE LEVEL IS DIMMER THAN THE MODEL because it is the setting, not the subject -- the same
    split #modelmenu draws between a model row and the level rows under it. */
 #model .lvl{color:var(--dim)}
@@ -3799,8 +3784,8 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 
 <div id="bar" class="pywebview-drag-region" ondblclick="pywebview.api.maximise()">
   <!-- #382. THREE ZONES OVER THE THREE COLUMNS (mockup Main.dc.html, the owner
-       2026-10-14): rail toggle and wordmark over the rail; the search and the
-       engine chip on the chat panel's two edges; the panel toggles and the
+       2026-10-14): rail toggle and wordmark over the rail; the search on the
+       chat panel's left edge; the panel toggles and the
        window buttons over the side column. Every icon is the mockup's inline
        stroke SVG at 1.75, `currentColor`, so it takes the theme and the
        on-state like any text here. -->
@@ -3846,16 +3831,6 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
         <div id="searchnone" role="status"></div>
       </div>
     </div>
-    <!-- #382. THE ENGINE CHIP: the server's state as a dot and the model's
-         name; a click slides out the level, the last turn's decode rate and
-         the context in use (`crow.showEngine`). A disclosure button, so
-         Enter and Space work as they do on any button. -->
-    <button id="engine" class="engine pywebview-no-drag" type="button"
-            aria-expanded="false" data-state="wait" onclick="crow.engineToggle()"
-            ondblclick="event.stopPropagation()"><span class="edot" aria-hidden="true"></span><span
-            class="ename">connecting</span><span class="more mono"><span class="vsep"></span><span
-            class="elvl" hidden></span><span class="erate" hidden></span><span
-            class="ectx" hidden></span><span class="eword" hidden></span></span></button>
   </div>
   <div id="barr" class="hz">
     <!-- #138/#156/#175. THE PANEL TOGGLES LIVE IN THE TITLE BAR for #119's
@@ -4198,7 +4173,7 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
                a bar at the other end of the screen. ONE CHIP, NOT TWO: the
                level is not a second subject, it is how the model thinks, so
                it is a submenu under the model that runs -- see modelMenu. -->
-          <span class="chipwrap" id="modelwrap"><span class="chip pick" id="model" hidden
+          <span class="chipwrap" id="modelwrap"><span class="chip pick" id="model" data-state="wait"
                 onclick="crow.modelMenu()" title="model and thinking level"></span>
             <div id="modelmenu" hidden></div></span>
           <!-- #143. The subtask chip: beside the model chip, visible as soon
@@ -8069,42 +8044,23 @@ const crow = {
   // and the template lands there anyway. Dropping the word to save six characters would put the
   // chip back to naming a setting instead of naming what the model DOES.
   showModel(){ const c = $("#model");
-    this.showEngine();                     // #382: the title bar says it too
-    if(!this.modelName){ c.hidden = true; return; }
-    c.hidden = false;
     // #385: the mockup's chip -- dot, name, the level as its own dim word (the
-    // chip's gap is the separator, as on the engine chip), chevron.
+    // chip's gap is the separator), chevron.
     c.innerHTML = '<span class="dot"></span><b></b><span class="lvl"></span>' + RICON.chevron;
     c.querySelector("b").textContent = this.modelName;
-    c.querySelector(".lvl").textContent = this.levelLabel().replace(/^ · /,""); },
+    c.querySelector(".lvl").textContent = this.levelLabel().replace(/^ · /,"");
+    // #391. NEVER HIDDEN, AND THE ONLY READER OF THE SERVER'S STATE IN THE MAIN
+    // WINDOW (the owner removed the title bar's engine chip, 2026-10-15): its dot
+    // follows data-state, which `case "up"` / `case "down"` set. Before the
+    // first answer, and while the server is gone, a WORD stands where the name
+    // goes -- "connecting" / "no server" -- and it wins over a name still on the
+    // page, because the phone hides the dot and the word is its whole reading.
+    const word = c.dataset.state==="down" ? "no server" : this.modelName ? "" : "connecting";
+    if(word){ c.querySelector("b").textContent = word; c.querySelector(".lvl").textContent = ""; } },
 
   // KEPT AS A NAME the two `case` arms already call, so the merge did not have to touch the
   // seam between the Python side and the page. It sets the level and redraws the one chip.
   showReason(level){ this.reasoning = level || ""; this.showModel(); },
-
-  // #382. THE ENGINE CHIP IN THE TITLE BAR, drawn only from what the page
-  // already holds: the server's state (`up` / `down` set data-state), the
-  // model and its level (the composer chip's own fields), the context (`ctx`)
-  // and the last turn's numbers (`stats`, from the turn-end `cost`). Every
-  // part by textContent -- they all arrived over the bridge. A part with
-  // nothing to say is hidden, not drawn empty between two gaps.
-  showEngine(){ const b=$("#engine"); if(!b) return;
-    const st=b.dataset.state;
-    const part=(sel,text)=>{ const el=b.querySelector(sel);
-      el.textContent=text||""; el.hidden=!text; };
-    b.querySelector(".ename").textContent = this.modelName
-      || (st==="down" ? "no server" : "connecting");
-    part(".elvl", this.levelLabel().replace(/^ · /,""));
-    const rate=(this.stats||{}).decode_rate;
-    part(".erate", typeof rate==="number" ? rate.toFixed(2)+" tok/s" : "");
-    const used=(this.ctxNow||[0,0])[0], limit=(this.ctxNow||[0,0])[1];
-    part(".ectx", used>0 ? this.tokK(used)+(limit>0 ? " / "+(limit/1000).toFixed(0)+"k" : "")
-                         : "");
-    // NOTHING MEASURED YET: the chip says what the server is doing instead, the
-    // way the mockup's start screen says "ready".
-    const none=!(typeof rate==="number") && !(used>0);
-    part(".eword", !none ? "" : st==="up" ? "ready"
-                     : st==="down" ? (this.downWhy||"no server") : "connecting"); },
 
   // #382. THE MONO FACE, ASKED FOR ONCE THE BRIDGE IS THERE. The bytes come as
   // base64 (`Api.mono_font`; on a phone through `/api`), become an ArrayBuffer
@@ -8124,12 +8080,6 @@ const crow = {
                                 {weight:"300 800", style:"normal", display:"swap"});
       return face.load().then(f => { document.fonts.add(f); });
     }).catch(() => {}); },
-
-  // A DISCLOSURE (WAI-ARIA APG): a button that says whether its details are
-  // out. `aria-expanded` is the state, `.open` only what CSS draws from it.
-  engineToggle(){ const b=$("#engine"), open=b.getAttribute("aria-expanded")!=="true";
-    b.setAttribute("aria-expanded", open ? "true" : "false");
-    b.classList.toggle("open", open); },
 
   // #119: `reasonMenu` IS GONE, not renamed. Its rows moved into modelMenu above, keeping the
   // rule the panel existed to hold: a click chooses AND applies, and every name is drawn with
@@ -8482,12 +8432,10 @@ const crow = {
       btn.dataset.armed=""; label.textContent="delete"; },4000);
   },
 
-  // ONE SPELLING OF A TOKEN COUNT for the composer and the title bar (#382).
+  // ONE SPELLING OF A TOKEN COUNT for the composer (#382).
   tokK(n){ return n<1000 ? String(n) : (n/1000).toFixed(1)+"k"; },
 
   ctx(tokens,limit){
-    // #382: kept for the engine chip, which says the same "used / n_ctx".
-    this.ctxNow=[tokens||0, limit||0]; this.showEngine();
     const el=$("#ctx"), used=Math.max(0, tokens||0), n=limit||0;
     // #385: AN EMPTY CHAT READS "0 / 200k" (the mockup's start screen); only
     // with neither number is there nothing to say.
@@ -9800,7 +9748,7 @@ const crow = {
     if(e.k==="subs") this.refSubs(e.items);
     switch(e.k){
       case "up": $("#dot").className="up"; $("#state").textContent="connected";
-        $("#engine").dataset.state="up";
+        $("#model").dataset.state="up";      // #391: the dot; `showModel` below draws it
         // #115: kept on the page rather than asked for when the menu opens, so
         // a click answers from what the last probe SAW instead of racing it.
         if(e.models){ this.models=e.models; }
@@ -9823,7 +9771,7 @@ const crow = {
         this.showReason(e.level); break;
       case "down": $("#dot").className="down";
         $("#state").textContent=e.why||"no server";
-        $("#engine").dataset.state="down"; this.downWhy=e.why||""; this.showEngine(); break;
+        $("#model").dataset.state="down"; this.downWhy=e.why||""; this.showModel(); break;
       // #125. STRAIGHT TO ABOUT. The version used to sit beside the wordmark and
       // be copied into the sheet when it opened; the ribbon is a name and three
       // window buttons now, so the number goes where somebody looks it up.
@@ -10344,6 +10292,10 @@ new MutationObserver(() => crow.emptyCheck()).observe(flow, {childList:true});
 // is what makes it a place to look rather than something that appears once and
 // is missed.
 crow.toolsCount();
+// #391. THE MODEL CHIP SAYS "connecting" FROM THE FIRST PAINT (data-state wait,
+// the amber dot): it is no longer hidden until a model is known, and the first
+// `up` / `down` redraws it.
+crow.showModel();
 // #175. DASSELBE FUER DEN BROWSER: das Panel steht beim Start schon offen, wenn
 // es beim letzten Mal offen war, und ein Panel ohne einen einzigen Reiter muss
 // sagen, wie man einen bekommt. `brDraw` zeichnet genau das, wenn die Liste
@@ -10687,19 +10639,6 @@ body[data-rail="shut"] #mark{display:inline}
   max-height:calc(100dvh - var(--barh) - var(--safe-t) - 16px)}
 .sopt{min-height:var(--tap);align-items:center;font-size:14px}
 .sopt .ss{font-size:12px}
-/* THE MODEL CHIP (#382's engine chip): the dot and the family name
-   (REMOTE_JS `shortModel`), at the header's right end. A tap slides out the
-   decode rate and the context; CROW and the magnifier make room for it, and
-   come back with the next tap. No level, as on the composer's chip. The 44 px
-   box is a pill of 32 drawn inside a transparent 6 px border. */
-#engine{height:var(--tap);margin-left:auto;padding:0 12px;
-  border:6px solid transparent;background-clip:padding-box;
-  box-shadow:inset 0 0 0 1px var(--line-soft)}
-#engine.open{box-shadow:inset 0 0 0 1px var(--line)}
-#engine .elvl{display:none!important}
-#bar:has(#engine.open) #mark{display:none}
-#bar:has(#engine.open) #searchbox{display:none}
-
 /* ---- the chat fills the screen ------------------------------------------ */
 #body{position:relative;background:var(--bg)}
 #main,body[data-rail="shut"] #main{min-width:0;border-radius:0;border:0;margin:0;
@@ -11278,14 +11217,6 @@ REMOTE_JS = r"""
   }
   new MutationObserver(measure).observe(document.getElementById("flow"),
     {childList:true, subtree:true});
-  // THE MODEL CHIP IN THE HEADER (#382's engine chip, #387): the family name,
-  // as on the composer's chip (`shortModel`); the full one in its title.
-  const showEngine = crow.showEngine;
-  if(showEngine) crow.showEngine = function(){ const r = showEngine.apply(this, arguments);
-    const n = document.querySelector("#engine .ename");
-    if(phone.matches && n && this.modelName){ n.textContent = shortModel(this.modelName);
-      document.getElementById("engine").title = this.modelName; }
-    return r; };
   // 4. THE COMPOSER (the owner: remove nothing, shorten). Only on a phone --
   //    at load, or (#387) the first time the page narrows to one.
   let composed = false;
@@ -11362,7 +11293,10 @@ REMOTE_JS = r"""
     crow.showModel = function(){ const r = showModel.apply(this, arguments);
       const b = document.querySelector("#model b");
       const lv = document.querySelector("#model .lvl"); if(lv) lv.remove();
-      if(b && this.modelName){ b.textContent = shortModel(this.modelName);
+      // #391: a down server's word ("no server") is the chip's reading of the
+      // state here -- no dot on the phone -- so the family name never replaces it.
+      if(b && this.modelName && document.getElementById("model").dataset.state !== "down"){
+        b.textContent = shortModel(this.modelName);
         document.getElementById("model").title = this.modelName; }
       return r; };
     // NO REASONING LEVEL ON THE PHONE (the owner, 2026-09-24): the operating
