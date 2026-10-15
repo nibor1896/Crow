@@ -2861,16 +2861,17 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
   border-radius:6px;background:transparent;border:1px solid var(--line);
   color:var(--dim)}
 .keyrow button:hover{border-color:var(--bevel);color:var(--text-hover)}
-/* THE SUBSCRIPTION TILES. A tile rather than a row because what it offers is
-   one act -- sign in -- and a row with a switch would say the state is
-   something the page can set. It is not: it is the outcome of a browser leg
-   that happens somewhere else and may not come back for minutes.
+/* THE SUBSCRIPTION TILE (#390: one, Claude). A tile rather than a row with a
+   switch, because the state is not something the page can set: it is what
+   Claude Code says after a sign-in the person ran in their own terminal. The
+   tile REPORTS, and its only controls are a copy and an "ask again".
    Every colour is a palette variable, so all three themes answer for it. */
 #subs{display:flex;flex-wrap:wrap;gap:10px}
-.sub{flex:1 1 190px;display:flex;flex-direction:column;gap:6px;cursor:pointer;
+.sub{flex:1 1 190px;display:flex;flex-direction:column;gap:6px;
   border:1px solid var(--line);border-radius:10px;padding:13px 14px;
   background:transparent;color:inherit;font:inherit;text-align:left}
-.sub:hover{border-color:var(--bevel)}
+.sub .cmdrow{display:flex;gap:7px;align-items:center}
+.sub code{font-family:var(--mono);font-size:11.5px;color:var(--text)}
 .sub.on{border-color:var(--accent);
   background:color-mix(in srgb,var(--accent) 8%,transparent)}
 /* THE BRAND COLOUR IS THE SKIN'S, and `--text-hi` is already what the owner asked
@@ -3991,8 +3992,8 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
         </section>
         <section data-cat="subs" hidden>
           <h3>Subscriptions</h3>
-          <p class="shint">Sign in with an account you already pay for. The
-             browser opens at the provider; Crow keeps what comes back.</p>
+          <p class="shint">Your Claude subscription runs through Claude Code.
+             Crow starts it and never sees your sign-in.</p>
           <div id="subs"></div>
           <p class="mcpsaid" id="subsaid"></p>
         </section>
@@ -6271,7 +6272,10 @@ const crow = {
     this.drawMcp();
     this.drawGithub();
     this.drawProviders();
-    this.drawSubs();
+    // #390: THE SUBSCRIPTION TILE IS NOT DRAWN HERE. Its probe spawns Claude
+    // Code twice, so it runs when its own page opens (`settingsCat`) -- or now,
+    // if that page is the one the sheet reopens on.
+    if(!$('#spane section[data-cat="subs"]').hidden) this.drawSubs(false);
     $("#settings").hidden=false;
   },
   // #124. ASKED FOR EVERY TIME THE SHEET OPENS, never cached in the page: the
@@ -6528,182 +6532,50 @@ const crow = {
       p.setAttribute("d",d); svg.appendChild(p); });
     return svg; },
 
-  drawSubs(){
-    pywebview.api.provider_view().then(view => {
+  // #390. ONE TILE, CLAUDE, AND IT REPORTS. Claude Code holds the sign-in; the
+  // tile says what `claude --version` and `claude auth status` answered, and
+  // its only controls are a copy of the command the person runs in their own
+  // terminal and an "ask again". No browser, no paste field, no sign-out --
+  // signing out is `claude auth logout`, shown as text. Without `again` the
+  // kept answer is drawn (the core asks the first time); with it, Claude Code
+  // is asked anew.
+  drawSubs(again){
+    if(again) $("#subsaid").textContent="asking Claude Code …";
+    pywebview.api.provider_subscriptions(!!again).then(rows => {
       const box=$("#subs"); box.textContent="";
-      (view.subscriptions||[]).forEach(s => {
-        const tile=document.createElement("button");
-        tile.className="sub"+(s.signed_in?" on":"");
-        const n=document.createElement("div");
-        n.className="sname"; n.textContent=s.label;
-        const d=document.createElement("div");
-        // WHAT IS MISSING IS ON THE TILE, not behind the click. A provider that
-        // cannot open a browser yet has one reason and it is the same one every
-        // time -- and it names the file and the key, not the concept.
-        // ONE SENTENCE, WHEREVER IT BELONGS. The tile says what it needs; the
-        // line under the sheet does not repeat it, because a message that
-        // arrives on click and already stands two inches above it reads as
-        // nothing having happened.
-        //
-        // FOUR STATES, AND THE ORDER IS THE ORDER THE CREDENTIAL RESOLVER USES:
-        // Crow's own sign-in, then the one another program on this machine
-        // holds, then a client_id waiting to be used, then nothing yet. A tile
-        // that offered the borrowed login while Crow had its own would be
-        // offering the weaker of two.
-        d.className="sdesc";
-        const st=document.createElement("div");
-        st.className="state";
-        if(s.signed_in){
-          d.textContent=s.from_env?("Signed in through "+s.name.toUpperCase()
-            +"'s environment variable."):s.blurb;
-          st.textContent="signed in"; }
-        else if(s.command){
-          // THE DOCUMENTED WAY IN, and it is a command rather than a browser:
-          // `claude setup-token` mints a long-lived token FOR another program,
-          // which is what Crow is here. No client_id borrowed from a product
-          // that never granted one, and nothing refreshed that belongs to
-          // somebody else.
-          d.textContent="Run " + s.command + " in a terminal and paste what it "
-            + "prints. It is a token your subscription mints for other programs.";
-          st.textContent="paste a token"; }
-        else if(s.borrowing){
-          // THE STALE LINE IS A WARNING AND NOT A STATE. The token is sent
-          // either way; what a provider does with it is the provider's answer,
-          // and this only says why a refusal would not be a surprise.
-          d.textContent=s.stale||("Using the "+s.product+" sign-in on this "
-            +"machine. Crow reads it and never writes it.");
-          st.textContent="signed in · "+s.product; }
-        else if(s.borrowable){
-          d.textContent="There is a "+s.product+" sign-in on this machine. One "
-            +"click uses it — requests then carry its grant.";
-          st.textContent="use "+s.product; }
-        else if(s.ready){ d.textContent=s.blurb; st.textContent="connect"; }
-        else{
-          d.textContent="Needs a client_id — "+(s.discovers
-            ?"this one publishes the rest itself."
-            :"and the two endpoints, which it does not publish.");
-          st.textContent="set it up"; }
-        tile.appendChild(this.subMark(s.name));
-        tile.appendChild(n); tile.appendChild(d); tile.appendChild(st);
-        // A CLICK IS ALWAYS THE NEXT STEP, never a refusal. Whichever of the
-        // four states the tile is in, the control does the thing that state is
-        // one step away from.
-        tile.onclick=()=>{
-          if(s.signed_in || s.borrowing) return;
-          if(s.command) this.tokenForm(s);
-          else if(s.borrowable) this.borrowSub(s.name,true);
-          else if(s.ready) this.connectSub(s.name);
-          else this.subForm(s); };
-        box.appendChild(tile);
-        if(s.signed_in || s.borrowing){
-          const out=document.createElement("button");
-          out.className="subout";
-          out.textContent=s.borrowing?"stop using it":"sign out";
-          // THE BUTTON SITS BESIDE THE TILE, NOT INSIDE IT. Inside, a click on
-          // it would bubble into the tile and start the browser leg it was
-          // meant to end -- the trap the MCP head already carries a note about.
-          out.onclick=()=>{ if(s.borrowing) this.borrowSub(s.name,false);
-                            else this.signOutSub(s.name); };
-          box.appendChild(out); } }); }); },
+      if(again) $("#subsaid").textContent="";
+      (rows||[]).forEach(s => box.appendChild(this.subTile(s)));
+      // THE MODEL PAGE READS THE SAME KEPT ANSWER, so it follows the probe.
+      this.drawProviders(); }); },
 
-  borrowSub(name,on){
-    pywebview.api.provider_borrow(name,on).then(said => {
-      $("#subsaid").textContent=said||"";
-      this.drawSubs(); this.drawProviders(); }); },
-
-  // WHAT `claude setup-token` PRINTS, pasted. The command is shown rather than
-  // run: it is the other product's, it wants a terminal of its own, and a
-  // client that ran it for somebody would be deciding on their behalf what to
-  // mint against their subscription.
-  tokenForm(s){
-    const old=$("#subform");
-    if(old && old.dataset.name===s.name){ old.remove(); return; }
-    if(old) old.remove();
-    const box=document.createElement("div");
-    box.id="subform"; box.className="sform"; box.dataset.name=s.name;
-    const hint=document.createElement("p");
-    hint.className="shint";
-    hint.textContent="Run this in a terminal, then paste what it prints:";
-    const cmd=document.createElement("input");
-    cmd.value=s.command; cmd.readOnly=true;
-    cmd.onclick=()=>cmd.select();
-    const field=document.createElement("input");
-    field.type="password"; field.placeholder=s.hint||"the token";
-    field.onkeydown=(e)=>{ if(e.key==="Enter") save(); };
-    const save=()=>{
-      // THE SAME TRAP, and the same answer: signing out is the side button, not
-      // an empty field somebody pressed Save on.
-      const value=field.value.trim();
-      if(!value){
-        $("#subsaid").textContent="nothing pasted. `sign out` is what clears one.";
-        return; }
-      pywebview.api.provider_token(s.name, value).then(said => {
-        field.value="";
-        $("#subsaid").textContent=said||"";
-        if(!said){ box.remove(); this.drawSubs(); this.drawProviders(); } }); };
-    const go=document.createElement("button");
-    go.textContent="Save"; go.onclick=save;
-    [hint, cmd, field, go].forEach(el => box.appendChild(el));
-    // THE BORROWED SESSION STAYS REACHABLE and stays second: it is built and
-    // tested, and it is the one that came back 429.
-    if(s.borrowable){
-      const other=document.createElement("button");
-      other.className="subout";
-      other.textContent="or use this machine's "+s.product+" sign-in";
-      other.onclick=()=>{ box.remove(); this.borrowSub(s.name,true); };
-      box.appendChild(other); }
-    $("#subs").after(box); },
-
-  // THE FORM THAT REPLACES AN EDITOR. It is drawn on demand rather than always:
-  // a provider that is set up has nothing to fill in, and three empty boxes
-  // under a working tile would read as three things still to do.
-  subForm(s){
-    const old=$("#subform");
-    if(old && old.dataset.name===s.name){ old.remove(); return; }
-    if(old) old.remove();
-    const box=document.createElement("div");
-    box.id="subform"; box.className="sform"; box.dataset.name=s.name;
-    const hint=document.createElement("p");
-    hint.className="shint";
-    hint.textContent=s.label+" — paste the values, then click the tile again "
-      + "to sign in.";
-    box.appendChild(hint);
-    const fields={};
-    const LABEL={client_id:"client_id", authorize:"authorization endpoint",
-                 token:"token endpoint"};
-    s.wants.forEach(key => {
-      const input=document.createElement("input");
-      input.placeholder=LABEL[key]+(s.has[key]?"  (stored)":"");
-      input.onkeydown=(e)=>{ if(e.key==="Enter") save(); };
-      fields[key]=input; box.appendChild(input); });
-    const save=()=>{
-      const out={};
-      // AN UNTOUCHED BOX IS NOT AN EMPTY ONE. Sending "" for a field somebody
-      // left alone would clear a value they never meant to remove -- and the
-      // stored ones are never read back into the page, so a blank box is the
-      // normal state of a filled key.
-      Object.keys(fields).forEach(k => { const v=fields[k].value.trim();
-        if(v) out[k]=v; });
-      pywebview.api.provider_oauth(s.name,out).then(said => {
-        $("#subsaid").textContent=said||"";
-        if(!said){ box.remove(); this.drawSubs(); } }); };
-    const go=document.createElement("button");
-    go.textContent="Save"; go.onclick=save;
-    box.appendChild(go);
-    $("#subs").after(box); },
-
-  connectSub(name){
-    // A BROWSER LEG IS MINUTES, and the sheet has to say so. Somebody reading a
-    // consent screen is not somebody watching a frozen window.
-    $("#subsaid").textContent="the browser is opening \u2026";
-    pywebview.api.provider_authorise(name).then(said => {
-      $("#subsaid").textContent=said||"";
-      this.drawSubs(); this.drawProviders(); }); },
-
-  signOutSub(name){
-    pywebview.api.provider_signout(name).then(said => {
-      $("#subsaid").textContent=said||"";
-      this.drawSubs(); this.drawProviders(); }); },
+  subTile(s){
+    const tile=document.createElement("div");
+    tile.className="sub"+(s.on?" on":"");
+    // BY textContent, every line: what Claude Code printed is a foreign string.
+    const line=(text,cls)=>{ const el=document.createElement("div");
+      el.className=cls||"sdesc"; el.textContent=text; tile.appendChild(el); };
+    tile.appendChild(this.subMark(s.mark));
+    line(s.label,"sname");
+    line(!s.found?"not installed":s.on?"signed in"
+         :s.logged_in?"not the subscription":"not signed in","state");
+    line(s.found?"Claude Code "+(s.version||"found"):s.install);
+    line(s.says);
+    if(s.login){
+      const row=document.createElement("div"); row.className="cmdrow";
+      const cmd=document.createElement("code"); cmd.textContent=s.login;
+      const copy=document.createElement("button"); copy.className="subout";
+      copy.textContent="copy";
+      copy.onclick=()=>this.clip(s.login).then(ok=>{ if(ok)
+        $("#subsaid").textContent="copied — run it in a terminal, then ask again"; });
+      row.appendChild(cmd); row.appendChild(copy); tile.appendChild(row); }
+    // THE GUARD BY NAME, never by value: the variable is the person's setting.
+    if((s.guard||[]).length) line(s.guard.join(", ")+" — "+s.guard_says,"mcpbad");
+    line(s.missing);
+    if(s.logout) line(s.logout);
+    const again=document.createElement("button"); again.className="subout";
+    again.textContent="ask again"; again.onclick=()=>this.drawSubs(true);
+    tile.appendChild(again);
+    return tile; },
 
   drawProviders(){
     pywebview.api.provider_view().then(view => {
@@ -6729,12 +6601,11 @@ const crow = {
     const text=document.createElement("div"); text.className="stext";
     const n=document.createElement("div"); n.className="sname"; n.textContent=p.label;
     const d=document.createElement("div"); d.className="sdesc";
-    // WHAT IS MISSING IS SAID ON THE ROW, not after the click -- and a provider
-    // that is signed in is not missing anything. Reading only the key box left
-    // the row saying "needs a key first" under a switch that was already on,
-    // which is the sheet contradicting itself in one line.
-    const held=p.has_key||p.signed_in||p.borrowing;
-    d.textContent=p.blurb+(p.needs_key&&!held?"  ·  needs a key or a sign-in":"");
+    // WHAT IS MISSING IS SAID ON THE ROW, not after the click. #390: `held` is
+    // the core's answer -- a key where one is needed, and for Claude the kept
+    // probe of Claude Code, null until the Subscriptions page asked once. Null
+    // says nothing: an unasked question is not a "no".
+    d.textContent=p.blurb+(p.held===false?"  ·  "+p.unheld:"");
     text.appendChild(n); text.appendChild(d);
     const sw=document.createElement("button");
     sw.className="sw"+(p.name===active?" on":"");
@@ -6761,8 +6632,7 @@ const crow = {
     const n=document.createElement("div"); n.className="sname";
     n.textContent="OpenRouter";
     const d=document.createElement("div"); d.className="sdesc";
-    const held=p.has_key||p.signed_in||p.borrowing;
-    d.textContent=p.blurb+(p.needs_key&&!held?"  ·  needs a key or a sign-in":"");
+    d.textContent=p.blurb+(p.held===false?"  ·  "+p.unheld:"");
     t.appendChild(n); t.appendChild(d);
     const osw=document.createElement("button");
     osw.className="sw"+(lit?" on":""); osw.id="orsw";
@@ -6951,7 +6821,7 @@ const crow = {
   clearKey(name){
     pywebview.api.provider_key(name,"").then(said => {
       $("#keysaid").textContent=said||"";
-      if(!said){ this.drawProviders(); this.drawSubs(); } }); },
+      if(!said) this.drawProviders(); }); },
 
   // #156. Der GitHub-Abschnitt der Schluesselseite: Client-ID eintragen,
   // Konto verbinden, Konto trennen -- drei Handgriffe an einer Stelle.
@@ -7134,6 +7004,8 @@ const crow = {
     // github.com, and this window already refuses to spend one on a catalogue
     // nobody asked to see.
     if(name==="about"){ this.updateCheck(); this.engineCheck(); }
+    // #390: the same rule for Claude Code -- asked when its page opens.
+    if(name==="subs") this.drawSubs(false);
   },
 
   updateCheck(){
@@ -10432,9 +10304,11 @@ REMOTE_PROXIED = frozenset({
     "drop_project", "git_commit_now", "git_refresh", "github_account_click",
     "github_cancel", "github_client_id_set", "github_disconnect",
     "github_view", "mcp_add", "mcp_confirm", "mcp_refresh", "mcp_remove",
-    "mcp_view", "open", "openrouter_set", "path_info", "provider_borrow",
-    "provider_key", "provider_model_set", "provider_oauth", "provider_pick",
-    "provider_refresh", "provider_signout", "provider_token", "provider_view",
+    "mcp_view", "open", "openrouter_set", "path_info",
+    "provider_key", "provider_model_set", "provider_pick",
+    "provider_refresh", "provider_view",
+    # #390: the Claude tile's probe -- it runs where Claude Code is installed.
+    "provider_subscriptions",
     "ready", "rename", "reopen_subtasks", "reset", "roll_tail", "send",
     "set_chat_root", "set_mode", "set_reasoning", "set_server_key",
     "set_tools", "skills", "stop", "toggle_server", "toggle_skill",
@@ -10490,7 +10364,6 @@ REMOTE_DESKTOP_BOUND = {
     "stage_image_data": "upload",
     "drop_seen": "desktop-only",
     "reveal_path": "desktop", "roll_show": "desktop",
-    "provider_authorise": "desktop",
     "pane_go": "pane", "pane_show": "pane", "pane_hide": "pane",
     "pane_place": "pane", "pane_cover": "pane",
     "remote_open": "desktop-only", "remote_allow": "desktop-only",
@@ -18240,63 +18113,14 @@ class Api:
         """Ask a provider for its model list again. The problem, or ""."""
         return crow_core.provider_refresh(name) or ""
 
-    def provider_authorise(self, name: str) -> str:
-        """The Subscriptions tile. Opens the browser and waits. Problem, or "".
+    def provider_subscriptions(self, again=False) -> list:
+        """#390: the Claude tile -- what Claude Code says, kept or asked anew.
 
-        IT BLOCKS FOR AS LONG AS THE PERSON TAKES, up to five minutes -- the
-        same shape `mcp_add` has, and for the same reason: the flow is not done
-        until somebody has finished at the provider, and a call that returned
-        early would leave the page saying "signed in" while nothing was.
-
-        REFUSED MID-TURN: the credential this replaces is the one the running
-        turn is authenticating with.
+        THE PAGE ASKS WHEN THE SUBSCRIPTIONS PAGE OPENS, never at window start:
+        the probe spawns `claude` twice. `again` is the tile's "ask again". It
+        changes nothing anywhere, so it is not refused mid-turn.
         """
-        if self._worker and self._worker.is_alive():
-            return "the sign-in does not run mid-turn"
-        return crow_core.provider_authorise(name) or ""
-
-    def provider_oauth(self, name: str, fields: dict) -> str:
-        """The setup form on a Subscriptions tile. The problem, or "".
-
-        THE VALUES ARRIVE FROM THE PAGE AS A DICT and are filtered in the core,
-        not here: which keys a login may carry is not a window decision.
-        """
-        return crow_core.provider_oauth_set(name, dict(fields or {})) or ""
-
-    def provider_borrow(self, name: str, on: bool) -> str:
-        """Use, or stop using, another program's sign-in. Problem, or "".
-
-        REFUSED MID-TURN, like every other credential change: the running turn
-        is authenticating with the one this replaces.
-        """
-        if self._worker and self._worker.is_alive():
-            return "the sign-in does not change mid-turn"
-        return crow_core.provider_borrow_set(name, bool(on)) or ""
-
-    def provider_token(self, name: str, token: str) -> str:
-        """What `claude setup-token` printed, kept. The problem, or "".
-
-        REFUSED MID-TURN like every other credential change.
-        """
-        if self._worker and self._worker.is_alive():
-            return "the sign-in does not change mid-turn"
-        problem = crow_core.provider_token_paste(name, token)
-        if problem:
-            return problem
-        if (token or "").strip():
-            # THE CATALOGUE IS ASKED FOR HERE, the one moment somebody expects
-            # to wait -- and a refusal from it is not a refusal of the token.
-            crow_core.provider_refresh(name)
-        return ""
-
-    def provider_signout(self, name: str) -> str:
-        """Drop one stored login. The problem, or "".
-
-        THE PASTED KEY, IF THERE IS ONE, SURVIVES. They are two credentials in
-        two files, and signing out of a subscription is not the same act as
-        forgetting a key somebody typed.
-        """
-        return crow_core.provider_token_drop(name) or ""
+        return crow_core.provider_subscriptions(bool(again))
 
     def _endpoint_changed(self, reset: bool) -> None:
         """Re-read the endpoint and tell the page. Empties the chat if asked.
@@ -20315,6 +20139,8 @@ def main(argv: list[str] | None = None) -> int:
     if not crow_platform.IS_WINDOWS:
         window.events.before_show += api.pane_embed
     threading.Thread(target=api.pump, daemon=True).start()
+    # #390: the token file of the removed sign-in, deleted once with one line.
+    crow_core.retire_provider_tokens()
     # #300: the image server warms while the window opens, if the core has one.
     warm_image_server()
     # #249: `remote_enabled` -- the mirror starts with the window, so the
