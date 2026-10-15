@@ -8,14 +8,14 @@ The reasoning is in the commit and on the issue.
 ### Added
 
 - **Start Crow on your Claude subscription from the operating-point window** (#398, `6281ac4`, `41f1847`, 2026-10-15). The window's Claude entry opens Crow on Claude (subscription) without a local model, whether or not a point runs, and a point can still be started there later. When you are not signed in, **Sign in** opens a terminal running the unmodified `claude auth login`. The entry turns to Start by itself once you are signed in: Claude Code is asked every 3 s for up to 10 minutes. With a guard variable set, Claude Code missing, or an API key or cloud platform billed instead, the entry says so and offers no button. The terminal menu has the same line, "Start Crow with Claude (subscription)", and `crow_boot.py --start-claude` does the same from the command line. Not checked live.
-- **Flash-Next and the 27B can start text only** (#397, `08f2d79`, `2bd09f9`, 2026-10-15). Each point has a `text` variant in `manifests/stack.json`: the same files, started with `CROW_VIT=0` and without `CROW_VIT_MMPROJ`. The vision tower's VRAM stays with the model, and the 27B's variant runs at 200,000 context instead of 131,072.
+- **Flash-Next and the 27B can start text only** (#397, `08f2d79`, `2bd09f9`, 2026-10-15). Each point has a `text` variant in `manifests/stack.json`: the same files, started with `CROW_VIT=0` and without `CROW_VIT_MMPROJ`. On Flash-Next the vision tower's VRAM stays free for the expert hot set. The 27B's variant keeps the base point's 131,072 context and only leaves the tower out.
   - The boot menu lists each variant on its own line under its point (`Qwen3.8-Flash-Next · text only`), and `crow_boot.py --start <point> --variant text` starts one.
   - The contract file carries `"variant": "text"`; a base start writes it as before.
   - A serve found by the scan counts as the variant when `/props` says vision false.
   - A `CROW_VIT` inherited from the shell no longer reaches a base start.
   - `tools/check_stack.py` checks the variants.
 
-  **Not measured:** no variant has been booted yet. The hot-set gain, the 27B's boot at 200,000 and decode speed are open, with the criteria fixed in `runs/397-text-variants/PREREG.md`.
+  **Not measured:** no variant has been booted yet. The hot-set gain, the VRAM freed on the 27B and decode speed are open, with the criteria fixed in `runs/397-text-variants/PREREG.md` (amended 2026-10-15 before any run).
 
 ### Changed
 
