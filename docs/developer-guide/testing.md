@@ -27,6 +27,12 @@ one directory on Windows (`%LOCALAPPDATA%\Crow`), four on Linux (config, data,
 state, cache). A guard that only knew the Windows spelling would not be strict
 there — it would be empty.
 
+The guard sees constants only. `crow_core.active_point_path()` is resolved per
+call, so a case that reaches the image gate (`image_tools_unavailable`) patches
+`crow_platform.config_dir` and `crow_core.server_model_path` itself, as
+`_ImageServerCase` does: otherwise a running operating point's
+`active-point.json` and its serve on 8099 answer for it (#392).
+
 Run them under the runtime venv (`~/.local/share/crow/venv/bin/python` on Linux), not the
 system Python: that venv is made with `--system-site-packages`, which puts pip's `webview` and
 the distribution's PyGObject in one interpreter. `just test` does exactly that, and `just check`

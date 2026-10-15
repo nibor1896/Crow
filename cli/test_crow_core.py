@@ -28403,6 +28403,15 @@ class _ImageServerCase(unittest.TestCase):
         self.addCleanup(setattr, crow_core, "_STORED_APPROVALS", None)
         crow_core.APPROVALS_FILE = os.path.join(self.dir, "approvals.json")
         crow_core._STORED_APPROVALS = None
+        # #392: never the machine's operating point either. With robin's 27B
+        # point up, its active-point.json (config dir) and its serve on 8099
+        # gated the image tools off in these cases.
+        for target, attr, value in (
+                (crow_platform, "config_dir", mock.Mock(return_value=self.dir)),
+                (crow_core, "server_model_path", lambda *a, **k: None)):
+            patcher = mock.patch.object(target, attr, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.states: list[dict] = []
         crow_core._TURN_LOCAL.progress = self.states.append
         self.addCleanup(setattr, crow_core._TURN_LOCAL, "progress", None)
@@ -28864,6 +28873,29 @@ class AnImageJobThatDoesNotFinishSaysWhyTests(_ImageServerCase):
             why = crow_core.image_tools_unavailable()
         self.assertIn(crow_core.IMAGE_MODEL_DIR_ENV, why)
         self.assertIn("transformer", why)
+
+    def test_the_machines_operating_point_is_not_this_cases(self):
+        """#392: the gate asks this case's config dir and no serve on 8099.
+        With robin's 27B point up, its contract and its serve made the two
+        cases above say "needs the Image Stack operating point"."""
+        self.assertEqual(crow_core.active_point_path(),
+                         os.path.join(self.dir, "active-point.json"))
+
+        class Answer(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        glm = json.dumps({"model_path": "C:\\Crow\\models\\" + crow_core.GLM_POINT_FILE})
+        with mock.patch.object(crow_core.urllib.request, "urlopen",
+                               lambda req, timeout=None: Answer(glm.encode("utf-8"))), \
+             mock.patch.dict(os.environ, {crow_core.IMAGE_MODEL_DIR_ENV: self.dir}), \
+             mock.patch.object(crow_core, "image_server_binary",
+                               return_value=os.path.join(self.dir, "sd-server")):
+            why = crow_core.image_tools_unavailable()
+        self.assertIn(crow_core.IMAGE_MODEL_DIR_ENV, why, "a GLM serve on 8099 is the machine's")
 
 
 # #320: sd-server's own lines from the Windows run D (sd-server-8097.log,
