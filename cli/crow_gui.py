@@ -6730,7 +6730,11 @@ const crow = {
       // open and /props says which, so a picker here would offer a choice the
       // endpoint cannot take.
       const q=document.createElement("p"); q.className="empty";
-      q.textContent="Whatever llama-server has open — the chip at the top says which.";
+      // #390: the subscription has no catalogue either; its models are the
+      // composer chip's list. #391: there is no chip at the top any more.
+      q.textContent=p.name==="claude"
+        ? "Claude Code's models — pick one on the composer's chip."
+        : "Whatever llama-server has open — the composer's chip says which.";
       box.appendChild(q); return; }
     $("#modcount").textContent=p.count?p.count+" models":"";
     if(!p.models.length){
@@ -9737,8 +9741,8 @@ const crow = {
       case "toolend": this.toolEnd(e.name,e.s,e.rep); break;
       case "toolres": this.toolRes(e.name,e.t,e.cut); this.traceRes(e.name,e.t); break;
       // #382: `stats` is the turn's numbers as numbers; the page keeps the last
-      // one (a chat switch re-sends the line without it) and the engine chip
-      // shows its decode rate. #383 draws the strip from it.
+      // one (a chat switch re-sends the line without it). #383 draws the
+      // strip from it; the engine chip that also read it is gone (#391).
       case "cost": this.cost(e.line,e.share,e.stats,e.cut); if(e.stats) this.stats=e.stats;
         this.ctx(e.tokens,e.n_ctx); break;
       case "ctx": this.ctx(e.tokens,e.n_ctx); break;
@@ -15325,7 +15329,14 @@ class Api:
         DER TEXT IST EINE ANWEISUNG AN DAS MODELL, keine Nutzerzeile: er steht
         in eckigen Klammern wie die Rollover-Notiz, damit `_spoken_carry` ihn
         beim naechsten Schnitt NICHT als eigene Worte des Nutzers mitnimmt.
+
+        #390. NO NUDGE ON THE SUBSCRIPTION. Claude Code gets neither
+        `goal_set` nor `goal_step`, so it can never close a step, and every
+        nudge would be a turn paid from the account's five-hour window -- up
+        to the 25-turn step cap for nothing. Goals run on the local model.
         """
+        if self._endpoint().get("transport") == crow_core.TRANSPORT_CLAUDE_CLI:
+            return None
         goal = crow_core.goal_load()
         if not goal or goal.get("status") == crow_core.GOAL_DONE:
             return None

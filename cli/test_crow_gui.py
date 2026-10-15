@@ -12444,6 +12444,15 @@ class AFailedStepIsRetriedNotSkippedTests(ApiCase):
     def goals(self, api) -> list:
         return [m["goal"] for m in self.drained(api) if m.get("k") == "goal"]
 
+    def test_no_nudge_goes_to_the_subscription(self):
+        """#390: Claude Code has no goal tools, so a nudge could never close a
+        step and every one would be a turn paid from the subscription."""
+        api = self.api()
+        self.assertIsNotNone(api._goal_nudge(), "the open goal is not nudged locally")
+        claude = {"transport": crow_core.TRANSPORT_CLAUDE_CLI, "remote": True}
+        with mock.patch.object(api, "_endpoint", return_value=claude):
+            self.assertIsNone(api._goal_nudge())
+
     def test_the_nudge_after_a_failure_quotes_its_note(self):
         """Second turn of the same step, the model worked -- the short "still
         open" line would go out. After a `failed` the note goes out instead."""
