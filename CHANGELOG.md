@@ -5,6 +5,22 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+### Added
+
+- **Start Crow on your Claude subscription from the operating-point window** (#398, `6281ac4`, `41f1847`, 2026-10-15). The window's Claude entry opens Crow on Claude (subscription) without a local model, whether or not a point runs, and a point can still be started there later. When you are not signed in, **Sign in** opens a terminal running the unmodified `claude auth login`. The entry turns to Start by itself once you are signed in: Claude Code is asked every 3 s for up to 10 minutes. With a guard variable set, Claude Code missing, or an API key or cloud platform billed instead, the entry says so and offers no button. The terminal menu has the same line, "Start Crow with Claude (subscription)", and `crow_boot.py --start-claude` does the same from the command line. Not checked live.
+- **Flash-Next and the 27B can start text only** (#397, `08f2d79`, `2bd09f9`, 2026-10-15). Each point has a `text` variant in `manifests/stack.json`: the same files, started with `CROW_VIT=0` and without `CROW_VIT_MMPROJ`. The vision tower's VRAM stays with the model, and the 27B's variant runs at 200,000 context instead of 131,072.
+  - The boot menu lists each variant on its own line under its point (`Qwen3.8-Flash-Next · text only`), and `crow_boot.py --start <point> --variant text` starts one.
+  - The contract file carries `"variant": "text"`; a base start writes it as before.
+  - A serve found by the scan counts as the variant when `/props` says vision false.
+  - A `CROW_VIT` inherited from the shell no longer reaches a base start.
+  - `tools/check_stack.py` checks the variants.
+
+  **Not measured:** no variant has been booted yet. The hot-set gain, the 27B's boot at 200,000 and decode speed are open, with the criteria fixed in `runs/397-text-variants/PREREG.md`.
+
+### Changed
+
+- **The operating-point window picks from one field** (#396, `198f8f1`, `ccce3f0`, 2026-10-15). One dropdown replaces the row and Start button per point. It lists the operating points, the installed llama.cpp lines and Claude in groups, shows the chosen entry's line under it, and has one Start. It works from the keyboard: arrows, Home/End, Page Up/Down, Enter, Escape, and typing a name. Flash-Next and the 27B get a Vision switch that starts their text variant (#397), and the running card says "vision off" while one runs. The window stays 620 × 660 and nothing scrolls (headless render at that size). Not checked live.
+
 ## 4.0.0 — 2026-10-15
 
 Your Claude subscription runs through Claude Code, and Crow no longer handles anybody's subscription token (#390). Major, because the Anthropic and OpenAI providers and every sign-in are gone: a setup that used them has to move to the Claude tile or to OpenRouter. The title bar loses its model chip; the composer chip carries the server's state (#391).
