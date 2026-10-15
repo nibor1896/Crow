@@ -85,7 +85,7 @@ import crow_platform
 # column 0. Until #187 it stood in cli/crow.py, which handed it over on import;
 # an installation older than this change still carries it there, and that is
 # the only reason the installers look in crow.py at all.
-VERSION = "3.6.0"
+VERSION = "4.0.0"
 
 # The name every reader has used since the split: the session file's `version`
 # field, the User-Agents and the update notice. It used to be "" until the
@@ -2943,6 +2943,25 @@ def session_reviewed(path: str | None = None) -> float:
     return float(value) if isinstance(value, (int, float)) else 0.0
 
 
+# #390. THE CLAUDE CODE SESSION THIS CHAT CONTINUES, `--resume <id>` on its
+# next turn. Claude Code holds the context on the subscription path, not Crow's
+# message list, so a chat that lost this id would start every turn from nothing
+# while its transcript said otherwise. Beside `kv: false` in the chat's own
+# file, absent for every chat that never ran on the `claude` provider.
+SESSION_CLAUDE_KEY = "claude_session"
+
+
+def session_claude(path: str | None = None) -> str | None:
+    """The Claude Code session id this chat resumes, or None."""
+    path = path or SESSION_FILE
+    try:
+        with open(path, encoding="utf-8") as fh:
+            value = json.load(fh).get(SESSION_CLAUDE_KEY)
+    except Exception:                       # noqa: BLE001 - no file, no session
+        return None
+    return value if isinstance(value, str) and value else None
+
+
 def review_due(context_tokens: int, n_ctx: int, reviewed: float) -> "float | None":
     """The share this turn crossed and has not been reviewed at, or None.
 
@@ -3395,6 +3414,9 @@ def save_session(conversation: "Conversation", base_url: str, context_tokens: in
                    # before this build reads as 0.0 -- which is true of it.
                    **({SESSION_REVIEWED_KEY: conversation.reviewed}
                       if conversation.reviewed else {}),
+                   # #390: absent until a turn ran on Claude Code.
+                   **({SESSION_CLAUDE_KEY: conversation.claude_session}
+                      if getattr(conversation, "claude_session", None) else {}),
                    **({SESSION_REASONING_KEY: reasoning} if reasoning else {}),
                    # #131: HOW MANY TOOL ROWS THE USER HAS ALREADY DISMISSED.
                    # The conversation itself is untouched -- the model still has
@@ -5082,8 +5104,7 @@ def rollover_digest(conversation: "Conversation", *, base_url: str,
             # beiden Werte -- der Boden lebt von der Messung oben.
             "max_tokens": max(ROLLOVER_DIGEST_TOKENS,
                               ROLLOVER_DIGEST_MIN_TOKENS)}
-    # #210: der Deckel, den die Kappungszeile nennt -- vor `anthropic_body`
-    # gelesen, das den Koerper in seinen Dialekt umschreibt.
+    # #210: der Deckel, den die Kappungszeile nennt.
     cap = body["max_tokens"]
     if model:
         body["model"] = model
@@ -5115,34 +5136,30 @@ def rollover_digest(conversation: "Conversation", *, base_url: str,
         body["reasoning_budget_message"] = (
             REASONING_BUDGET_MESSAGE if reasoning_budget_message is None
             else reasoning_budget_message)
-    if routing and transport != TRANSPORT_MESSAGES:
+    if routing:
         body.update(routing)
     if remote:
         remote_body(body)
-    if transport == TRANSPORT_MESSAGES:
-        body = anthropic_body(body)
-        url = f"{base_url.rstrip('/')}/messages"
-    else:
-        # #205: KEIN TEMPLATE-SCHALTER MEHR. Hier stand bis heute
-        # `chat_template_kwargs = {"enable_thinking": False}` -- der Stand
-        # von #157, gemessen am 2026-08-29 (8082, Qwen3.8-27B, max_tokens
-        # 400): mit dem Chat-Default frisst das Reasoning das Budget
-        # (400/400, 0 Zeichen Content), und `enable_thinking: False` hielt
-        # die Antwort auf 87 Tokens. Die Messung war echt; der SCHLUSS war
-        # es nicht. Der Schalter aendert den gerenderten Kopf DESSELBEN
-        # Praefix, auf dem die Lege sitzt -- Engine-Log vom 2026-09-20:
-        # COLD L 3, dann 181.745 bzw. 185.831 Tokens Neu-Prefill (217,1 s
-        # und 222,7 s, rund 835 tok/s), das 120s-Timeout schon tot
-        # ("Broken pipe", "client gone"), die Antwort verworfen, der Roll
-        # lief trotzdem. Der ganze Sinn von #154 ist EINE Frage auf dem
-        # warmen Praefix; dieser Koerper garantierte den 180k-Prefill.
-        # Deshalb denkt die Lege jetzt MIT dem Zug -- dieselben Felder wie
-        # er -- und `_strip_think` waescht die Gedanken unten aus der
-        # Antwort, statt sie hier zu verbieten. Templates ohne den Schalter
-        # lassen unbekannte Kwarg ohnehin still fallen (gemessen: `no_think`
-        # wirkte nicht) -- der Kwarg war dort inert und nur im
-        # chat_completions-Dialekt eine Waffe.
-        url = f"{base_url.rstrip('/')}/chat/completions"
+    # #205: KEIN TEMPLATE-SCHALTER MEHR. Hier stand bis heute
+    # `chat_template_kwargs = {"enable_thinking": False}` -- der Stand
+    # von #157, gemessen am 2026-08-29 (8082, Qwen3.8-27B, max_tokens
+    # 400): mit dem Chat-Default frisst das Reasoning das Budget
+    # (400/400, 0 Zeichen Content), und `enable_thinking: False` hielt
+    # die Antwort auf 87 Tokens. Die Messung war echt; der SCHLUSS war
+    # es nicht. Der Schalter aendert den gerenderten Kopf DESSELBEN
+    # Praefix, auf dem die Lege sitzt -- Engine-Log vom 2026-09-20:
+    # COLD L 3, dann 181.745 bzw. 185.831 Tokens Neu-Prefill (217,1 s
+    # und 222,7 s, rund 835 tok/s), das 120s-Timeout schon tot
+    # ("Broken pipe", "client gone"), die Antwort verworfen, der Roll
+    # lief trotzdem. Der ganze Sinn von #154 ist EINE Frage auf dem
+    # warmen Praefix; dieser Koerper garantierte den 180k-Prefill.
+    # Deshalb denkt die Lege jetzt MIT dem Zug -- dieselben Felder wie
+    # er -- und `_strip_think` waescht die Gedanken unten aus der
+    # Antwort, statt sie hier zu verbieten. Templates ohne den Schalter
+    # lassen unbekannte Kwarg ohnehin still fallen (gemessen: `no_think`
+    # wirkte nicht) -- der Kwarg war dort inert und nur im
+    # chat_completions-Dialekt eine Waffe.
+    url = f"{base_url.rstrip('/')}/chat/completions"
     # #210. ZWEI VERSCHE, KEIN DRITTER. Der erste stellt die Frage, der
     # zweite stellt sie schaerfer, nachdem das Modell sie mit einem Tool-Call
     # beantwortet hat (gemessen 2026-09-22: finish=tool_calls, 482 Tokens,
@@ -5158,7 +5175,7 @@ def rollover_digest(conversation: "Conversation", *, base_url: str,
         # geht in den Sampler, nicht ins Template: der warme Praefix bleibt,
         # wofuer die Leg existiert (#154/#205). Lokal und im Chat-Dialekt nur,
         # aus demselben Grund wie beim Zug (`_REMOTE_DROPS`).
-        if not remote and transport != TRANSPORT_MESSAGES:
+        if not remote:
             body["seed"] = draw_seed(avoid=body.get("seed"))
             if seeds is not None:
                 seeds.append(body["seed"])
@@ -5171,19 +5188,13 @@ def rollover_digest(conversation: "Conversation", *, base_url: str,
                     request,
                     timeout=_digest_timeout(prompt_tokens, timeout)) as resp:
                 answer = json.loads(resp.read().decode("utf-8") or "{}")
-            if transport == TRANSPORT_MESSAGES:
-                text = "".join(block.get("text") or ""
-                               for block in answer.get("content") or []
-                               if block.get("type") == "text")
-                finish = answer.get("stop_reason") or ""
-            else:
-                choice = (answer.get("choices") or [{}])[0]
-                # #205: DAS DENKEN WIRD NICHT GELESEN. llama-server legt die
-                # Gedanken in `message.reasoning_content` und die Antwort in
-                # `message.content` -- indem hier nur `content` geerntet wird,
-                # ist der Nicht-Strom-Arm des Feldtrenners schon erledigt.
-                text = (choice.get("message", {}).get("content") or "")
-                finish = choice.get("finish_reason") or ""
+            choice = (answer.get("choices") or [{}])[0]
+            # #205: DAS DENKEN WIRD NICHT GELESEN. llama-server legt die
+            # Gedanken in `message.reasoning_content` und die Antwort in
+            # `message.content` -- indem hier nur `content` geerntet wird,
+            # ist der Nicht-Strom-Arm des Feldtrenners schon erledigt.
+            text = (choice.get("message", {}).get("content") or "")
+            finish = choice.get("finish_reason") or ""
         except Exception:          # noqa: BLE001 - Beifang, nie der Roll selbst
             return DIGEST_FAILED
         # #217 / crow-nest #99: ein abgebrochenes Dokument ist kein Digest.
@@ -6025,6 +6036,10 @@ class Conversation:
         # each. It rides on the conversation because that is what a chat IS to
         # every caller here, and because `reset()` then clears it with the rest.
         self._reviewed = 0.0
+        # #390. The Claude Code session this chat resumes, or None. On the
+        # conversation for the reason `_reviewed` is: a new chat and `reset()`
+        # start without it, and every save carries it (SESSION_CLAUDE_KEY).
+        self.claude_session: "str | None" = None
         self._system = system
         self._messages: list[dict[str, str]] = []
         if system:
@@ -6343,6 +6358,7 @@ class Conversation:
         # `_base_system` for it, so this is the line every release up to here had.
         self._pinned = None
         self._reviewed = 0.0
+        self.claude_session = None          # #390: a new chat, a new session
         self._system = self._base_system
         self._messages = []
         self.read_epoch = object()      # #215-H: rollover and new chat alike
@@ -6360,28 +6376,16 @@ class Conversation:
         return len(self._messages)
 
 
-# ------------------------------------------------------- the second transport
+# ------------------------------------------------------------ the transports
 
-# TWO DIALECTS, ONE LOOP. Everything above speaks OpenAI's `chat/completions`,
-# and that is the only shape `stream_reply` has ever parsed. Anthropic's own API
-# is a different one -- `POST /v1/messages`, a system prompt hoisted out of the
-# message list, tools carrying `input_schema`, a stream of typed content blocks
-# -- and Hermes' provider page names it as its own transport beside
-# `chat_completions` and `codex_responses`.
-#
-# WHY IT HAD TO EXIST AT ALL, measured 2026-08-23: a subscription token does not
-# reach the OpenAI-shaped layer. Codex's answered `GET api.openai.com/v1/models`
-# with 403 -- authenticated, then refused the resource. A borrowed Claude Code
-# sign-in is a credential for THIS transport, and no header turns one into the
-# other.
-#
-# THE SEAM IS THE WIRE, NOT THE LOOP. This file translates Anthropic's events
-# into the chunk shape `stream_reply` already reads, so the reasoning/content
-# state machine, the tool-call accumulator, the events and every case that pins
-# them stay exactly as they are. A second copy of that loop would be the
-# divergence #90 exists to prevent, one layer down.
+# ONE WIRE CROW SPEAKS ITSELF, OpenAI's `chat/completions`: the local server
+# and OpenRouter. Anthropic's native `/v1/messages` dialect lived here until
+# #390 (2026-10-15) and went with the `anthropic` provider, the only one that
+# spoke it; the subscription runs through Claude Code instead.
 TRANSPORT_CHAT = "chat_completions"
-TRANSPORT_MESSAGES = "anthropic_messages"
+# #390: the subscription. Not a wire Crow speaks -- a `claude -p` child per
+# turn, and Claude Code's own tools. See "the claude CLI" further down.
+TRANSPORT_CLAUDE_CLI = "claude_cli"
 
 # WHAT ONE ANSWER MAY COST, and since 2026-09-18 it is ONE number for every
 # endpoint. The Messages API REQUIRES it, and this is the value every Claude
@@ -6481,13 +6485,9 @@ def subtask_budget_set(n: "int | None") -> None:
 
 def subtask_max_tokens() -> int:
     return _SUBTASK_MAX or REMOTE_MAX_TOKENS
-ANTHROPIC_MAX_TOKENS = REMOTE_MAX_TOKENS
 
 
-# NOT SENT AWAY FROM HOME: a remote OpenAI-shaped endpoint takes the sampling
-# pair that Anthropic refuses (anthropic_body builds its own body from a
-# whitelist). What
-# goes is only what llama-server alone can act on. `timings_per_token` and
+# NOT SENT AWAY FROM HOME. What goes is only what llama-server alone can act on. `timings_per_token` and
 # `chat_template_kwargs` are its extensions, and `min_p` is a sampler measured
 # against it.
 #
@@ -6542,9 +6542,7 @@ _REMOTE_BODY_PARAMETERS = ("tools", "temperature", "top_p", "max_tokens")
 def remote_body(body: dict) -> dict:
     """The same request with llama-server's own fields taken back out.
 
-    IN PLACE, UNLIKE `anthropic_body`, and the difference is the job: that one
-    translates into a second dialect and builds a new object, this one only
-    takes away. The body the caller is about to send is the thing that must not
+    IN PLACE: it only takes away. The body the caller is about to send is the thing that must not
     carry these fields.
     """
     for field in _REMOTE_DROPS:
@@ -6552,229 +6550,9 @@ def remote_body(body: dict) -> dict:
     return body
 
 
-def anthropic_tools(tools: list) -> list:
-    """OpenAI's `function` wrapper off, `input_schema` on. Same tools."""
-    out = []
-    for tool in tools or []:
-        fn = tool.get("function") if isinstance(tool, dict) else None
-        if not isinstance(fn, dict) or not fn.get("name"):
-            continue
-        out.append({"name": fn["name"],
-                    "description": fn.get("description") or "",
-                    "input_schema": fn.get("parameters")
-                    or {"type": "object", "properties": {}}})
-    return out
-
-
-def anthropic_messages(payload: list) -> "tuple[str, list]":
-    """Crow's history in Anthropic's shape. Returns (system, messages).
-
-    THREE THINGS MOVE, and each of them is a rejection if it does not:
-
-      * the SYSTEM prompt is hoisted out of the list. That API takes one, at the
-        top level, and a `role: "system"` entry inside `messages` is refused.
-      * an assistant turn that called tools becomes CONTENT BLOCKS -- its text,
-        then one `tool_use` block per call, with `input` as an OBJECT. Crow
-        carries the arguments as the JSON string the wire gave it.
-      * RESULTS ARE BATCHED. Crow appends one `tool` message per call, which is
-        OpenAI's shape; here every result answering the same assistant turn has
-        to sit in ONE user message. Left unbatched, a turn with two parallel
-        calls is two user messages in a row and the second one answers a turn
-        that no longer looks unanswered.
-    """
-    system, out = "", []
-    pending: list = []
-
-    def flush() -> None:
-        if pending:
-            out.append({"role": "user", "content": list(pending)})
-            pending.clear()
-
-    for message in payload or []:
-        role = message.get("role")
-        content = message.get("content") or ""
-        if role == "system":
-            system = content
-            continue
-        if role == "tool":
-            pending.append({"type": "tool_result",
-                            "tool_use_id": message.get("tool_call_id") or "",
-                            "content": content or "(no output)"})
-            continue
-        flush()
-        if role == "assistant":
-            blocks = []
-            if content:
-                blocks.append({"type": "text", "text": content})
-            for call in message.get("tool_calls") or []:
-                fn = call.get("function") or {}
-                try:
-                    arguments = json.loads(fn.get("arguments") or "{}")
-                except ValueError:
-                    # A CALL THAT DID NOT PARSE IS STILL A CALL THAT HAPPENED.
-                    # Dropping it would leave the result below answering
-                    # nothing, which is the broken prefix #88 already names.
-                    arguments = {}
-                if not isinstance(arguments, dict):
-                    arguments = {}
-                blocks.append({"type": "tool_use", "id": call.get("id") or "",
-                               "name": fn.get("name") or "", "input": arguments})
-            # AN EMPTY ASSISTANT TURN IS REFUSED by that API, and one can exist
-            # here: an interrupted reply that produced nothing.
-            if blocks:
-                out.append({"role": "assistant", "content": blocks})
-            continue
-        if isinstance(content, list):
-            # #142. A user turn with images: the text block moves as text, and
-            # every image_url block becomes Anthropic's image/source shape --
-            # the data URL split back into media_type and payload. A URL that
-            # is not a data URL is dropped rather than sent broken: image_part
-            # is the only builder and it never writes another kind.
-            blocks = []
-            for part in content:
-                if not isinstance(part, dict):
-                    continue
-                if part.get("type") == "image_url":
-                    url = (part.get("image_url") or {}).get("url") or ""
-                    head, sep, data = url.partition(";base64,")
-                    if sep and head.startswith("data:"):
-                        blocks.append({"type": "image",
-                                       "source": {"type": "base64",
-                                                  "media_type": head[len("data:"):],
-                                                  "data": data}})
-                elif part.get("type") == "text" and part.get("text"):
-                    blocks.append({"type": "text", "text": part["text"]})
-            if blocks:
-                out.append({"role": "user", "content": blocks})
-            continue
-        if content:
-            out.append({"role": "user", "content": content})
-    flush()
-    return system, out
-
-
-def anthropic_body(body: dict) -> dict:
-    """The same request, in the other dialect."""
-    system, messages = anthropic_messages(body.get("messages") or [])
-    out = {"model": body.get("model") or "",
-           "messages": messages,
-           "max_tokens": body.get("max_tokens") or ANTHROPIC_MAX_TOKENS}
-    if system:
-        out["system"] = system
-    tools = anthropic_tools(body.get("tools") or [])
-    if tools:
-        out["tools"] = tools
-    if body.get("stream"):
-        out["stream"] = True
-    return out
-
-
-def _anthropic_chunks(event: dict, state: dict) -> list:
-    """One Anthropic event in, zero or more OpenAI-shaped chunks out.
-
-    `state` carries what the wire splits across events: which content block
-    index is a tool call, and which slot that call occupies. The API sends the
-    tool's NAME and ID once, in `content_block_start`, and its arguments as
-    partial JSON afterwards -- so the name cannot be recovered from the deltas,
-    and the mapping has to be kept.
-    """
-    kind = event.get("type")
-    if kind == "content_block_start":
-        block = event.get("content_block") or {}
-        if block.get("type") in ("tool_use", "server_tool_use"):
-            slot = state["slots"]
-            state["tools"][event.get("index")] = slot
-            state["slots"] = slot + 1
-            return [{"choices": [{"delta": {"tool_calls": [
-                {"index": slot, "id": block.get("id") or "",
-                 "function": {"name": block.get("name") or "", "arguments": ""}}]}}]}]
-        return []
-    if kind == "content_block_delta":
-        delta = event.get("delta") or {}
-        what = delta.get("type")
-        if what == "text_delta":
-            return [{"choices": [{"delta": {"content": delta.get("text") or ""}}]}]
-        if what == "thinking_delta":
-            # THE SAME FIELD THE LOCAL SERVER USES, so `ReasoningBlocks` sees a
-            # thought here exactly as it does there and the window folds it the
-            # same way.
-            return [{"choices": [{"delta": {
-                "reasoning_content": delta.get("thinking") or ""}}]}]
-        if what == "input_json_delta":
-            slot = state["tools"].get(event.get("index"))
-            if slot is None:
-                return []
-            return [{"choices": [{"delta": {"tool_calls": [
-                {"index": slot,
-                 "function": {"arguments": delta.get("partial_json") or ""}}]}}]}]
-        # `signature_delta` carries the integrity signature of a thinking block.
-        # It is not text and it is not shown; dropping it is the whole handling.
-        return []
-    if kind == "message_start":
-        usage = ((event.get("message") or {}).get("usage")) or {}
-        state["input"] = int(usage.get("input_tokens") or 0)
-        return []
-    if kind == "message_delta":
-        # THE CONTEXT SIZE, ASSEMBLED. That API reports input and output
-        # separately and never their sum; the local server sends `total_tokens`
-        # on the last chunk and the whole context line is built from it.
-        out = int(((event.get("usage") or {}).get("output_tokens")) or 0)
-        stop = (event.get("delta") or {}).get("stop_reason")
-        chunk = {"choices": [{"delta": {}, "finish_reason":
-                              "tool_calls" if stop == "tool_use" else stop}]}
-        if state.get("input") or out:
-            chunk["usage"] = {"total_tokens": state.get("input", 0) + out}
-        return [chunk]
-    if kind == "error":
-        problem = (event.get("error") or {}).get("message") or "the stream failed"
-        raise CrowError("the model refused: %s"
-                        % strip_tag_characters(str(problem))[:300])
-    return []
-
-
-def _post_messages(url: str, body: dict, api_key: str, timeout: float,
-                   extra: "dict | None" = None):
-    """`/v1/messages` in, `chat/completions` chunks out.
-
-    IT WRAPS `_post_stream` RATHER THAN REPLACING IT. Every line that made that
-    function interruptible on Windows -- the reader thread, the poll, the
-    daemon that is left behind -- is the same work here, and a second socket
-    loop would be a second place for Ctrl+C to stop working.
-    """
-    state = {"tools": {}, "slots": 0, "input": 0}
-    for payload in _post_stream(url, body, api_key, timeout, extra):
-        try:
-            event = json.loads(payload)
-        except ValueError:
-            continue
-        for chunk in _anthropic_chunks(event, state):
-            yield json.dumps(chunk)
-
-
-def anthropic_calls(answer: dict) -> list:
-    """`tool_use` blocks out of a non-streamed reply, in OpenAI's call shape.
-
-    For the background review, which is the one path that does not stream.
-    """
-    calls = []
-    for block in (answer.get("content") or []):
-        if not isinstance(block, dict) or block.get("type") != "tool_use":
-            continue
-        calls.append({"id": block.get("id") or "", "type": "function",
-                      "function": {"name": block.get("name") or "",
-                                   "arguments": json.dumps(block.get("input") or {})}})
-    return calls
-
-
 def _stream_headers(api_key: str, extra: "dict | None" = None) -> dict:
-    """What goes on the wire, and WHO SAYS SO when two dialects disagree.
-
-    `Authorization: Bearer` is right for every OpenAI-shaped endpoint and for an
-    Anthropic OAuth token. It is NOT how an Anthropic API key travels -- that one
-    is `x-api-key` -- and a request carrying both is a request with two opinions
-    about who is asking. So a caller that has already named an auth header keeps
-    it, and this only fills in the default.
-    """
+    """What goes on the wire. A caller that already named an `Authorization`
+    header keeps it; this only fills in the default bearer."""
     head = {
         "Content-Type": "application/json",
         "Accept": "text/event-stream",
@@ -6784,7 +6562,7 @@ def _stream_headers(api_key: str, extra: "dict | None" = None) -> dict:
         # `Python-urllib` and 200 to this line.
         "User-Agent": crow_agent(),
     }
-    if not any(k.lower() in ("authorization", "x-api-key") for k in (extra or {})):
+    if not any(k.lower() == "authorization" for k in (extra or {})):
         head["Authorization"] = "Bearer %s" % api_key
     # WHAT THE PROVIDER ASKED FOR, LAST, so a header this client considers part
     # of the transport cannot be replaced by configuration. Same order the MCP
@@ -7652,7 +7430,7 @@ def stream_reply(
     # knows them. `turn_routing` decides what they are; this is where they land.
     # Empty for the machine and for every direct connection, which is every turn
     # taken before today.
-    if routing and transport != TRANSPORT_MESSAGES:
+    if routing:
         body.update(routing)
     # #217: EVERY LOCAL REQUEST NAMES ITS SEED. Set before `remote_body` like
     # every other field, so the one place that decides what leaves the machine
@@ -7662,9 +7440,7 @@ def stream_reply(
     # field so a field added above cannot travel by being forgotten.
     if remote:
         remote_body(body)
-    # WHAT WAS SENT IS WHAT IS RECORDED: `anthropic_body` builds its own object
-    # and carries no seed, so that dialect records none either.
-    sent_seed = body.get("seed") if transport != TRANSPORT_MESSAGES else None
+    sent_seed = body.get("seed")
 
     text_parts: list[str] = []
     # THE THOUGHT BLOCKS, and this used to be a flat list plus an `in_reasoning`
@@ -7724,15 +7500,6 @@ def stream_reply(
             # unconditionally breaks all of them, including the ones outside
             # this repository; widening it only when a provider actually asked
             # for a header leaves the old shape intact.
-            if transport == TRANSPORT_MESSAGES:
-                # THE BODY IS TRANSLATED, THE LOOP IS NOT. `_post_messages`
-                # yields the same chunk shape this loop has always read, so
-                # the reasoning state machine, the tool-call accumulator and
-                # every case pinning them are untouched by a second endpoint
-                # existing.
-                return _post_messages(f"{base_url.rstrip('/')}/messages",
-                                      anthropic_body(body), api_key, timeout,
-                                      extra_headers)
             where = f"{base_url}/chat/completions"
             return (_post_stream(where, body, api_key, timeout, extra_headers)
                     if extra_headers else
@@ -25965,6 +25732,11 @@ def review_turn(conversation: "Conversation", *, base_url: str, model: str,
                 seeds: "list | None" = None) -> "list[str]":
     """Ask once whether this turn left anything worth keeping. Returns what was saved.
 
+    #390: NEVER ON THE SUBSCRIPTION. A review there would be a second `claude
+    -p` per turn, paid from the same quota, about a conversation Claude Code
+    holds and Crow only transcribes. The window does not call it for such a
+    turn; this refusal is the second lock.
+
     IT IS CALLED AFTER THE TURN IS OVER ON SCREEN, never inside it. It sat
     inside `run_turn` for one afternoon and the owner found it live on 2026-08-21:
     the answer was complete, the cost line never came and the composer still
@@ -25985,7 +25757,7 @@ def review_turn(conversation: "Conversation", *, base_url: str, model: str,
     a working answer into an error after the user has already read it. Every
     failure here is silence.
     """
-    if len(conversation) < 2:
+    if len(conversation) < 2 or transport == TRANSPORT_CLAUDE_CLI:
         return []
     messages = conversation.payload() + [{"role": "user",
                                           "content": review_question(incidents)}]
@@ -26017,7 +25789,7 @@ def review_turn(conversation: "Conversation", *, base_url: str, model: str,
     # body, nobody watching -- without this it is a second session inside the
     # first, answered by whichever upstream happened to be cheapest that second.
     # Hermes shipped exactly that gap and fixed it as their #70820.
-    if routing and transport != TRANSPORT_MESSAGES:
+    if routing:
         body.update(routing)
     # #217: A SEED OF ITS OWN, like every round of the turn. Without it
     # crow-nest samples this pass at seed 0 -- the seed that reproduced the
@@ -26028,17 +25800,9 @@ def review_turn(conversation: "Conversation", *, base_url: str, model: str,
     # a fix applied once would leave this the only request still carrying them.
     if remote:
         remote_body(body)
-    if seeds is not None and "seed" in body and transport != TRANSPORT_MESSAGES:
+    if seeds is not None and "seed" in body:
         seeds.append(body["seed"])
-    # THE UNASKED PASS SPEAKS THE SAME DIALECT AS THE TURN IT FOLLOWS. It builds
-    # its own body and its own headers -- that is what makes it the one easiest
-    # to forget -- so the translation happens here as well or this pass alone
-    # talks to an endpoint in a language it does not answer.
-    if transport == TRANSPORT_MESSAGES:
-        body = anthropic_body(body)
-        url = f"{base_url.rstrip('/')}/messages"
-    else:
-        url = f"{base_url.rstrip('/')}/chat/completions"
+    url = f"{base_url.rstrip('/')}/chat/completions"
     try:
         request = urllib.request.Request(
             url, data=json.dumps(body).encode("utf-8"), method="POST",
@@ -26052,12 +25816,11 @@ def review_turn(conversation: "Conversation", *, base_url: str, model: str,
         # #217 / crow-nest #99: A PASS THE SERVER ABORTED WRITES NOTHING. Its
         # calls are whatever stood when the generation was cut, and this pass
         # has nobody at the keyboard to notice half a memory entry.
-        if transport != TRANSPORT_MESSAGES and (
-                (answer.get("choices") or [{}])[0].get("finish_reason")
+        if ((answer.get("choices") or [{}])[0].get("finish_reason")
                 == FINISH_ABORT):
             return []
-        calls = (anthropic_calls(answer) if transport == TRANSPORT_MESSAGES else
-                 (answer.get("choices") or [{}])[0].get("message", {}).get("tool_calls") or [])
+        calls = ((answer.get("choices") or [{}])[0].get("message", {})
+                 .get("tool_calls") or [])
     except Exception:                       # noqa: BLE001 - see the docstring
         return []
     saved, staged = [], []
@@ -26239,6 +26002,10 @@ class TurnEvents:
 
     def rollover_refused(self) -> None:
         """Twice in one turn. The question itself does not fit."""
+
+    def context_measured(self, tokens: int, window: int) -> None:
+        """#390. Claude Code reported the context in use mid-turn. `window` is
+        0 when nobody has said one -- a bare count, never a guessed bar."""
 
     def memory_pending(self, what: "list[str]") -> None:
         """#128. The review wants to write and the gate held it. Nothing is on
@@ -27269,15 +27036,9 @@ PROVIDER_KEYS_FILE = os.path.join(crow_platform.config_dir(), "provider_keys.jso
 
 LOCAL_PROVIDER = "local"
 
-# Anthropic's native endpoints refuse a request without it, and the value is a
-# date rather than a number: it pins the request shape, so a client that stopped
-# sending it would be asking for whatever is current.
-ANTHROPIC_VERSION = "2023-06-01"
-
-# WHAT AN OAUTH CREDENTIAL COSTS IN HEADERS, per provider. A pasted key needs
-# none of this; a token minted by a sign-in is only accepted when the request
-# says that is what it is carrying.
-PROVIDER_OAUTH_HEADERS = {"anthropic": {"anthropic-beta": "oauth-2025-04-20"}}
+# #390, 2026-10-15: NO SIGN-IN CREDENTIAL TRAVELS ANY MORE, so no header for one
+# either. A remote provider here is a pasted key or nothing; the Claude
+# subscription is its own provider, `claude`, and Claude Code signs in by itself.
 
 # ORDERED, because the sheet draws it in this order: the machine first, then the
 # one key that reaches everything else. Step 2 of the decided order -- direct
@@ -27338,55 +27099,20 @@ PROVIDERS = {
         # says no more than that asking here is meaningful.
         "filter": True,
     },
-    # THE OPENAI-SHAPED LAYER, NOT THE NATIVE API. Read as raw text on
-    # 2026-08-22: `https://api.anthropic.com/v1/` answers `chat/completions`,
-    # `authorization` is "fully supported", and so are `stream`, `stream_options`
-    # and `tools`. So this is an ENTRY and not a second transport -- which the
-    # native `/v1/messages` with its own body shape would have been.
-    #
-    # WHAT THE PAGE ALSO SAYS, and it belongs beside the entry rather than in a
-    # release note: the layer exists to compare models, is not offered as a
-    # production path, and prompt caching does not work through it. The last one
-    # costs nothing here -- there is no cache on a remote endpoint anyway.
-    #
-    # `temperature` is capped at 1 and Crow sends exactly 1.0; `min_p` and
-    # `timings_per_token` are not fields it knows and are ignored rather than
-    # refused.
-    "anthropic": {
-        "label": "Anthropic",
-        "base_url": "https://api.anthropic.com/v1",
-        "needs_key": True,
-        "key_hint": "sk-ant-...",
-        "catalog": "https://api.anthropic.com/v1/models",
-        "catalog_auth": "anthropic",
-        # ITS OWN DIALECT, AND FOR BOTH CREDENTIAL KINDS. The OpenAI-shaped
-        # layer at the same host takes an API key and is documented by Anthropic
-        # as a way to compare models rather than a way to run on them -- and a
-        # subscription token does not reach it at all. One transport for the
-        # provider is one answer; one per credential kind would be two.
-        "transport": TRANSPORT_MESSAGES,
-        # `max_input_tokens` is where Anthropic reports the window; there is no
-        # `context_length` field on that endpoint at all.
-        "context_keys": ("max_input_tokens", "context_length"),
-        "blurb": "Claude, on its own Messages API.",
-        "sub_blurb": "Sign in with your Claude subscription.",
-        "oauth": {},
-    },
-    "openai": {
-        "label": "OpenAI",
-        "base_url": "https://api.openai.com/v1",
-        "needs_key": True,
-        "key_hint": "sk-...",
-        "catalog": "https://api.openai.com/v1/models",
-        # ITS CATALOGUE REPORTS NO WINDOW, so every model off it carries 0 and
-        # the bar stays off. That is the honest outcome of the rule one line
-        # further down in `provider_context`, not an oversight here.
-        "blurb": "GPT models, straight from the source.",
-        "sub_blurb": "Sign in with your ChatGPT account.",
-        # MEASURED 2026-08-22: auth.openai.com publishes an
-        # openid-configuration with authorize and token endpoints. It publishes
-        # NO registration_endpoint, so the client_id still has to be named.
-        "oauth": {"issuer": "https://auth.openai.com"},
+    # #390, 2026-10-15: THE ANTHROPIC AND OPENAI KEY PROVIDERS ARE GONE (the
+    # owner: the old Anthropic and OpenAI entries go). Claude is the
+    # subscription below; OpenAI comes back in its own ticket.
+    # #390. THE SUBSCRIPTION, as its own provider: no base URL, no key, no catalogue -- Claude Code is the
+    # endpoint and it signs in by itself. The models come from CLAUDE_MODELS.
+    "claude": {
+        "label": "Claude (subscription)",
+        "base_url": "",
+        "needs_key": False,
+        "key_hint": "",
+        "catalog": "",
+        "transport": TRANSPORT_CLAUDE_CLI,
+        "context_keys": (),
+        "blurb": "Your Claude subscription, through Claude Code.",
     },
 }
 
@@ -27549,25 +27275,17 @@ def provider_fetch_models(name: str, key: "str | None" = None,
     a55b` and `...:free` are two entries with two bills, and a client that tidies
     the suffix away sends the paid twin. `:extended` is a DIFFERENT window under
     the same name; `:nitro` and `:floor` change which provider serves it.
+
+    `kind` IS WHAT `provider_credential` SAID, and since #390 that is "key" or
+    "": there is no second credential kind left to spell differently.
     """
     spec = PROVIDERS.get(name) or {}
     url = spec.get("catalog") or ""
     if not url:
         return [], "%s does not publish a model list" % (spec.get("label") or name)
     headers = {"Accept": "application/json", "User-Agent": crow_agent()}
-    # THE CATALOGUE IS NOT ALWAYS ON THE SAME DOOR AS THE CHAT. Anthropic's
-    # OpenAI-shaped layer answers `chat/completions` with a bearer, while
-    # `/v1/models` is the native API and wants `x-api-key` and a version -- one
-    # provider, two dialects, and a client that assumed one of them gets a 401
-    # from an endpoint it can otherwise talk to.
-    if key and spec.get("catalog_auth") == "anthropic" and kind != "oauth":
-        headers["x-api-key"] = key
-        headers["anthropic-version"] = ANTHROPIC_VERSION
-    elif key:
+    if key:
         headers["Authorization"] = "Bearer %s" % key
-        if spec.get("catalog_auth") == "anthropic":
-            headers["anthropic-version"] = ANTHROPIC_VERSION
-            headers.update(PROVIDER_OAUTH_HEADERS.get(name) or {})
     try:
         request = urllib.request.Request(url, headers=headers, method="GET")
         with urllib.request.urlopen(request, timeout=timeout) as resp:
@@ -27664,13 +27382,10 @@ def provider_pick(name: str, model: "str | None" = None) -> "str | None":
     # control that changes the answer.
     if name == "openrouter" and not openrouter_on():
         return OPENROUTER_OFF_NOTE
-    # A LOGIN COUNTS AS A KEY. Refusing a provider somebody just signed in to,
-    # because the key box beside it is empty, would be the sheet answering a
-    # question nobody asked.
-    if PROVIDERS[name]["needs_key"] and not (provider_key_for(name)
-                                             or provider_signed_in(name)
-                                             or provider_borrowing(name)):
-        return "%s needs a key or a sign-in first" % PROVIDERS[name]["label"]
+    # A KEY IS THE ONLY CREDENTIAL since #390. The subscription is `claude`,
+    # which needs none -- Claude Code signs in by itself -- and is picked freely.
+    if PROVIDERS[name]["needs_key"] and not provider_key_for(name):
+        return "%s needs a key first" % PROVIDERS[name]["label"]
     doc = provider_doc()
     doc["active"] = name
     if model is not None:
@@ -27765,20 +27480,12 @@ def provider_active(doc: "dict | None" = None) -> str:
 def provider_headers(name: str, kind: str, credential: str) -> dict:
     """What this provider wants on top of the transport's own headers.
 
-    THE CREDENTIAL DECIDES THE SPELLING, not the provider. Anthropic takes an
-    API key as `x-api-key` and an OAuth token as `Authorization: Bearer` with a
-    beta flag beside it; the same endpoint, two ways of saying who is asking,
-    and sending both is a request with two opinions.
+    NOTHING, since #390 took the `anthropic` provider and its `x-api-key`:
+    every provider left takes its key as `Authorization: Bearer`, which the
+    transport writes itself. Kept as the one place a provider's own header
+    would go.
     """
-    spec = PROVIDERS.get(name) or {}
-    head = {}
-    if spec.get("transport") == TRANSPORT_MESSAGES:
-        head["anthropic-version"] = ANTHROPIC_VERSION
-    if kind == "oauth":
-        head.update(PROVIDER_OAUTH_HEADERS.get(name) or {})
-    elif kind == "key" and spec.get("catalog_auth") == "anthropic" and credential:
-        head["x-api-key"] = credential
-    return head
+    return {}
 
 
 def provider_endpoint(fallback_base_url: str = "", fallback_model: str = "",
@@ -27807,6 +27514,15 @@ def provider_endpoint(fallback_base_url: str = "", fallback_model: str = "",
                 "model": model or fallback_model or DEFAULT_MODEL,
                 "api_key": fallback_key or "local-no-provider", "headers": {},
                 "transport": TRANSPORT_CHAT,
+                "routing": {}, "sticky": False, "filter": False, "params": []}
+    # #390. THE SUBSCRIPTION HAS NO CREDENTIAL TO RESOLVE, and asking for one
+    # would be the very thing the terms forbid: Claude Code signs itself in. No
+    # URL, no key, no header -- `run_claude_turn` starts the CLI instead. The
+    # model is the one the chip picked; "" lets Claude Code choose its own.
+    if spec.get("transport") == TRANSPORT_CLAUDE_CLI:
+        return {"provider": name, "label": spec["label"], "remote": True,
+                "base_url": "", "model": model, "api_key": "", "headers": {},
+                "transport": TRANSPORT_CLAUDE_CLI,
                 "routing": {}, "sticky": False, "filter": False, "params": []}
     credential, kind, _problem = provider_credential(name)
     return {"provider": name, "label": spec["label"], "remote": True,
@@ -27952,16 +27668,22 @@ def provider_view() -> dict:
     for name, spec in PROVIDERS.items():
         key = provider_key_for(name)
         models = provider_models(name, doc)
+        # #390: WHAT THE PROVIDER NEEDS IS HELD -- a key where one is needed;
+        # for `claude`, Claude Code found and signed in, read from the LAST
+        # PROBE and never asked here: the probe spawns two processes, and this
+        # view is drawn every time the sheet opens. None = not asked yet.
+        if name == CLAUDE_PROVIDER:
+            held, unheld = claude_held(), CLAUDE_UNHELD
+        else:
+            held, unheld = (bool(key) or not spec["needs_key"]), "needs a key"
         rows.append({"name": name, "label": spec["label"], "blurb": spec["blurb"],
                      "remote": name != LOCAL_PROVIDER,
                      "needs_key": spec["needs_key"], "key_hint": spec["key_hint"],
                      "key": provider_key_mask(key), "has_key": bool(key),
-                     "signed_in": provider_signed_in(name),
-                     "borrowing": provider_borrowing(name, doc),
+                     "held": held, "unheld": unheld,
                      "listable": bool(spec["catalog"]), "models": models,
                      "model": provider_model_for(name, doc), "count": len(models)})
     return {"active": provider_active(doc), "providers": rows,
-            "subscriptions": provider_subscriptions(),
             # #148: what the favourites dropdowns preselect.
             "delegate_favorites": delegate_favorites(doc),
             # The broker page's switch state (2026-08-28). Absent means on.
@@ -27969,553 +27691,1124 @@ def provider_view() -> dict:
             "file": PROVIDERS_FILE, "note": REMOTE_ENDPOINT_NOTE}
 
 
-# ------------------------------------------------------- subscriptions (OAuth)
+# ------------------------------------------- credentials and the tile (#390)
 
-# NEITHER PROVIDER LETS THIS CLIENT REGISTER ITSELF. Measured 2026-08-22 against
-# the endpoints, not read anywhere:
-#
-#   claude.ai, api.anthropic.com, console.anthropic.com
-#       /.well-known/oauth-authorization-server   404
-#       /.well-known/openid-configuration         404
-#   auth.openai.com
-#       /.well-known/openid-configuration         200, authorize + token present,
-#                                                 registration_endpoint  null
-#
-# So the browser leg is buildable -- every piece of it already exists for MCP --
-# and the ONE thing missing is a `client_id`. Crow answers that the way it
-# already answers it for an MCP server with no dynamic registration: the value
-# comes out of the configuration, named, and until it is there the tile says so
-# instead of opening a login that comes back 400.
-#
-# WHAT IS NOT DONE HERE: sending somebody else's `client_id`. A client that
-# presents itself as another product to get past a registration it was never
-# granted is the disguise half of the line this codebase already draws at
-# `User-Agent` -- naming yourself is not dressing up as somebody else. If that
-# is wanted it is a value a person puts in the file knowingly, not a constant
-# this file ships.
-PROVIDER_TOKEN_FILE = os.path.join(crow_platform.config_dir(), "provider_tokens.json")
-
-# Refresh this many seconds before expiry, and the reason is MCP_TOKEN_SKEW's:
-# a token valid when the request is built and stale when it arrives is the
-# failure a margin exists for.
-PROVIDER_TOKEN_SKEW = 60.0
-
-# How long the browser leg may take. A person is reading a consent screen.
-PROVIDER_OAUTH_WAIT = 300.0
-
-# Said where a tile cannot open a browser, and it names the file and the key
-# rather than the concept -- the same shape the MCP path answers with.
-PROVIDER_NO_CLIENT = ("%s does not let a client register itself, so it needs a "
-                      "client_id. Put one in providers.json under "
-                      "oauth.%s.client_id")
-
-
-# THE SANCTIONED WAY IN, and it is neither a browser leg nor a borrowed session.
-# `claude setup-token` is documented as "generate a long-lived OAuth token for CI
-# and scripts. Prints the token to the terminal without saving it. Requires a
-# Claude subscription" -- a credential the subscriber mints FOR another program,
-# which is exactly what Crow is here. Claude Code itself stores it under the name
-# below when it wires up GitHub Actions, and Hermes' own sign-in dialog does the
-# same thing: it prints this command and waits.
-#
-# WHAT IT REPLACES: nothing had to be invented after all. No client_id borrowed
-# from another product, no refresh of somebody else's grant, no reading a session
-# store that was refused anyway -- measured 2026-08-23, a borrowed Claude Code
-# session token authenticated at `/v1/messages` and came back 429 with a body
-# that named no limit, while the account's own five-hour window stood at 7 %.
-PROVIDER_SETUP = {
-    "anthropic": {"command": "claude setup-token",
-                  "env": "CLAUDE_CODE_OAUTH_TOKEN",
-                  "hint": "sk-ant-oat..."},
-}
-
-
-def provider_setup_env(name: str) -> str:
-    """A subscription token handed over by the environment, or "".
-
-    THE SAME NAME CLAUDE CODE USES for it, so a machine that already exports one
-    for CI needs nothing typed here at all.
-    """
-    spec = PROVIDER_SETUP.get(name) or {}
-    return (os.environ.get(spec.get("env") or "") or "").strip()
-
-
-def provider_token_paste(name: str, token: str) -> "str | None":
-    """Keep a pasted subscription token. The problem, or None.
-
-    NO REFRESH TOKEN AND NO EXPIRY, because that is what "long-lived" means: it
-    is minted once and used until the person revokes it. Storing an expiry this
-    client invented would put a deadline on a credential that has none.
-    """
-    if name not in PROVIDER_SETUP:
-        return "%s has no setup command" % name
-    token = (token or "").strip()
-    doc = provider_tokens()
-    if not token:
-        doc.pop(name, None)
-        return provider_token_write(doc)
-    doc[name] = {"access_token": token, "source": "setup-token"}
-    return provider_token_write(doc)
-
-
-def provider_oauth_block(name: str, doc: "dict | None" = None) -> dict:
-    """What is known about a provider's login: the built-in half plus the file.
-
-    THE FILE WINS, because everything the built-in half can carry was measured
-    against a public endpoint and everything it cannot -- the `client_id` above
-    all -- is a value only the person running this has.
-    """
-    spec = (PROVIDERS.get(name) or {}).get("oauth") or {}
-    doc = provider_doc() if doc is None else doc
-    theirs = (doc.get("oauth") or {}).get(name)
-    block = dict(spec)
-    if isinstance(theirs, dict):
-        for key, value in theirs.items():
-            if isinstance(value, str) and value.strip():
-                block[key] = value.strip()
-    return block
-
-
-# WHERE ANOTHER PROGRAM'S SIGN-IN LIVES, and every one of these is a PATTERN
-# rather than a value: the home directory is expanded at call time, so no path
-# belonging to whoever runs this is written down here, and nothing out of these
-# files is ever copied into Crow's own.
-#
-# READ, NEVER WRITTEN, AND NEVER REFRESHED. The refresh token in these stores
-# belongs to the program that owns them; spending it would rotate the credential
-# the other product is still using and could sign a person out of the tool they
-# were working in. An expired borrowed token is therefore reported and not
-# repaired -- the owning program refreshes it the next time it runs.
-#
-# WHAT IT MEANS ON THE WIRE, said once here because it is the whole trade: a
-# request authenticated this way carries a grant issued to that other product.
-# Nothing is registered under a false name and no new grant is created, but the
-# provider sees that grant. It happens only when somebody switches it on.
-PROVIDER_BORROW = {
-    "anthropic": {"product": "Claude Code",
-                  "path": ("~", ".claude", ".credentials.json"),
-                  "block": "claudeAiOauth", "token": "accessToken",
-                  "expires": "expiresAt", "unit": 1000.0},
-}
-
-# WHY CODEX IS NOT IN THAT TABLE, and it was for one build. `~/.codex/auth.json`
-# holds an access token, and borrowing it looked like the same trade as Claude
-# Code's. Measured 2026-08-23 the moment it was switched on: `GET
-# https://api.openai.com/v1/models` answers **HTTP 403**, not 401 -- the request
-# authenticates and is then refused the resource, which is what a token for a
-# different audience looks like. That token belongs to the ChatGPT backend
-# Codex talks to; the platform API at api.openai.com wants an `sk-...` key from
-# a billing account, and no header turns one into the other. Hermes carries the
-# same split as two separate providers, `openai-codex` beside `openai-api`.
-#
-# A CODEX PROVIDER WOULD BE ITS OWN ENTRY with its own base URL, and that URL is
-# not written here because nobody has measured it. A tile that said "signed in"
-# while every turn came back 403 is the failure this line exists to prevent.
-
-
-def provider_borrow_path(name: str) -> str:
-    """Where that provider's other sign-in would be, expanded. "" if none."""
-    spec = PROVIDER_BORROW.get(name)
-    if not spec:
-        return ""
-    parts = list(spec["path"])
-    root = os.path.expanduser(parts[0]) if parts[0] == "~" else parts[0]
-    return os.path.join(root, *parts[1:])
-
-
-def provider_borrow_seen(name: str) -> bool:
-    """Whether such a store exists at all. Says nothing about what is in it."""
-    target = provider_borrow_path(name)
-    return bool(target) and os.path.isfile(target)
-
-
-def provider_borrowed(name: str) -> "tuple[str, str | None]":
-    """The token another program holds. (token, problem), and it never writes.
-
-    THE FILE IS OPENED FOR THE ONE FIELD IT IS ASKED FOR. Everything else in it
-    -- and these stores hold plenty -- is not read into any structure this
-    process keeps, is never logged, and never reaches a view.
-
-    A STALE `expiresAt` IS NOT A VETO, and that was wrong for one build.
-    Measured 2026-08-23: the field said 00:11, the clock said 00:49, and the file
-    had not been written since 21:41 -- while the program that owns it was
-    running the whole time. The timestamp is another program's bookkeeping, and
-    the authority on whether a credential still works is the provider that
-    issued it. So the token is handed over and the staleness is SAID; a refusal
-    here turns "probably expired" into "certainly unusable" on evidence that is
-    second-hand. `provider_borrowed_stale` is what a surface asks.
-    """
-    spec = PROVIDER_BORROW.get(name)
-    if not spec:
-        return "", "%s has no sign-in to borrow" % name
-    target = provider_borrow_path(name)
-    if not os.path.isfile(target):
-        return "", "no %s sign-in on this machine" % spec["product"]
-    try:
-        with open(target, encoding="utf-8") as fh:
-            doc = json.load(fh)
-    except (OSError, ValueError) as exc:
-        return "", ("%s's sign-in could not be read (%s)"
-                    % (spec["product"], type(exc).__name__))
-    block = doc.get(spec["block"])
-    token = (block or {}).get(spec["token"]) if isinstance(block, dict) else None
-    if not isinstance(token, str) or not token:
-        return "", "%s is not signed in" % spec["product"]
-    return token, None
-
-
-def provider_borrowed_stale(name: str) -> str:
-    """The line to show when the borrowed token looks past its date, or "".
-
-    NOT REPAIRED, EVER. The refresh token in that file is the other product's,
-    and spending it would rotate the credential that program is still using.
-    """
-    spec = PROVIDER_BORROW.get(name)
-    if not spec or not spec["expires"] or not spec["unit"]:
-        return ""
-    try:
-        with open(provider_borrow_path(name), encoding="utf-8") as fh:
-            block = (json.load(fh) or {}).get(spec["block"]) or {}
-    except (OSError, ValueError):
-        return ""
-    due = block.get(spec["expires"]) if isinstance(block, dict) else None
-    if isinstance(due, (int, float)) and due / spec["unit"] <= time.time():
-        return ("%s's sign-in looks expired -- open %s once and it refreshes "
-                "itself" % (spec["product"], spec["product"]))
-    return ""
-
-
-def provider_borrowing(name: str, doc: "dict | None" = None) -> bool:
-    """Whether this machine's other sign-in is switched on for that provider.
-
-    A FLAG FOR A PROVIDER THIS BUILD CANNOT BORROW FROM IS NOT A STATE. Codex
-    was in that table for one build and came out of it after a measured 403; a
-    file switched on back then must not leave the resolver reaching for a store
-    it no longer knows -- it falls through to the key, which is the answer this
-    build has.
-    """
-    if name not in PROVIDER_BORROW:
-        return False
-    doc = provider_doc() if doc is None else doc
-    return bool((doc.get("borrow") or {}).get(name))
-
-
-def provider_borrow_set(name: str, on: bool) -> "str | None":
-    """Switch it on or off. The problem, or None.
-
-    ON IS A DECISION AND IT IS TAKEN ONCE, in the sheet, by a person who is told
-    what it means. Nothing switches it on by finding a file.
-    """
-    if name not in PROVIDER_BORROW:
-        return "%s has no sign-in to borrow" % name
-    if on:
-        _token, problem = provider_borrowed(name)
-        if problem:
-            return problem
-    doc = provider_doc()
-    block = doc.get("borrow")
-    if not isinstance(block, dict):
-        block = {}
-    if on:
-        block[name] = True
-    else:
-        block.pop(name, None)
-    doc["borrow"] = block
-    return provider_write(doc)
-
-
-def provider_oauth_set(name: str, fields: dict) -> "str | None":
-    """Put a login's missing halves in the file. The problem, or None.
-
-    THE SHEET WRITES THIS AND NOT A PERSON WITH AN EDITOR. The values are the
-    ones no endpoint would hand over -- neither provider publishes a
-    registration document -- so they have to be typed once; asking somebody to
-    find `providers.json` to do it is a control that exists only in a sentence.
-
-    AN EMPTY FIELD CLEARS ITS KEY rather than storing emptiness, the same rule
-    `provider_key_set` follows: a box somebody blanked means "not this one", and
-    a stored "" would read as a value.
-    """
-    if name not in PROVIDERS:
-        return "no provider called %s" % name
-    doc = provider_doc()
-    block = doc.get("oauth")
-    if not isinstance(block, dict):
-        block = {}
-    mine = dict(block.get(name) or {})
-    for key in ("client_id", "authorize", "token", "scope", "client_secret"):
-        if key not in fields:
-            continue
-        value = str(fields.get(key) or "").strip()
-        if value:
-            mine[key] = value
-        else:
-            mine.pop(key, None)
-    if mine:
-        block[name] = mine
-    else:
-        block.pop(name, None)
-    doc["oauth"] = block
-    return provider_write(doc)
-
-
-def provider_tokens(path: "str | None" = None) -> dict:
-    """Every stored token by provider. NEVER handed to a surface as it stands."""
-    try:
-        with open(path or PROVIDER_TOKEN_FILE, encoding="utf-8") as fh:
-            doc = json.load(fh)
-    except (OSError, ValueError):
-        return {}
-    return doc if isinstance(doc, dict) else {}
-
-
-def provider_token_write(doc: dict, path: "str | None" = None) -> "str | None":
-    target = path or PROVIDER_TOKEN_FILE
-    try:
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "w", encoding="utf-8") as fh:
-            json.dump(doc, fh, indent=1)
-        try:
-            os.chmod(target, 0o600)
-        except OSError:
-            pass
-    except OSError as exc:
-        return "provider_tokens.json could not be written: %s" % exc
-    if provider_tokens(target) != doc:
-        return "provider_tokens.json did not read back as it was written"
-    return None
-
-
-def provider_token_drop(name: str) -> "str | None":
-    """Sign out of one provider. The reason it failed, or None."""
-    doc = provider_tokens()
-    if name not in doc:
-        return None
-    doc.pop(name, None)
-    return provider_token_write(doc)
-
-
-def provider_signed_in(name: str) -> bool:
-    """Whether a login is on disk. Says nothing about whether it still works."""
-    return bool((provider_tokens().get(name) or {}).get("access_token"))
-
-
-def provider_refresh_token(name: str) -> "str | None":
-    """Trade the refresh token for a fresh access token. The problem, or None.
-
-    A PROVIDER THAT ISSUED NO REFRESH TOKEN IS NOT A FAILURE -- it is a login
-    that runs out, and the honest answer to that is the tile saying so, not a
-    silent retry loop against an endpoint that will keep refusing.
-    """
-    record = provider_tokens().get(name) or {}
-    refresh = record.get("refresh_token")
-    if not refresh:
-        return "%s issued no refresh token -- sign in again" % name
-    meta = {"token_endpoint": record.get("token_endpoint") or ""}
-    if not _oauth_safe(meta["token_endpoint"]):
-        return "%s has no token endpoint on file -- sign in again" % name
-    form = {"grant_type": "refresh_token", "refresh_token": refresh,
-            "client_id": record.get("client_id") or ""}
-    if record.get("scope"):
-        form["scope"] = record["scope"]
-    answer, problem = _oauth_exchange(meta, form)
-    if problem:
-        return problem
-    doc = provider_tokens()
-    kept = dict(doc.get(name) or {})
-    kept["access_token"] = answer["access_token"]
-    # THE OLD REFRESH TOKEN IS KEPT WHEN THE ANSWER CARRIES NONE. Overwriting it
-    # with an empty value would turn every future refresh into a browser leg.
-    if answer.get("refresh_token"):
-        kept["refresh_token"] = answer["refresh_token"]
-    try:
-        kept["expires_at"] = time.time() + float(answer.get("expires_in"))
-    except (TypeError, ValueError):
-        kept.pop("expires_at", None)
-    doc[name] = kept
-    return provider_token_write(doc)
+# A KEY OR NOTHING, for every remote provider, since #390 (the owner, 2026-10-15).
+# What stood here until then -- Crow's own browser sign-in, the pasted
+# `claude setup-token`, a subscription token read from the environment and the
+# one read out of Claude Code's own store -- each sent subscription credentials
+# through a third-party program, which Anthropic's terms forbid
+# (code.claude.com/docs/en/legal-and-compliance, "Authentication and credential
+# use", read 2026-10-15). The ChatGPT sign-in went in the same change and comes
+# back in its own ticket. The subscription is the `claude` provider now: Claude
+# Code holds the sign-in, and Crow never sees it.
 
 
 def provider_credential(name: str) -> "tuple[str, str, str | None]":
-    """(value, kind, problem). `kind` is "oauth", "key" or "".
+    """(value, kind, problem). `kind` is "key" or "", and `problem` is None.
 
-    A LOGIN OUTRANKS A PASTED KEY, because a person who signed in meant to use
-    the subscription they signed in with -- and a key left in the box from last
-    week would quietly spend money instead.
-
-    THE KIND TRAVELS WITH THE VALUE and is not derived from it later. A token
-    and a key are the same shape on the wire; only the caller that resolved them
-    knows which one it holds, and the headers differ.
+    THE TRIPLE STAYS, so its four callers keep their shape: the kind still
+    travels with the value into `provider_headers`, which is where Anthropic's
+    `x-api-key` is spelled.
     """
-    record = provider_tokens().get(name) or {}
-    token = record.get("access_token")
-    if token:
-        due = record.get("expires_at")
-        if isinstance(due, (int, float)) and due - PROVIDER_TOKEN_SKEW <= time.time():
-            problem = provider_refresh_token(name)
-            if problem:
-                return "", "oauth", problem
-            token = (provider_tokens().get(name) or {}).get("access_token") or ""
-        return str(token), "oauth", None
-    # THEN THE ENVIRONMENT, under the name Claude Code gives it. A machine that
-    # already exports one for CI is a machine that has already answered this
-    # question, and asking again would be a second place for the same fact.
-    token = provider_setup_env(name)
-    if token:
-        return token, "oauth", None
-    # AND ONLY THEN A BORROWED SESSION. It is last among the OAuth sources
-    # because it is the one that was refused: measured 2026-08-23, 429 from
-    # `/v1/messages` with no limit named and the account's own window at 7 %.
-    if provider_borrowing(name):
-        token, problem = provider_borrowed(name)
-        if problem:
-            return "", "oauth", problem
-        return token, "oauth", None
     key = provider_key_for(name)
     if key:
         return key, "key", None
     return "", "", None
 
 
-def provider_authorise(name: str) -> "str | None":
-    """The whole browser flow for one provider. None when it worked.
+# THE LEFTOVER ON DISK. `provider_tokens.json` held the tokens of the removed
+# sign-ins and nothing else, and nothing reads it now. It is Crow's own file, so
+# Crow removes it: on the first start that finds it, with ONE line in crow.log,
+# and that is all -- no other file is opened. An `"oauth"` or `"borrow"` block
+# left in providers.json is an unknown key like any other: read by nobody, and
+# not rewritten either.
+PROVIDER_TOKENS_LEFTOVER = os.path.join(crow_platform.config_dir(),
+                                        "provider_tokens.json")
 
-    EVERY PIECE OF THIS ALREADY EXISTED for MCP -- PKCE, the loopback catcher,
-    the browser, the metadata check, the exchange. What is new is only where the
-    endpoints come from: an MCP server hands them over in its own metadata,
-    while these two are named in the configuration because neither publishes a
-    document this client is allowed to register against.
 
-    NO `resource`. RFC 8707 binds a token to the API it was issued for, and the
-    MCP path sends it because the specification requires it there. Here there is
-    no resource identifier to send: asking for a token bound to a name nobody
-    published would be this client inventing an audience.
-    """
-    if name not in PROVIDERS:
-        return "no provider called %s" % name
-    block = provider_oauth_block(name)
-    client_id = block.get("client_id")
-    if not client_id:
-        return PROVIDER_NO_CLIENT % (PROVIDERS[name]["label"], name)
-
-    issuer = block.get("issuer") or ""
-    if issuer:
-        meta, problem = _oauth_server_metadata(issuer)
-        if problem:
-            return problem
-    else:
-        # NAMED BY HAND, AND CHECKED THE SAME WAY. `_oauth_safe` is what keeps a
-        # typo in a config file from sending a consent screen to plain http or
-        # to something that is not a URL at all.
-        meta = {"authorization_endpoint": block.get("authorize") or "",
-                "token_endpoint": block.get("token") or ""}
-        for field, key in (("authorization_endpoint", "authorize"),
-                           ("token_endpoint", "token")):
-            if not _oauth_safe(meta[field]):
-                return ("%s has no usable %s -- put one in providers.json under "
-                        "oauth.%s.%s" % (PROVIDERS[name]["label"], key, name, key))
-
-    listener, redirect = _oauth_listen(block.get("redirect_host") or "127.0.0.1")
+def retire_provider_tokens(path: "str | None" = None) -> bool:
+    """Delete the leftover token file. True when there was one. Never raises."""
+    target = path or PROVIDER_TOKENS_LEFTOVER
     try:
-        verifier, challenge = _oauth_pkce()
-        state = _oauth_state()
-        query = {"response_type": "code", "client_id": client_id,
-                 "redirect_uri": redirect, "state": state,
-                 "code_challenge": challenge, "code_challenge_method": "S256"}
-        if block.get("scope"):
-            query["scope"] = block["scope"]
-        where = (meta["authorization_endpoint"]
-                 + ("&" if "?" in meta["authorization_endpoint"] else "?")
-                 + urllib.parse.urlencode(query))
-        _oauth_open(where)
-        if not listener.done.wait(PROVIDER_OAUTH_WAIT):
-            return ("nobody finished the sign-in for %s within %gs"
-                    % (PROVIDERS[name]["label"], PROVIDER_OAUTH_WAIT))
-        caught = listener.caught
-        if caught.get("error"):
-            return ("%s refused: %s %s" % (
-                PROVIDERS[name]["label"],
-                strip_tag_characters(str(caught.get("error")))[:80],
-                strip_tag_characters(str(caught.get("error_description") or ""))[:200]))
-        # THE STATE IS THE BINDING. Without it anything that can reach the
-        # loopback port can feed this client a code of its own.
-        if caught.get("state") != state:
-            return "the sign-in came back with a state this client did not send"
-        if not caught.get("code"):
-            return "the sign-in came back without a code"
-        form = {"grant_type": "authorization_code", "code": caught["code"],
-                "redirect_uri": redirect, "client_id": client_id,
-                "code_verifier": verifier}
-        if block.get("client_secret"):
-            form["client_secret"] = block["client_secret"]
-        answer, problem = _oauth_exchange(meta, form)
-        if problem:
-            return problem
-        record = {"access_token": answer["access_token"],
-                  "client_id": str(client_id),
-                  "token_endpoint": meta["token_endpoint"]}
-        if answer.get("refresh_token"):
-            record["refresh_token"] = answer["refresh_token"]
-        if block.get("scope"):
-            record["scope"] = block["scope"]
-        try:
-            record["expires_at"] = time.time() + float(answer.get("expires_in"))
-        except (TypeError, ValueError):
-            pass
-        doc = provider_tokens()
-        doc[name] = record
-        problem = provider_token_write(doc)
-        if problem:
-            return problem
-        # THE CATALOGUE IS FETCHED ON THE WAY OUT, while the person is still
-        # looking at the sheet they just signed in from. A list fetched later is
-        # a wait nobody is expecting.
-        provider_refresh(name)
-        return None
-    finally:
-        listener.shutdown()
-        listener.server_close()
+        os.remove(target)
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        log_note("provider_tokens.json is left over from the removed sign-in and "
+                 "could not be removed: %s" % type(exc).__name__, "providers")
+        return False
+    log_note("removed provider_tokens.json: the subscription sign-in it held is "
+             "gone (#390); Claude Code signs in by itself", "providers")
+    return True
 
 
-def provider_subscriptions() -> list:
-    """What the Subscriptions page draws. One row per provider that can log in."""
-    doc = provider_doc()
+# THE SUBSCRIPTIONS PAGE IS ONE TILE, the `claude` provider, and it REPORTS:
+# no browser, no paste field, no sign-out. Signing in is `claude auth login`,
+# run by the person in their own terminal and finished in Anthropic's own flow;
+# signing out is `claude auth logout`, shown as text. Three facts, none of them
+# stored anywhere but in this process:
+#   * `claude --version` -- found, or the install command;
+#   * `claude auth status` -- signed in, how, and the plan. NEVER WHO: the email
+#     and the organisation stay inside `claude_cli_auth`;
+#   * the env guard -- the variables that would move the bill, by name.
+#
+# ASKED WHEN THE PAGE OPENS AND ON "ask again", NEVER AT WINDOW START. The two
+# probes spawn two processes (CLAUDE_CLI_TIMEOUT each, at worst), and a window
+# that waited on them to open would be the mistake `provider_models` refuses
+# for catalogues. The answer is kept until the next ask, and the Model page
+# reads the kept one.
+
+# WHAT THE TILE SAYS PER `authMethod` (code.claude.com/docs/en/cli-reference,
+# read 2026-10-15: none / claude.ai / oauth_token / api_key / api_key_helper /
+# third_party). `oauth_token` is a token Claude Code reads from ITS environment:
+# the tile counts it as signed in, and Crow still never reads the variable.
+CLAUDE_SUB_SAYS = {
+    "claude.ai": "signed in with your subscription",
+    "oauth_token": ("signed in with a long-lived token from the environment, "
+                    "which Claude Code reads itself"),
+    "api_key": "Claude Code bills an API key, not your subscription",
+    "api_key_helper": "Claude Code bills an API key, not your subscription",
+    "third_party": "Claude Code runs on a cloud platform, not your subscription",
+}
+CLAUDE_SUB_OUT = "not signed in"
+CLAUDE_SUB_GUARD = "turns are refused while these are set"
+CLAUDE_SUB_MISSING = "image tools and goals: use the local model"
+CLAUDE_SUB_LOGOUT = "sign out: claude auth logout"
+# Said on the Model page beside `claude` when the kept probe says no.
+CLAUDE_UNHELD = "Claude Code is not signed in -- see Subscriptions"
+
+_CLAUDE_PROBE: dict = {}
+_CLAUDE_PROBE_LOCK = threading.Lock()
+
+
+def claude_probe(again: bool = False) -> dict:
+    """The kept answer of `claude --version` and `claude auth status`.
+
+    Asked the first time and then kept; `again` asks anew. The lock guards the
+    dict, not the spawn: two asks at once cost two probes, never a torn answer.
+    """
+    with _CLAUDE_PROBE_LOCK:
+        if _CLAUDE_PROBE and not again:
+            return dict(_CLAUDE_PROBE)
+    found = bool(claude_cli_path())
+    version, problem = claude_cli_version() if found else ("", None)
+    auth = (claude_cli_auth() if found
+            else {"logged_in": False, "method": "", "plan": "", "problem": None})
+    said = {"found": found, "version": version,
+            "logged_in": bool(auth.get("logged_in")),
+            "method": str(auth.get("method") or ""),
+            "plan": str(auth.get("plan") or ""),
+            "problem": problem or auth.get("problem") or ""}
+    with _CLAUDE_PROBE_LOCK:
+        _CLAUDE_PROBE.clear()
+        _CLAUDE_PROBE.update(said)
+    return dict(said)
+
+
+def claude_held() -> "bool | None":
+    """Found and signed in, from the KEPT probe. None while nobody has asked."""
+    with _CLAUDE_PROBE_LOCK:
+        if not _CLAUDE_PROBE:
+            return None
+        return bool(_CLAUDE_PROBE["found"] and _CLAUDE_PROBE["logged_in"])
+
+
+def provider_subscriptions(again: bool = False) -> list:
+    """What the Subscriptions page draws: exactly one row, `claude`."""
+    probe = claude_probe(again)
+    spec = PROVIDERS[CLAUDE_PROVIDER]
+    method = probe["method"]
+    if not probe["found"]:
+        says = "Claude Code is not installed"
+    elif probe["logged_in"]:
+        says = CLAUDE_SUB_SAYS.get(method) or "signed in"
+        if method == "claude.ai" and probe["plan"]:
+            says += " (%s)" % probe["plan"]
+    else:
+        says = probe["problem"] or CLAUDE_SUB_OUT
+    guard = claude_cli_env_conflicts()
+    return [{"name": CLAUDE_PROVIDER, "label": spec["label"],
+             "transport": spec["transport"], "mark": "anthropic",
+             "found": probe["found"], "version": probe["version"],
+             "install": "" if probe["found"] else CLAUDE_CLI_INSTALL,
+             # LIT ONLY FOR THE SUBSCRIPTION. Signed in with a key is signed
+             # in, and it is still not what this page is about.
+             "on": probe["logged_in"] and method in ("claude.ai", "oauth_token"),
+             "logged_in": probe["logged_in"], "method": method,
+             "plan": probe["plan"], "says": says,
+             "login": "" if probe["logged_in"] else CLAUDE_CLI_LOGIN,
+             "logout": CLAUDE_SUB_LOGOUT if probe["logged_in"] else "",
+             "guard": guard, "guard_says": CLAUDE_SUB_GUARD if guard else "",
+             "missing": CLAUDE_SUB_MISSING, "problem": probe["problem"]}]
+
+
+# ------------------------------------------------------- the claude CLI (#390)
+
+# THE SUBSCRIPTION RUNS THROUGH CLAUDE CODE, NOT THROUGH CROW. Anthropic's terms
+# (code.claude.com/docs/en/legal-and-compliance, "Authentication and credential
+# use", read 2026-10-15) forbid a third-party program to route requests through
+# Free/Pro/Max credentials or to "collect, store, or intermediate" them, and
+# allow exactly one thing: the user signing in to the UNMODIFIED Claude Code
+# binary. So Crow starts `claude` and reads what it prints; it never reads,
+# stores, passes or refreshes a token. Sign-in is `claude auth login`, run by
+# the person, in Anthropic's own flow.
+#
+# WHAT THIS SECTION IS: the facts both halves of #390 read -- the transport
+# that spawns a turn and the Subscriptions tile that reports the state. One
+# place, so the tile and the turn can never disagree about whether a turn
+# would be refused.
+
+CLAUDE_CLI = "claude"
+CLAUDE_PROVIDER = "claude"            # the PROVIDERS key
+
+# EVERY VARIABLE THAT MOVES THE BILL OR THE ENDPOINT AWAY FROM THE SUBSCRIPTION.
+# "In non-interactive mode with the `-p` flag, the key is always used when
+# present" (code.claude.com/docs/en/troubleshoot-install): an ANTHROPIC_API_KEY
+# left in a shell profile would silently bill a key on every turn. A turn is
+# REFUSED while one is set, and the variable is named -- never stripped, because
+# a child that quietly ran without the person's own setting would be a second
+# configuration nobody wrote down. Measured 2026-10-15: a shell inside the
+# Claude desktop app carries ANTHROPIC_BASE_URL, which is exactly the case.
+CLAUDE_CLI_ENV_GUARD = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+                        "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK",
+                        "CLAUDE_CODE_USE_VERTEX")
+
+# THE EFFORT VARIABLE OVERRIDES --effort ("Takes precedence over `--effort`",
+# code.claude.com/docs/en/env-vars). Not a refusal: the chip says who decides.
+CLAUDE_CLI_EFFORT_ENV = "CLAUDE_CODE_EFFORT_LEVEL"
+
+CLAUDE_CLI_INSTALL = "npm install -g @anthropic-ai/claude-code"
+CLAUDE_CLI_MISSING = "Claude Code is not installed: %s" % CLAUDE_CLI_INSTALL
+CLAUDE_CLI_LOGIN = "claude auth login"
+CLAUDE_CLI_TIMEOUT = 15.0
+
+# THE MODELS THE CHIP OFFERS, and there is no catalogue to ask instead: the
+# subscription has no key, and /v1/models answered a sign-in 401 (2026-08-23).
+# From code.claude.com/docs/en/model-config, read 2026-10-15:
+#   * `alias` is what `--model` takes; Claude Code resolves it. Measured
+#     2026-10-15, `--model haiku` -> init.model "claude-haiku-5-5".
+#   * `min` is the Claude Code version the docs require ("Sonnet 5.5 requires
+#     v2.1.284 or later, and Opus 5.5 requires v2.1.280 ... v2.1.293 or later
+#     with Haiku 5.5"); "" where the page names none.
+#   * `efforts` is the docs' per-model table; the first is not a default --
+#     "(default)" sends no --effort and the model's own default applies.
+#   * `window` is a FALLBACK only. The real one arrives with every turn as
+#     result.modelUsage[<id>].contextWindow (measured 2026-10-15: 1000000 for
+#     claude-haiku-5-5). 0 = not measured, and 0 means "no bar", never a guess.
+#     The other three are DECLARED, not measured: model-config, "Extended
+#     context", read 2026-10-15 -- "Fable 5.1, Fable 5, Sonnet 5 and later,
+#     Haiku 5.5, and Opus 4.7 and later run with the 1M window by default". A
+#     person who turned 1M off gets the measured number after one turn.
+CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+CLAUDE_MODELS = (
+    {"alias": "fable", "id": "claude-fable-5-1", "label": "Fable 5.1",
+     "min": "", "efforts": CLAUDE_EFFORTS, "default": "high", "window": 1000000},
+    {"alias": "opus", "id": "claude-opus-5-5", "label": "Opus 5.5",
+     "min": "2.1.280", "efforts": CLAUDE_EFFORTS, "default": "medium",
+     "window": 1000000},
+    {"alias": "sonnet", "id": "claude-sonnet-5-5", "label": "Sonnet 5.5",
+     "min": "2.1.284", "efforts": CLAUDE_EFFORTS, "default": "medium",
+     "window": 1000000},
+    {"alias": "haiku", "id": "claude-haiku-5-5", "label": "Haiku 5.5",
+     "min": "2.1.293", "efforts": CLAUDE_EFFORTS, "default": "medium",
+     "window": 1000000},
+)
+
+
+def claude_cli_env(env: "dict | None" = None) -> dict:
+    """The environment a `claude` child gets: Crow's own, unchanged."""
+    return dict(os.environ if env is None else env)
+
+
+def claude_cli_env_conflicts(env: "dict | None" = None) -> list:
+    """The guard variables that are set (non-empty), in the guard's order."""
+    env = claude_cli_env(env)
+    return [name for name in CLAUDE_CLI_ENV_GUARD if (env.get(name) or "").strip()]
+
+
+def claude_cli_path() -> str:
+    """Where `claude` is on PATH, or "". `claude.exe`/`.cmd` on Windows alike."""
+    return shutil.which(CLAUDE_CLI) or ""
+
+
+def _claude_cli_run(args: list, timeout: float = CLAUDE_CLI_TIMEOUT
+                    ) -> "tuple[subprocess.CompletedProcess | None, str | None]":
+    exe = claude_cli_path()
+    if not exe:
+        return None, CLAUDE_CLI_MISSING
+    try:
+        done = subprocess.run([exe] + list(args), capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=timeout,
+                              env=claude_cli_env(), stdin=subprocess.DEVNULL,
+                              **crow_platform.spawn_kwargs(detached=True))
+    except subprocess.TimeoutExpired:
+        return None, "claude %s did not answer in %.0f s" % (" ".join(args), timeout)
+    except OSError as exc:
+        return None, "claude could not be started: %s" % exc
+    return done, None
+
+
+def claude_cli_version() -> "tuple[str, str | None]":
+    """("2.1.300", None), or ("", problem). From `claude --version`."""
+    done, problem = _claude_cli_run(["--version"])
+    if problem:
+        return "", problem
+    word = (done.stdout or "").strip().split(" ")[0]
+    if done.returncode != 0 or parse_version(word) is None:
+        return "", "claude --version printed nothing readable"
+    return word, None
+
+
+def claude_cli_auth() -> dict:
+    """What `claude auth status` says, reduced to what a surface may show.
+
+    Measured 2026-10-15 (Claude Code 2.1.300): JSON with `loggedIn`,
+    `authMethod` (none / claude.ai / oauth_token / api_key / api_key_helper /
+    third_party per the CLI reference), `subscriptionType`, and also `email`,
+    `orgId`, `orgName` -- which stay HERE: a view gets the method and the plan,
+    never who the account is. Exit 0 = logged in, 1 = not.
+    """
+    done, problem = _claude_cli_run(["auth", "status"])
+    if problem:
+        return {"logged_in": False, "method": "", "plan": "", "problem": problem}
+    try:
+        said = json.loads(done.stdout or "{}")
+    except ValueError:
+        said = {}
+    if not isinstance(said, dict):
+        said = {}
+    return {"logged_in": done.returncode == 0 and bool(said.get("loggedIn")),
+            "method": str(said.get("authMethod") or ("none" if done.returncode else "")),
+            "plan": str(said.get("subscriptionType") or ""),
+            "problem": None}
+
+
+def claude_model(name: str) -> "dict | None":
+    """The CLAUDE_MODELS row for an alias or a full id, or None (typed by hand)."""
+    for row in CLAUDE_MODELS:
+        if name in (row["alias"], row["id"]):
+            return row
+    return None
+
+
+def claude_model_ready(row: dict, version: str) -> bool:
+    """Does the installed Claude Code serve this model? Unknown version -> True.
+
+    True on an unreadable version because the CLI itself will say so on the
+    turn; greying out every model because one probe failed would be worse.
+    """
+    need = row.get("min") or ""
+    if not need or not version:
+        return True
+    return not is_newer(need, version)
+
+
+def claude_model_needs(row: dict) -> str:
+    """The grey row's sentence: which Claude Code this model wants, and how."""
+    return "needs Claude Code ≥ %s — claude update" % (row.get("min") or "?")
+
+
+# --------------------------------------------- the claude CLI: one turn (#390)
+
+# WHAT A TURN ON THE SUBSCRIPTION IS: one `claude -p` child, the typed line on
+# its stdin, NDJSON on its stdout. Claude Code runs the loop itself -- the
+# requests, its own tools, and the person's own hooks, CLAUDE.md, skills and MCP
+# servers, which are their setup and stay theirs -- and Crow translates what it
+# prints into the events `run_turn` emits, so the window draws a Claude Code
+# turn with the parts it already has. Crow's system prompt and Crow's tools are
+# NOT sent: there is no MCP bridge (the owner, 2026-10-15), so image tools and
+# goals stay on the local model.
+#
+# THE SEAM IS THE WIRE, one level up. `ClaudeStream` turns Anthropic's
+# events, wrapped in `stream_event`, into the TURN's events -- because
+# here the rounds run inside the child, and replaying them through `run_turn`
+# would run the loop twice. Measured 2026-10-15 (Claude Code 2.1.300, the two
+# turns in cli/fixtures/): 12.5 s and 5.0 s per turn, one process each.
+CLAUDE_STREAM_FLAGS = ("-p", "--output-format", "stream-json", "--verbose",
+                       "--include-partial-messages")
+
+# CROW'S DIAL IN CLAUDE CODE'S WORDS (code.claude.com/docs/en/permission-modes,
+# read 2026-10-15). Under `-p` nobody can answer a prompt -- "no callback means
+# deny" (agent-sdk/agent-loop) -- so a level that would ask becomes a level that
+# refuses: the safe half, the rule `run_turn` keeps for a mode without `approve`.
+#   manual    -> default            Manual: "Reads only" run unasked
+#   allowedit -> acceptEdits        reads, file edits, mkdir/touch/mv/cp
+#   auto      -> auto               "Everything, with background safety
+#                                   checks"; where auto mode is unavailable
+#                                   Claude Code "starts in Manual instead"
+#   yolo      -> bypassPermissions  "Everything" -- and ONLY yolo
+# An unknown word maps to `default`, never upwards. Passed on EVERY turn: "When
+# you resume with -p, Claude Code doesn't restore any other stored permission
+# mode" (docs/en/hooks, read 2026-10-15).
+CLAUDE_PERMISSION_MODES = {"manual": "default", "allowedit": "acceptEdits",
+                           "auto": "auto", "yolo": "bypassPermissions"}
+
+# WHAT MAY STAND IN THE ARGUMENT LIST. A typed model id and a session id read
+# from a file are the two values Crow did not write itself, and on Windows
+# `claude` is often `claude.cmd`, a batch file whose arguments cmd.exe parses
+# again. So both are held to the characters an id has (`claude-opus-5-5[1m]`,
+# a UUID); anything else is refused, never quoted into shape.
+_CLAUDE_WORD = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,127}$")
+
+# Anthropic's stop reasons in the words `TurnCost` and `run_turn` read.
+_CLAUDE_FINISH = {"end_turn": "stop", "stop_sequence": "stop",
+                  "tool_use": "tool_calls", "max_tokens": "length"}
+
+CLAUDE_NO_ROOT = ("Claude Code needs a working folder -- pick one with the "
+                  "folder chip, and it runs there")
+
+# `claude --version` AT MOST THIS OFTEN. The chip is redrawn on every probe and
+# every turn; a process start per redraw would put one in front of each. Every
+# turn's init event refreshes it for free (`claude_code_version`), so after a
+# `claude update` the menu is right again one turn later at the latest.
+CLAUDE_CLI_VERSION_TTL = 300.0
+
+# WHAT THE CHILD HAS SAID SO FAR, for the chip: the version, which id an alias
+# resolved to (init.model -- measured `haiku` -> `claude-haiku-5-5`), and the
+# window result.modelUsage reported. Process state like `_TURN_SPOT`: facts
+# about the installed CLI, not about one chat.
+_CLAUDE_SEEN: dict = {"version": "", "at": None, "models": {}, "windows": {}}
+_CLAUDE_SEEN_LOCK = threading.Lock()
+
+# The running child, for Stop. One turn runs at a time; a list so the empty
+# state needs no sentinel.
+_CLAUDE_CHILD: list = []
+
+
+def claude_permission_mode(mode: "str | None") -> str:
+    """Crow's level as Claude Code's `--permission-mode`. Unknown -> default."""
+    return CLAUDE_PERMISSION_MODES.get(mode or "", "default")
+
+
+def claude_cli_word(value: "str | None") -> bool:
+    """May this value stand in a `claude` argument list? See `_CLAUDE_WORD`."""
+    return bool(_CLAUDE_WORD.match(value or ""))
+
+
+def claude_cli_argv(exe: str, *, model: str = "", effort: "str | None" = None,
+                    mode: str = DEFAULT_MODE, session: "str | None" = None) -> list:
+    """The child's argument list. A LIST, never a shell string, and no token
+    in it: the child signs itself in, and the prompt goes in on stdin."""
+    argv = [exe, *CLAUDE_STREAM_FLAGS]
+    if model:
+        argv += ["--model", model]
+    if effort:
+        argv += ["--effort", effort]
+    argv += ["--permission-mode", claude_permission_mode(mode)]
+    if session:
+        argv += ["--resume", session]
+    return argv
+
+
+def claude_cli_guard_line(names: list) -> str:
+    """The refusal for set guard variables, naming every one of them."""
+    return ("Claude (subscription) refuses this turn: %s %s set in Crow's "
+            "environment, and under `claude -p` that bills an API key or "
+            "another endpoint instead of your subscription -- unset it and "
+            "start Crow again" % (", ".join(names),
+                                  "is" if len(names) == 1 else "are"))
+
+
+def claude_cli_refusal(env: "dict | None" = None,
+                       cwd: "str | None" = None) -> "str | None":
+    """Why a turn on the subscription may not start, or None.
+
+    NOTHING IS SPAWNED FOR A REFUSAL, and there is no fallback to another
+    provider: a turn that quietly went to the local model or to a key would be
+    a bill or an answer nobody chose. The guard comes first because it is the
+    one that costs money.
+    """
+    names = claude_cli_env_conflicts(env)
+    if names:
+        return claude_cli_guard_line(names)
+    if not claude_cli_path():
+        return CLAUDE_CLI_MISSING
+    if not cwd or not os.path.isdir(cwd):
+        return CLAUDE_NO_ROOT
+    return None
+
+
+def claude_effort_lock(env: "dict | None" = None) -> str:
+    """"set by CLAUDE_CODE_EFFORT_LEVEL=<v>" while that variable decides, else ""."""
+    value = (claude_cli_env(env).get(CLAUDE_CLI_EFFORT_ENV) or "").strip()
+    return "set by %s=%s" % (CLAUDE_CLI_EFFORT_ENV, value) if value else ""
+
+
+def claude_effort_menu(model: "str | None") -> tuple:
+    """The `--effort` levels this model takes; () for a model not in the table
+    -- "any other model: no submenu" (#390, model-config read 2026-10-15)."""
+    row = claude_model(model or "")
+    return tuple(row["efforts"]) if row else ()
+
+
+def claude_effort_for_chat(model: "str | None", path: "str | None" = None
+                           ) -> "tuple[str | None, str | None]":
+    """`reasoning_for_chat` for the subscription: the chat's level, if this
+    model takes it, and the line when it does not (the file is left alone)."""
+    level = session_reasoning(path)
+    if level is None:
+        return None, None
+    levels = claude_effort_menu(model)
+    if level in levels:
+        return level, None
+    return None, ("this chat is set to %s, which %s does not take%s -- sending "
+                  "no --effort until it is set again"
+                  % (level, model or "Claude Code's default model",
+                     " (%s)" % ", ".join(levels) if levels else ""))
+
+
+def claude_effort_command(argument: str, model: "str | None",
+                          current: "str | None", env: "dict | None" = None
+                          ) -> "tuple[str, str | None, bool]":
+    """`/reasoning` on the subscription: (what to say, level, changed).
+
+    "(default)" IS NO LEVEL. It sends no `--effort`, so the model's own default
+    applies -- and what that is, is the table's `default`, named on the chip.
+    `off` and `default` both mean it, because `off` is the word the chip's
+    default row has always sent (#117).
+    """
+    lock = claude_effort_lock(env)
+    if lock:
+        return ("reasoning: %s -- Crow does not change the variable" % lock,
+                current, False)
+    row = claude_model(model or "")
+    levels = claude_effort_menu(model)
+    if row is None or not levels:
+        return ("reasoning: %s takes no --effort from Crow"
+                % (model or "Claude Code's default model"), current, False)
+    default = "%s (default)" % row["default"]
+    wanted = (argument or "").strip().lower()
+    if not wanted:
+        return ("reasoning: %s" % (current or default + ", no --effort sent"),
+                current, False)
+    if wanted in ("off", "default", "none"):
+        return ("reasoning: %s -- no --effort is sent, the model's own default "
+                "applies" % default, None, current is not None)
+    if wanted in levels:
+        return ("reasoning: %s -- sent as --effort %s from the next turn"
+                % (wanted, wanted), wanted, wanted != current)
+    return ("no level %s on %s -- %s, or default"
+            % (wanted, row["label"], ", ".join(levels)), current, False)
+
+
+def claude_model_command(argument: str, current: str, version: str
+                         ) -> "tuple[str, str, bool]":
+    """`/model` on the subscription: (what to say, model, changed).
+
+    A FULL ID MAY BE TYPED and is sent as `--model <id>`, as the typed-slug
+    field does for a catalogue. A model the installed Claude Code is too old
+    for is refused with the update command: the turn would fail anyway.
+    THE CHAT IS KEPT: Claude Code resumes the same session with another model,
+    so nothing of the context goes -- unlike a local switch, whose cache dies
+    with the server process.
+    """
+    wanted = (argument or "").strip()
+    if not wanted:
+        return ("model: %s on Claude Code%s"
+                % (current or "Claude Code's default model",
+                   " %s" % version if version else ""), current, False)
+    if not claude_cli_word(wanted):
+        return ("not a model name Claude Code takes: %s" % wanted[:80],
+                current, False)
+    row = claude_model(wanted)
+    if row is not None and not claude_model_ready(row, version):
+        return ("%s %s (installed: %s)" % (row["label"], claude_model_needs(row),
+                                           version), current, False)
+    if wanted == current:
+        return ("model: %s, already picked" % wanted, current, False)
+    return ("model: %s from the next turn -- this chat's Claude Code session "
+            "continues" % (row["label"] if row else wanted), wanted, True)
+
+
+def claude_cli_version_cached(refresh: bool = False) -> str:
+    """`claude --version` at most once per CLAUDE_CLI_VERSION_TTL. "" unknown."""
+    with _CLAUDE_SEEN_LOCK:
+        version, at = _CLAUDE_SEEN["version"], _CLAUDE_SEEN["at"]
+    if not refresh and at is not None \
+            and time.monotonic() - at < CLAUDE_CLI_VERSION_TTL:
+        return version
+    version, _problem = claude_cli_version()
+    with _CLAUDE_SEEN_LOCK:
+        _CLAUDE_SEEN["version"], _CLAUDE_SEEN["at"] = version, time.monotonic()
+    return version
+
+
+def _claude_seen(picked: str, model: str = "", version: str = "",
+                 window: int = 0) -> None:
+    """Remember what a child said about the CLI: version, resolved id, window."""
+    with _CLAUDE_SEEN_LOCK:
+        if version and parse_version(version) is not None:
+            _CLAUDE_SEEN["version"], _CLAUDE_SEEN["at"] = version, time.monotonic()
+        if model:
+            _CLAUDE_SEEN["models"][picked or ""] = model
+        if window > 0:
+            for key in {picked or "", model} - {""}:
+                _CLAUDE_SEEN["windows"][key] = window
+
+
+def claude_model_shown(picked: "str | None") -> str:
+    """What the chip names: the id Claude Code reported once a turn ran
+    (init.model), before that the table's label or what was typed."""
+    with _CLAUDE_SEEN_LOCK:
+        seen = _CLAUDE_SEEN["models"].get(picked or "")
+    if seen:
+        return seen
+    row = claude_model(picked or "")
+    return row["label"] if row else (picked or "Claude Code's default model")
+
+
+def claude_context_window(model: "str | None") -> int:
+    """The window for this pick: what result.modelUsage reported, else the
+    table's declared one, else 0 -- a bare count, never a guessed bar."""
+    with _CLAUDE_SEEN_LOCK:
+        resolved = _CLAUDE_SEEN["models"].get(model or "", "")
+        window = (_CLAUDE_SEEN["windows"].get(model or "")
+                  or _CLAUDE_SEEN["windows"].get(resolved) or 0)
+    if window:
+        return int(window)
+    row = claude_model(model or "") or claude_model(resolved)
+    return int(row["window"]) if row else 0
+
+
+def claude_model_rows(version: str, env: "dict | None" = None) -> list:
+    """The chip's model list on the subscription: [alias, label, facts].
+
+    THE THIRD ELEMENT IS WHAT A LOCAL ROW DOES NOT HAVE, and the page reads it
+    there because the `up` handler keeps `models` and nothing new: `ready` and
+    `why` grey out a model the installed Claude Code is too old for, `default`
+    names the "(default)" level, `lock` disables the levels while
+    CLAUDE_CODE_EFFORT_LEVEL decides them.
+    """
+    lock = claude_effort_lock(env)
+    value = (claude_cli_env(env).get(CLAUDE_CLI_EFFORT_ENV) or "").strip()
     rows = []
-    for name, spec in PROVIDERS.items():
-        # `in`, NOT truthiness. Anthropic's block is EMPTY -- it publishes no
-        # discovery document, so there is nothing to prefill -- and a tile that
-        # vanished because nothing could be measured about it would be the page
-        # hiding the provider the person came here for.
-        if "oauth" not in spec:
-            continue
-        block = provider_oauth_block(name, doc)
-        # WHICH HALVES ARE MISSING, not merely that one is. A provider that
-        # publishes discovery needs the client_id alone; one that publishes
-        # nothing needs the two endpoints as well, and a form that asked for all
-        # three either way would make the simpler case look like the harder one.
-        wants = ["client_id"] if block.get("issuer") else ["client_id", "authorize", "token"]
-        borrow = PROVIDER_BORROW.get(name) or {}
-        setup = PROVIDER_SETUP.get(name) or {}
-        rows.append({"name": name, "label": spec["label"],
-                     "command": setup.get("command") or "",
-                     "hint": setup.get("hint") or "",
-                     "from_env": bool(provider_setup_env(name)),
-                     "blurb": spec.get("sub_blurb") or spec["blurb"],
-                     "signed_in": provider_signed_in(name),
-                     "ready": bool(block.get("client_id")),
-                     "wants": wants,
-                     "has": {k: bool(block.get(k)) for k in wants},
-                     "discovers": bool(block.get("issuer")),
-                     # THE STORE IS ONLY REPORTED AS PRESENT OR NOT. What is in
-                     # it does not cross into a view, and the product's NAME is
-                     # the only thing about it a person is shown.
-                     "product": borrow.get("product") or "",
-                     "borrowable": provider_borrow_seen(name),
-                     "borrowing": provider_borrowing(name, doc),
-                     "stale": provider_borrowed_stale(name),
-                     "missing": "" if block.get("client_id")
-                                else PROVIDER_NO_CLIENT % (spec["label"], name)})
+    for row in CLAUDE_MODELS:
+        ready = claude_model_ready(row, version)
+        rows.append([row["alias"], row["label"],
+                     {"ready": ready, "why": "" if ready else claude_model_needs(row),
+                      "default": row["default"], "lock": lock,
+                      "lock_level": value if lock else ""}])
     return rows
+
+
+def claude_context_used(usage: dict) -> int:
+    """The context in use after one request: its input, cached and new.
+
+    THE LAST ASSISTANT MESSAGE'S USAGE, NOT THE RESULT'S. Measured 2026-10-15:
+    `result.usage` is summed over the turn's requests (99,555 cache reads for a
+    turn whose last request read 41,633), so it says what the turn cost, not
+    what the window holds.
+    """
+    return sum(int(usage.get(key) or 0) for key in
+               ("input_tokens", "cache_creation_input_tokens",
+                "cache_read_input_tokens"))
+
+
+def _claude_tool_text(content) -> str:
+    """A tool_result's content as text: a string, or its text blocks."""
+    if isinstance(content, str):
+        return content
+    parts = []
+    for block in content if isinstance(content, list) else []:
+        if isinstance(block, dict):
+            if block.get("type") == "text":
+                parts.append(str(block.get("text") or ""))
+            elif block.get("type") == "image":
+                parts.append("[image]")
+    return "\n".join(parts)
+
+
+def _claude_prompt(content) -> str:
+    """The typed line as text. Pictures stay with Crow: the stdin is text."""
+    if isinstance(content, list):
+        return "\n".join(str(part.get("text") or "") for part in content
+                         if isinstance(part, dict) and part.get("type") == "text")
+    return str(content or "")
+
+
+class ClaudeStream:
+    """One `claude -p` turn's NDJSON, said as the events `run_turn` says them.
+
+    PER API MESSAGE ONE ROUND, the shape `run_turn` has: `message_start` opens
+    the reply (`reply_started`, a fresh `ReasoningBlocks`), the deltas stream
+    through it, `message_stop` closes it, appends the assistant turn with its
+    calls and reports `round_finished`; then each call is `tool_started`, and
+    its `tool_result` -- which arrives in a `user` message, because Claude Code
+    ran it -- is `tool_finished`, `tool_result`, `tool_failed` when it failed,
+    and the `tool` message. The conversation thereby carries the same
+    transcript a local turn would, so the chat replays and archives as any.
+
+    WHAT IS LEFT OUT: anything with a `parent_tool_use_id` -- a subagent's own
+    conversation inside Claude Code's Task tool, whose result reaches the main
+    thread as that tool's answer (not measured: both fixtures carry none);
+    `signature_delta`; the hook's synthetic user text. Thinking text arrives
+    empty under Claude Code's "updates" display (measured, both fixtures), so
+    a block may open and say nothing -- which is what was sent.
+    """
+
+    def __init__(self, conversation: "Conversation", events: "TurnEvents",
+                 cost: "TurnCost", picked: str = "") -> None:
+        self.conversation = conversation
+        self.events = events
+        self.cost = cost
+        self.picked = picked
+        self.session = ""
+        self.model = ""
+        self.used = 0
+        self.window = 0
+        self.result: "dict | None" = None
+        self.started = False
+        self.incidents: list = []
+        self._msg: "dict | None" = None
+        self._pending: dict = {}
+        self._round: set = set()
+        self._inputs: dict = {}
+        self._said: set = set()
+
+    def feed(self, event: dict) -> None:
+        if event.get("parent_tool_use_id"):
+            return
+        kind = event.get("type")
+        if kind == "system" and event.get("subtype") == "init":
+            self._init(event)
+        elif kind == "stream_event":
+            self._stream(event.get("event") or {})
+        elif kind == "assistant":
+            self._assistant(event.get("message") or {})
+        elif kind == "user":
+            self._user(event.get("message") or {})
+        elif kind == "result":
+            self._result(event)
+        elif kind == "rate_limit_event":
+            self._rate(event.get("rate_limit_info") or {})
+
+    def _note(self, line: str) -> None:
+        if line in self._said:
+            return
+        self._said.add(line)
+        self.incidents.append(line)
+        getattr(self.events, "turn_note", lambda _t: None)(line)
+
+    def _init(self, event: dict) -> None:
+        self.started = True
+        session = str(event.get("session_id") or "")
+        if claude_cli_word(session):
+            self.session = session
+            self.conversation.claude_session = session
+        self.model = str(event.get("model") or "")
+        _claude_seen(self.picked, model=self.model,
+                     version=str(event.get("claude_code_version") or ""))
+
+    def _stream(self, e: dict) -> None:
+        kind = e.get("type")
+        if kind == "message_start":
+            self._open()
+            return
+        m = self._msg
+        if m is None:
+            return
+        if kind == "content_block_start":
+            block = e.get("content_block") or {}
+            if block.get("type") == "tool_use":
+                m["blocks"][e.get("index")] = {
+                    "slot": len(m["blocks"]), "id": str(block.get("id") or ""),
+                    "name": str(block.get("name") or ""), "args": ""}
+        elif kind == "content_block_delta":
+            delta = e.get("delta") or {}
+            what = delta.get("type")
+            if what == "text_delta":
+                piece = delta.get("text") or ""
+                if piece:
+                    # BEFORE `answer_started`, the order `stream_reply` keeps.
+                    m["thoughts"].content_delta(piece)
+                    if not m["answered"]:
+                        m["answered"] = True
+                        m["rev"].answer_started()
+                    m["text"].append(piece)
+                    m["rev"].answer_text(piece)
+            elif what == "thinking_delta":
+                piece = delta.get("thinking") or ""
+                if piece:
+                    m["thoughts"].reasoning_delta(piece)
+            elif what == "input_json_delta":
+                block = m["blocks"].get(e.get("index"))
+                piece = delta.get("partial_json") or ""
+                if block is not None and piece:
+                    block["args"] += piece
+                    m["rev"].tool_arguments(block["slot"], block["name"], piece)
+        elif kind == "message_delta":
+            m["stop"] = (e.get("delta") or {}).get("stop_reason")
+            out = (e.get("usage") or {}).get("output_tokens")
+            if isinstance(out, int):
+                m["out"] = out
+        elif kind == "message_stop":
+            self._close()
+
+    def _open(self) -> None:
+        if self._msg is not None:
+            self._close()
+        rev = self.events.reply_events() or ReplyEvents()
+        rev.reply_started()
+        self._msg = {"rev": rev, "thoughts": ReasoningBlocks(rev), "text": [],
+                     "blocks": {}, "answered": False, "stop": None, "out": 0,
+                     "usage": None, "started": time.monotonic()}
+
+    def _close(self) -> None:
+        m, self._msg = self._msg, None
+        m["thoughts"].finish()
+        m["rev"].reply_finished()
+        text = "".join(m["text"])
+        reasoning = m["thoughts"].text
+        calls = []
+        for block in sorted(m["blocks"].values(), key=lambda b: b["slot"]):
+            whole = self._inputs.pop(block["id"], None)
+            # THE ASSISTANT EVENT'S `input` OVER THE DELTAS: the same object,
+            # but whole, and the deltas of a cut stream are not.
+            arguments = (json.dumps(whole, ensure_ascii=False)
+                         if isinstance(whole, dict) else block["args"] or "{}")
+            calls.append({"id": block["id"], "name": block["name"],
+                          "arguments": arguments})
+        if text or calls:
+            self.conversation.append("assistant", text, reasoning or None,
+                                     tool_calls=calls or None)
+        timings: dict = {"_client_total_s": round(time.monotonic() - m["started"], 2),
+                         "_reasoning_chars": m["thoughts"].reasoning_chars,
+                         "_content_chars": m["thoughts"].content_chars,
+                         "_context_tokens": self.used}
+        usage = m["usage"] or {}
+        if usage:
+            # WHAT WAS READ NEW AND WHAT CAME OUT OF THE CACHE, in the two
+            # fields the cost line already prints as `prefill` and `cached`.
+            timings["prompt_n"] = (int(usage.get("input_tokens") or 0)
+                                   + int(usage.get("cache_creation_input_tokens") or 0))
+            timings["_cached_tokens"] = int(usage.get("cache_read_input_tokens") or 0)
+        if m["out"]:
+            timings["predicted_n"] = m["out"]
+        finish = _CLAUDE_FINISH.get(m["stop"], m["stop"])
+        if finish:
+            timings["_finish_reason"] = finish
+        if calls:
+            timings["_tool_calls"] = calls
+        self.cost.add_round(timings)
+        self.events.round_finished(timings)
+        now = time.monotonic()
+        for call in calls:
+            self.events.tool_started(call["name"], call["arguments"])
+            self._pending[call["id"]] = (call["name"], now)
+        self._round = {call["id"] for call in calls}
+
+    def _assistant(self, message: dict) -> None:
+        usage = message.get("usage")
+        if isinstance(usage, dict):
+            if self._msg is not None:
+                self._msg["usage"] = usage
+            used = claude_context_used(usage)
+            if used and used != self.used:
+                self.used = used
+                getattr(self.events, "context_measured", lambda *_a: None)(
+                    used, self.window or claude_context_window(self.model or self.picked))
+        for block in message.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "tool_use" \
+                    and block.get("id"):
+                self._inputs[str(block["id"])] = block.get("input")
+
+    def _user(self, message: dict) -> None:
+        content = message.get("content")
+        if not isinstance(content, list):
+            return
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            call_id = str(block.get("tool_use_id") or "")
+            held = self._pending.pop(call_id, None)
+            if held is not None:
+                self._answer(call_id, held, _claude_tool_text(block.get("content")),
+                             failed=bool(block.get("is_error")))
+
+    def _answer(self, call_id: str, held: tuple, text: str, failed: bool,
+                declined: bool = False) -> None:
+        name, started = held
+        took = max(0.0, time.monotonic() - started)
+        result = text or "(no output)"
+        if failed and not result.startswith("error: "):
+            result = "error: " + result
+        self.cost.add_tool(took, failed and not declined, declined)
+        self.events.tool_finished(name, took, False)
+        self.events.tool_result(name, result)
+        if failed:
+            self.events.tool_failed(name, result)
+        self.conversation.append("tool", result, tool_call_id=call_id)
+        if call_id in self._round:
+            self._round.discard(call_id)
+            if not self._round:
+                self.events.tools_finished()
+
+    def _result(self, event: dict) -> None:
+        self.result = event
+        session = str(event.get("session_id") or "")
+        if claude_cli_word(session):
+            self.session = session
+            self.conversation.claude_session = session
+        by_model = event.get("modelUsage")
+        row = by_model.get(self.model) if isinstance(by_model, dict) else None
+        try:
+            window = int((row or {}).get("contextWindow") or 0)
+        except (TypeError, ValueError):
+            window = 0
+        if window > 0:
+            self.window = window
+            _claude_seen(self.picked, model=self.model, window=window)
+        denied = [d for d in (event.get("permission_denials") or [])
+                  if isinstance(d, dict)]
+        if denied:
+            names = sorted({str(d.get("tool_name") or "?") for d in denied})
+            self._note("Claude Code refused %d call%s its permission mode does not "
+                       "release (%s) -- the mode chip beside send sets it"
+                       % (len(denied), "" if len(denied) == 1 else "s",
+                          ", ".join(names)))
+
+    def _rate(self, info: dict) -> None:
+        status = str(info.get("status") or "")
+        if status and status != "allowed":
+            self._note("Claude usage: the %s limit says %s"
+                       % (info.get("rateLimitType") or "plan", status))
+
+    def _end(self, why: str, declined: bool) -> None:
+        if self._msg is not None:
+            # A REPLY THE STREAM STOPPED INSIDE IS NOT KEPT, as in `run_turn`:
+            # half an assistant turn would stand in the transcript as an answer.
+            m, self._msg = self._msg, None
+            m["thoughts"].finish()
+            m["rev"].reply_finished()
+        for call_id, held in list(self._pending.items()):
+            del self._pending[call_id]
+            self._answer(call_id, held, why, failed=True, declined=declined)
+
+    def finish(self) -> None:
+        """The stream ended by itself. A call it never answered says so."""
+        self._end("error: Claude Code reported no result for this call", False)
+
+    def abandon(self) -> None:
+        """Stop. A call Claude Code had started is booked as the user's stop."""
+        self._end(STOPPED, True)
+
+    def problem(self, code: "int | None", stderr: str) -> "str | None":
+        """Why the turn failed, in one line, or None when it did not."""
+        result = self.result
+        if result is not None and result.get("is_error"):
+            said = (result.get("result") or result.get("subtype")
+                    or result.get("api_error_status") or "an error")
+            return "Claude Code: %s" % strip_tag_characters(str(said))[:500]
+        if result is None:
+            return ("claude ended without an answer (exit code %s): %s"
+                    % (code, strip_tag_characters(stderr[-500:]) or "no output"))
+        return None
+
+
+class ClaudeTurnResult(TurnResult):
+    """`TurnResult` plus what only the subscription reports: the window, the
+    resolved model and the session the next turn resumes."""
+
+    def __init__(self, *, n_ctx: int = 0, model: str = "", session: str = "",
+                 **kw) -> None:
+        super().__init__(**kw)
+        self.n_ctx = n_ctx
+        self.model = model
+        self.session = session
+
+
+def _claude_cli_kill(proc) -> None:
+    """The child AND what it started: Claude Code runs shells and node."""
+    if proc.poll() is not None:
+        return
+    if crow_platform.IS_WINDOWS:
+        # #310's tree kill, `taskkill /T /F` -- a `claude.cmd` is cmd.exe,
+        # and killing that handle alone leaves node running.
+        if not crow_platform.kill_tree(proc.pid):
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        return
+    # spawn_kwargs put it in a session of its own: the group goes, SIGTERM
+    # then SIGKILL (terminate_tree).
+    crow_platform.terminate_tree(proc, grace=2.0)
+
+
+def claude_cli_stop() -> bool:
+    """Stop, from the window: the running child dies now, not at the next
+    poll of the turn's loop. True when one was running."""
+    with _CLAUDE_SEEN_LOCK:
+        held = list(_CLAUDE_CHILD)
+    for proc in held:
+        _claude_cli_kill(proc)
+    return bool(held)
+
+
+def run_claude_turn(conversation: "Conversation", prompt, *, model: str = "",
+                    effort: "str | None" = None, mode: str = DEFAULT_MODE,
+                    cwd: "str | None" = None, context_tokens: int = 0,
+                    env: "dict | None" = None,
+                    events: "TurnEvents | None" = None) -> ClaudeTurnResult:
+    """Run one user turn on the subscription: one `claude -p` child, to its end.
+
+    THE CALLER HAS APPENDED THE USER LINE, as for `run_turn`; `prompt` is that
+    line, sent on stdin. `cwd` is the chat's working area -- Claude Code edits
+    there. `--resume` comes from `conversation.claude_session`, which the init
+    and result events set, so the next turn of the same chat continues the same
+    Claude Code session and a new chat (no id) starts one.
+
+    WHAT DOES NOT RUN: Crow's rollover and tool-result clearing (`should_roll`,
+    `clear_before_roll`) and the background review. Claude Code compacts its
+    own session, and the next usage shows the drop.
+
+    STOP KILLS THE CHILD: the loop polls INTERRUPT between lines, as
+    `_post_stream` does and for the same Windows reason, and `claude_cli_stop`
+    kills it from the window without waiting for the poll.
+    """
+    import queue
+
+    if events is None:
+        events = TurnEvents()
+    cost = TurnCost()
+
+    def ended(stopped: bool, stream: "ClaudeStream | None" = None,
+              incidents: "list | None" = None) -> ClaudeTurnResult:
+        used = (stream.used if stream is not None else 0) or context_tokens
+        seen = stream.model if stream is not None else ""
+        window = (stream.window if stream is not None else 0) \
+            or claude_context_window(seen or model)
+        return ClaudeTurnResult(
+            cost=cost, context_tokens=used, promised_warm=False, rolled=False,
+            stopped=stopped, reported=[],
+            incidents=(stream.incidents if stream is not None else incidents or []),
+            n_ctx=window, model=seen,
+            session=stream.session if stream is not None else "")
+
+    refused = claude_cli_refusal(env, cwd)
+    if refused is None and model and not claude_cli_word(model):
+        refused = "not a model name Claude Code takes: %s" % model[:80]
+    if refused:
+        events.turn_failed(refused)
+        return ended(True, incidents=[refused])
+    session = conversation.claude_session
+    if session and not claude_cli_word(session):
+        session = None
+    # THE VARIABLE DECIDES while it is set ("Takes precedence over --effort"),
+    # so sending the chip's level beside it would be a flag that does nothing.
+    if claude_effort_lock(env) or effort not in claude_effort_menu(model):
+        effort = None
+    argv = claude_cli_argv(claude_cli_path(), model=model, effort=effort,
+                           mode=mode, session=session)
+    try:
+        proc = subprocess.Popen(
+            argv, cwd=cwd, env=claude_cli_env(env), stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            encoding="utf-8", errors="replace",
+            **crow_platform.spawn_kwargs(detached=True))
+    except OSError as exc:
+        why = "claude could not be started: %s" % exc
+        events.turn_failed(why)
+        return ended(True, incidents=[why])
+    with _CLAUDE_SEEN_LOCK:
+        _CLAUDE_CHILD.append(proc)
+    lines: "queue.Queue" = queue.Queue()
+    eof = object()
+    errs: list = []
+
+    def _feed() -> None:
+        # THE BYTES OF THE LINE, through the wrapper's buffer: a text-mode pipe
+        # writes "\n" as "\r\n" on Windows, and the line is the person's.
+        try:
+            proc.stdin.buffer.write(_claude_prompt(prompt).encode("utf-8"))
+            proc.stdin.close()
+        except (OSError, ValueError):
+            pass                            # it died first; stderr says why
+
+    def _read() -> None:
+        try:
+            for raw in proc.stdout:
+                lines.put(raw)
+        except (OSError, ValueError):
+            pass
+        finally:
+            lines.put(eof)
+
+    def _drain() -> None:
+        # ITS OWN THREAD: a full stderr pipe would block the child, and the
+        # child blocked is a turn that never ends (the deadlock the subprocess
+        # docs warn about).
+        try:
+            for raw in proc.stderr:
+                errs.append(raw)
+                del errs[:-40]
+        except (OSError, ValueError):
+            pass
+
+    drain = threading.Thread(target=_drain, daemon=True)
+    reader = threading.Thread(target=_read, daemon=True)
+    for worker in (threading.Thread(target=_feed, daemon=True), reader, drain):
+        worker.start()
+    stream = ClaudeStream(conversation, events, cost, picked=model)
+    interrupted = finished = False
+    try:
+        while True:
+            if INTERRUPT.is_set():
+                interrupted = True
+                break
+            try:
+                item = lines.get_nowait()
+            except queue.Empty:
+                time.sleep(0.05)            # interruptible, see _post_stream
+                continue
+            if item is eof:
+                finished = True
+                break
+            line = item.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict):
+                stream.feed(event)
+    finally:
+        if not finished:
+            _claude_cli_kill(proc)
+        try:
+            proc.wait(timeout=10.0)
+        except subprocess.TimeoutExpired:
+            _claude_cli_kill(proc)
+        with _CLAUDE_SEEN_LOCK:
+            if proc in _CLAUDE_CHILD:
+                _CLAUDE_CHILD.remove(proc)
+        # The pipes close once their readers are done; a dead child ends both.
+        for thread, pipe in ((reader, proc.stdout), (drain, proc.stderr)):
+            thread.join(timeout=1.0)
+            if not thread.is_alive():
+                try:
+                    pipe.close()
+                except (OSError, ValueError):
+                    pass
+    # THE FLAG IS ASKED AGAIN: `claude_cli_stop` kills the child before the
+    # loop's next poll, so the stream can end at EOF on a stopped turn.
+    if interrupted or INTERRUPT.is_set():
+        stream.abandon()
+        INTERRUPT.clear()
+        events.turn_interrupted()
+        return ended(True, stream)
+    stream.finish()
+    problem = stream.problem(proc.returncode, "".join(errs).strip())
+    if problem:
+        if session and not stream.started:
+            problem += (" -- this chat resumes Claude Code session %s; a new chat "
+                        "starts a fresh one" % session)
+        stream.incidents.append(problem)
+        events.turn_failed(problem)
+        return ended(True, stream)
+    return ended(False, stream)
 
 
 def health_url(base_url: str) -> str:
@@ -29851,15 +30144,9 @@ def _judge_ask(spot: dict, prompt: str, paths: "list[str]") -> str:
             "min_p": sampling["min_p"], "max_tokens": JUDGE_MAX_TOKENS}
     if sampling.get("top_k") is not None:
         body["top_k"] = sampling["top_k"]
-    transport = spot.get("transport") or TRANSPORT_CHAT
     if spot.get("remote"):
         remote_body(body)
-    base = str(spot["base_url"]).rstrip("/")
-    if transport == TRANSPORT_MESSAGES:
-        body = anthropic_body(body)
-        url = base + "/messages"
-    else:
-        url = base + "/chat/completions"
+    url = str(spot["base_url"]).rstrip("/") + "/chat/completions"
     request = urllib.request.Request(
         url, data=json.dumps(body).encode("utf-8"), method="POST",
         headers=dict(_stream_headers(spot.get("api_key") or "",
@@ -29878,12 +30165,8 @@ def _judge_ask(spot: dict, prompt: str, paths: "list[str]") -> str:
         finally:
             exc.close()
         raise CrowError("HTTP %s %s" % (exc.code, said.strip()[:200]))
-    if transport == TRANSPORT_MESSAGES:
-        text = "".join(b.get("text") or "" for b in answer.get("content") or []
-                       if b.get("type") == "text")
-    else:
-        text = (((answer.get("choices") or [{}])[0].get("message") or {})
-                .get("content") or "")
+    text = (((answer.get("choices") or [{}])[0].get("message") or {})
+            .get("content") or "")
     return _strip_think(text).strip()
 
 

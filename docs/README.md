@@ -22,7 +22,7 @@ Everything else is in this folder.
 | [Session search](user-guide/session-search.md) | the index over every archived conversation |
 | [MCP servers](user-guide/mcp.md) | stdio, elicitation, commands |
 | [MCP over HTTP](user-guide/mcp-http.md) | headers, OAuth, sessions |
-| [Remote models](user-guide/remote-models.md) | subscriptions, keys, dialects, routing |
+| [Remote models](user-guide/remote-models.md) | OpenRouter's key, the Claude subscription through Claude Code, routing |
 | [Phone (remote)](user-guide/remote.md) | `/remote`, pairing, the page on the phone, the two addresses, the phone microphone |
 | [Phone over Tailscale](user-guide/remote-tailscale.md) | HTTPS from anywhere: `install.sh --tailscale` / `install.ps1 -Tailscale`, [download](https://tailscale.com/download), [iPhone](https://apps.apple.com/app/tailscale/id1470499037), [Android](https://play.google.com/store/apps/details?id=com.tailscale.ipn), admin console, the one `tailscale serve` line, checks, undo |
 

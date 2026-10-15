@@ -12,7 +12,7 @@
 | **MCPs** | one row per server, folded; per tool a switch and its class. Add with a command line, `ask again`, `remove`. See [MCP servers](../user-guide/mcp.md) |
 | **Model** | provider and model, two folds. Picking a provider empties the chat. See [Remote models](../user-guide/remote-models.md) |
 | **OpenRouter** | the broker on its own page, and the page routes no turn: the operation switch parks or runs delegation, the three delegate favourites and the model pick configure it. Turns stay local until a provider is picked on the Model page |
-| **Subscriptions** | one tile per provider that can log in. Click opens the browser; `sign out` drops the login |
+| **Subscriptions** | one tile, Claude (#390): the Claude Code version, whether `claude auth status` says you are signed in and with what, and the variables that would refuse a turn. You sign in with `claude auth login` in a terminal (copy button) and press `ask again`; Crow opens no browser and keeps no token. No OpenAI tile for now. See [Remote models](../user-guide/remote-models.md#claude-subscription) |
 | **API Keys** | one key per provider. Stored in `provider_keys.json`, shown as a mask afterwards |
 | **About** | version, the release check, and the button that installs it. A restart is needed afterwards |
 

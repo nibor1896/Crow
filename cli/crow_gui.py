@@ -1187,8 +1187,8 @@ PAGE = r"""<!doctype html>
   --barh:46px;
   /* #382. THE COLUMNS' WIDTHS, READ BY THE TITLE BAR TOO. The bar has three
      zones over the three columns: rail, chat panel, side column. Each zone and
-     its column read the SAME name, so the search sits on the panel's left edge
-     and the engine chip on its right one. These are the start values; a drag
+     its column read the SAME name, so the search sits on the panel's left edge.
+     These are the start values; a drag
      writes its value onto the two readers (#236: never onto <html> or <body>,
      where every node of a long chat would be restyled per mouse step).
      --railshut is the left zone's width while the rail is folded away: the
@@ -1344,7 +1344,7 @@ body{background:var(--bg);color:var(--dim);font:13px/1.55 var(--ui);
    8 px right margin is the panel's), #barr over the side column while that is
    open. Each zone reads the SAME variable as its column -- --railw, --codew,
    --railshut, all defined once in :root -- so the search sits on the panel's
-   left edge and the engine chip on its right one without any script measuring
+   left edge without any script measuring
    anything. "+ 1px": a grip is 5 px wide with -2 px either side, so it nets
    one pixel of the row, between the column and the panel. */
 #bar{display:flex;align-items:center;height:var(--barh);flex:none;
@@ -1465,29 +1465,6 @@ body.closing::after{content:"saving the chat and the cache...";position:fixed;
 .sopt.cmd .st{flex:none;font-family:var(--mono);font-size:12px;color:var(--text)}
 .sopt.cmd .ss{flex:1 1 auto}
 #searchnone:not(:empty){padding:9px;font-size:12px;color:var(--dim)}
-
-/* -- #382: the engine chip over the panel's right edge --------------------- */
-/* NARROW UNTIL CLICKED: a status dot and the model's name. A click (or Enter /
-   Space, it is a button) flips `aria-expanded` and slides out the level, the
-   last turn's decode rate and the context in use. The dot is the server's
-   state: amber until the first answer, green while up, red when it is gone. */
-.engine{display:inline-flex;align-items:center;height:32px;padding:0 13px;
-  border:1px solid var(--line-soft);border-radius:999px;background:var(--bg);
-  color:var(--text);font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap}
-.engine:hover{border-color:var(--line)}
-.engine.open{border-color:var(--line);background:var(--panel)}
-.engine .more{display:inline-flex;align-items:center;gap:10px;max-width:0;opacity:0;
-  overflow:hidden;padding-left:0;font-size:11.5px;color:var(--dim);
-  transition:max-width .3s ease,opacity .2s ease,padding .3s ease}
-.engine.open .more{max-width:280px;opacity:1;padding-left:10px}
-.engine .more .vsep{height:14px}
-.engine .more>[hidden]{display:none}
-.engine .erate{color:var(--text)}
-#engine .edot{width:7px;height:7px;border-radius:50%;flex:none;margin-right:9px;
-  background:var(--warn);box-shadow:0 0 0 3px var(--warn-soft)}
-#engine[data-state="up"] .edot{background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
-#engine[data-state="down"] .edot{background:var(--bad);
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--bad) 13%,transparent)}
 
 /* A LAYER IN THIS WINDOW, NOT A SECOND WINDOW. A second pywebview window would
    need its own bridge, its own theme attribute and its own close path, for a
@@ -2297,11 +2274,11 @@ body:not([data-git="shut"]) #gittoggle{color:var(--accent);background:var(--acce
 #main{transition:margin-left .16s ease}
 body[data-rail="shut"] #main{margin-left:calc(var(--railshut) - 1px)}
 /* #382. WENIGER BEWEGUNG, WENN DAS SYSTEM DARUM BITTET: die Breiten der
-   Spalten, der Zonen, des Blatts, der Suche und des Modell-Chips springen
+   Spalten, der Zonen, des Blatts und der Suche springen
    dann, statt zu gleiten (Media Queries 5, prefers-reduced-motion). Hinter
    allen Regeln, die einen dieser Uebergaenge setzen. */
 @media (prefers-reduced-motion:reduce){
-  #rail,#side,#main,#barl,.search,.search input,.s-kbd,.engine .more{transition:none}}
+  #rail,#side,#main,#barl,.search,.search input,.s-kbd{transition:none}}
 /* #125. THE STATUS BAR IS GONE, not hidden. Both chips it carried moved into
    the settings sheet -- the connection with its address, and the tool switch --
    and an empty bar is a band of nothing between the ribbon and the first line
@@ -2884,16 +2861,17 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
   border-radius:6px;background:transparent;border:1px solid var(--line);
   color:var(--dim)}
 .keyrow button:hover{border-color:var(--bevel);color:var(--text-hover)}
-/* THE SUBSCRIPTION TILES. A tile rather than a row because what it offers is
-   one act -- sign in -- and a row with a switch would say the state is
-   something the page can set. It is not: it is the outcome of a browser leg
-   that happens somewhere else and may not come back for minutes.
+/* THE SUBSCRIPTION TILE (#390: one, Claude). A tile rather than a row with a
+   switch, because the state is not something the page can set: it is what
+   Claude Code says after a sign-in the person ran in their own terminal. The
+   tile REPORTS, and its only controls are a copy and an "ask again".
    Every colour is a palette variable, so all three themes answer for it. */
 #subs{display:flex;flex-wrap:wrap;gap:10px}
-.sub{flex:1 1 190px;display:flex;flex-direction:column;gap:6px;cursor:pointer;
+.sub{flex:1 1 190px;display:flex;flex-direction:column;gap:6px;
   border:1px solid var(--line);border-radius:10px;padding:13px 14px;
   background:transparent;color:inherit;font:inherit;text-align:left}
-.sub:hover{border-color:var(--bevel)}
+.sub .cmdrow{display:flex;gap:7px;align-items:center}
+.sub code{font-family:var(--mono);font-size:11.5px;color:var(--text)}
 .sub.on{border-color:var(--accent);
   background:color-mix(in srgb,var(--accent) 8%,transparent)}
 /* THE BRAND COLOUR IS THE SKIN'S, and `--text-hi` is already what the owner asked
@@ -3608,7 +3586,15 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
   /* #138c. DER LAENGSTE TEXT DER REIHE gibt nach, damit die Knoepfe rechts
      nicht aus der Maske gedraengt werden. */
   min-width:0;overflow:hidden}
-#model .dot{background:var(--ok)}
+/* #391. THE DOT IS THE SERVER'S STATE: amber until the first answer (`wait`, the
+   start value in the markup), green while the server answers (`up`), red once
+   it does not (`down`) -- the colours the title bar's engine chip drew before
+   the owner removed it (2026-10-15). `case "up"` / `case "down"` set data-state and
+   `showModel` redraws. The phone hides the dot (the sheet's rule below) and
+   says the same in the chip's word. */
+#model[data-state="wait"] .dot{background:var(--warn)}
+#model[data-state="up"] .dot{background:var(--ok)}
+#model[data-state="down"] .dot{background:var(--bad)}
 /* THE LEVEL IS DIMMER THAN THE MODEL because it is the setting, not the subject -- the same
    split #modelmenu draws between a model row and the level rows under it. */
 #model .lvl{color:var(--dim)}
@@ -3649,6 +3635,10 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 #modelmenu button.lvlrow::before{content:"";position:absolute;left:15px;top:0;bottom:0;
   width:1px;background:var(--line)}
 #modelmenu button.lvlrow:last-child::before{bottom:50%}
+/* #390: a Claude model the installed Claude Code is too old for, and the levels while
+   CLAUDE_CODE_EFFORT_LEVEL decides them -- shown, never pickable. */
+#modelmenu button[disabled]{cursor:default;opacity:.5}
+#modelmenu button[disabled]:hover{background:none}
 /* ONLY THE RUNNING MODEL CARRIES LEVELS, and the reason is in the payload rather than in taste:
    `levels` and `groups` are measured for the model that ANSWERED the probe, so they describe one
    model and no other. Hanging them under the row that would boot 17 GB would be inventing them
@@ -3799,8 +3789,8 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
 
 <div id="bar" class="pywebview-drag-region" ondblclick="pywebview.api.maximise()">
   <!-- #382. THREE ZONES OVER THE THREE COLUMNS (mockup Main.dc.html, the owner
-       2026-10-14): rail toggle and wordmark over the rail; the search and the
-       engine chip on the chat panel's two edges; the panel toggles and the
+       2026-10-14): rail toggle and wordmark over the rail; the search on the
+       chat panel's left edge; the panel toggles and the
        window buttons over the side column. Every icon is the mockup's inline
        stroke SVG at 1.75, `currentColor`, so it takes the theme and the
        on-state like any text here. -->
@@ -3846,16 +3836,6 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
         <div id="searchnone" role="status"></div>
       </div>
     </div>
-    <!-- #382. THE ENGINE CHIP: the server's state as a dot and the model's
-         name; a click slides out the level, the last turn's decode rate and
-         the context in use (`crow.showEngine`). A disclosure button, so
-         Enter and Space work as they do on any button. -->
-    <button id="engine" class="engine pywebview-no-drag" type="button"
-            aria-expanded="false" data-state="wait" onclick="crow.engineToggle()"
-            ondblclick="event.stopPropagation()"><span class="edot" aria-hidden="true"></span><span
-            class="ename">connecting</span><span class="more mono"><span class="vsep"></span><span
-            class="elvl" hidden></span><span class="erate" hidden></span><span
-            class="ectx" hidden></span><span class="eword" hidden></span></span></button>
   </div>
   <div id="barr" class="hz">
     <!-- #138/#156/#175. THE PANEL TOGGLES LIVE IN THE TITLE BAR for #119's
@@ -3985,8 +3965,8 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
         </section>
         <section data-cat="model" hidden>
           <h3>Model</h3>
-          <p class="shint">Where a turn goes. This machine, or a provider you
-             brought a key for.</p>
+          <p class="shint">Where a turn goes. This machine, or your Claude
+             subscription through Claude Code.</p>
           <div class="fold open" id="provfold" onclick="crow.foldPane('prov')">
             <span class="caret">&#9654;</span>
             <div class="sname">Provider</div>
@@ -4016,8 +3996,8 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
         </section>
         <section data-cat="subs" hidden>
           <h3>Subscriptions</h3>
-          <p class="shint">Sign in with an account you already pay for. The
-             browser opens at the provider; Crow keeps what comes back.</p>
+          <p class="shint">Your Claude subscription runs through Claude Code.
+             Crow starts it and never sees your sign-in.</p>
           <div id="subs"></div>
           <p class="mcpsaid" id="subsaid"></p>
         </section>
@@ -4198,7 +4178,7 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
                a bar at the other end of the screen. ONE CHIP, NOT TWO: the
                level is not a second subject, it is how the model thinks, so
                it is a submenu under the model that runs -- see modelMenu. -->
-          <span class="chipwrap" id="modelwrap"><span class="chip pick" id="model" hidden
+          <span class="chipwrap" id="modelwrap"><span class="chip pick" id="model" data-state="wait"
                 onclick="crow.modelMenu()" title="model and thinking level"></span>
             <div id="modelmenu" hidden></div></span>
           <!-- #143. The subtask chip: beside the model chip, visible as soon
@@ -6296,7 +6276,10 @@ const crow = {
     this.drawMcp();
     this.drawGithub();
     this.drawProviders();
-    this.drawSubs();
+    // #390: THE SUBSCRIPTION TILE IS NOT DRAWN HERE. Its probe spawns Claude
+    // Code twice, so it runs when its own page opens (`settingsCat`) -- or now,
+    // if that page is the one the sheet reopens on.
+    if(!$('#spane section[data-cat="subs"]').hidden) this.drawSubs(false);
     $("#settings").hidden=false;
   },
   // #124. ASKED FOR EVERY TIME THE SHEET OPENS, never cached in the page: the
@@ -6529,16 +6512,13 @@ const crow = {
   // THE TWO MARKS, HELD HERE AND NOT FETCHED. The page has no external host to
   // load an image from -- and on the one screen where somebody is about to sign
   // in, a remote asset is also a request that says when they opened it. The
-  // geometry is the providers own: the wordmark off anthropic.com and the knot
-  // out of openai.com/favicon.svg, whose box is the PATH's own bounds rather
-  // than the file's 180-square -- most of that square is a background this does
-  // not draw, and inside a 26px tile the padding would have eaten the mark.
+  // geometry is the providers own: the wordmark off anthropic.com (the OpenAI knot
+  // went with the OpenAI sign-in, #390).
   //
   // `currentColor` AND NOTHING ELSE, so the colour stays a palette decision one
   // level up. A literal here would be the next theme's problem.
   MARKS: {
     anthropic: {box: "0 0 35 24", d: ["M24.5475 0H19.3384L28.8374 24H34.0465L24.5475 0Z", "M9.49897 0L0 24H5.31125L7.25395 18.96H17.1914L19.1341 24H24.4454L14.9464 0H9.49897ZM8.97193 14.5029L12.2227 6.06857L15.4735 14.5029H8.97193Z"]},
-    openai: {box: "29 29 122 122", d: ["M75.91 73.628V62.232c0-.96.36-1.68 1.199-2.16l22.912-13.194c3.119-1.8 6.838-2.639 10.676-2.639 14.394 0 23.511 11.157 23.511 23.032 0 .839 0 1.799-.12 2.758l-23.752-13.914c-1.439-.84-2.879-.84-4.318 0L75.91 73.627Zm53.499 44.383v-27.23c0-1.68-.72-2.88-2.159-3.719L97.142 69.55l9.836-5.638c.839-.48 1.559-.48 2.399 0l22.912 13.195c6.598 3.839 11.035 11.995 11.035 19.912 0 9.116-5.397 17.513-13.915 20.992v.001Zm-60.577-23.99-9.836-5.758c-.84-.48-1.2-1.2-1.2-2.16v-26.39c0-12.834 9.837-22.55 23.152-22.55 5.039 0 9.716 1.679 13.676 4.678L70.993 55.516c-1.44.84-2.16 2.039-2.16 3.719v34.787-.002Zm21.173 12.234L75.91 98.339V81.546l14.095-7.917 14.094 7.917v16.793l-14.094 7.916Zm9.056 36.467c-5.038 0-9.716-1.68-13.675-4.678l23.631-13.676c1.439-.839 2.159-2.038 2.159-3.718V85.863l9.956 5.757c.84.48 1.2 1.2 1.2 2.16v26.389c0 12.835-9.957 22.552-23.27 22.552v.001Zm-28.43-26.75L47.72 102.778c-6.599-3.84-11.036-11.996-11.036-19.913 0-9.236 5.518-17.513 14.034-20.992v27.35c0 1.68.72 2.879 2.16 3.718l29.989 17.393-9.837 5.638c-.84.48-1.56.48-2.399 0Zm-1.318 19.673c-13.555 0-23.512-10.196-23.512-22.792 0-.959.12-1.919.24-2.879l23.63 13.675c1.44.84 2.88.84 4.32 0l30.108-17.392v11.395c0 .96-.361 1.68-1.2 2.16l-22.912 13.194c-3.119 1.8-6.837 2.639-10.675 2.639Zm29.748 14.274c14.515 0 26.63-10.316 29.39-23.991 13.434-3.479 22.071-16.074 22.071-28.91 0-8.396-3.598-16.553-10.076-22.43.6-2.52.96-5.039.96-7.557 0-17.153-13.915-29.99-29.989-29.99-3.239 0-6.358.48-9.477 1.56-5.398-5.278-12.835-8.637-20.992-8.637-14.515 0-26.63 10.316-29.39 23.991-13.434 3.48-22.07 16.074-22.07 28.91 0 8.396 3.598 16.553 10.075 22.431-.6 2.519-.96 5.038-.96 7.556 0 17.154 13.915 29.989 29.99 29.989 3.238 0 6.357-.479 9.476-1.559 5.397 5.278 12.835 8.637 20.992 8.637Z"]},
   },
 
   subMark(name){
@@ -6553,182 +6533,50 @@ const crow = {
       p.setAttribute("d",d); svg.appendChild(p); });
     return svg; },
 
-  drawSubs(){
-    pywebview.api.provider_view().then(view => {
+  // #390. ONE TILE, CLAUDE, AND IT REPORTS. Claude Code holds the sign-in; the
+  // tile says what `claude --version` and `claude auth status` answered, and
+  // its only controls are a copy of the command the person runs in their own
+  // terminal and an "ask again". No browser, no paste field, no sign-out --
+  // signing out is `claude auth logout`, shown as text. Without `again` the
+  // kept answer is drawn (the core asks the first time); with it, Claude Code
+  // is asked anew.
+  drawSubs(again){
+    if(again) $("#subsaid").textContent="asking Claude Code …";
+    pywebview.api.provider_subscriptions(!!again).then(rows => {
       const box=$("#subs"); box.textContent="";
-      (view.subscriptions||[]).forEach(s => {
-        const tile=document.createElement("button");
-        tile.className="sub"+(s.signed_in?" on":"");
-        const n=document.createElement("div");
-        n.className="sname"; n.textContent=s.label;
-        const d=document.createElement("div");
-        // WHAT IS MISSING IS ON THE TILE, not behind the click. A provider that
-        // cannot open a browser yet has one reason and it is the same one every
-        // time -- and it names the file and the key, not the concept.
-        // ONE SENTENCE, WHEREVER IT BELONGS. The tile says what it needs; the
-        // line under the sheet does not repeat it, because a message that
-        // arrives on click and already stands two inches above it reads as
-        // nothing having happened.
-        //
-        // FOUR STATES, AND THE ORDER IS THE ORDER THE CREDENTIAL RESOLVER USES:
-        // Crow's own sign-in, then the one another program on this machine
-        // holds, then a client_id waiting to be used, then nothing yet. A tile
-        // that offered the borrowed login while Crow had its own would be
-        // offering the weaker of two.
-        d.className="sdesc";
-        const st=document.createElement("div");
-        st.className="state";
-        if(s.signed_in){
-          d.textContent=s.from_env?("Signed in through "+s.name.toUpperCase()
-            +"'s environment variable."):s.blurb;
-          st.textContent="signed in"; }
-        else if(s.command){
-          // THE DOCUMENTED WAY IN, and it is a command rather than a browser:
-          // `claude setup-token` mints a long-lived token FOR another program,
-          // which is what Crow is here. No client_id borrowed from a product
-          // that never granted one, and nothing refreshed that belongs to
-          // somebody else.
-          d.textContent="Run " + s.command + " in a terminal and paste what it "
-            + "prints. It is a token your subscription mints for other programs.";
-          st.textContent="paste a token"; }
-        else if(s.borrowing){
-          // THE STALE LINE IS A WARNING AND NOT A STATE. The token is sent
-          // either way; what a provider does with it is the provider's answer,
-          // and this only says why a refusal would not be a surprise.
-          d.textContent=s.stale||("Using the "+s.product+" sign-in on this "
-            +"machine. Crow reads it and never writes it.");
-          st.textContent="signed in · "+s.product; }
-        else if(s.borrowable){
-          d.textContent="There is a "+s.product+" sign-in on this machine. One "
-            +"click uses it — requests then carry its grant.";
-          st.textContent="use "+s.product; }
-        else if(s.ready){ d.textContent=s.blurb; st.textContent="connect"; }
-        else{
-          d.textContent="Needs a client_id — "+(s.discovers
-            ?"this one publishes the rest itself."
-            :"and the two endpoints, which it does not publish.");
-          st.textContent="set it up"; }
-        tile.appendChild(this.subMark(s.name));
-        tile.appendChild(n); tile.appendChild(d); tile.appendChild(st);
-        // A CLICK IS ALWAYS THE NEXT STEP, never a refusal. Whichever of the
-        // four states the tile is in, the control does the thing that state is
-        // one step away from.
-        tile.onclick=()=>{
-          if(s.signed_in || s.borrowing) return;
-          if(s.command) this.tokenForm(s);
-          else if(s.borrowable) this.borrowSub(s.name,true);
-          else if(s.ready) this.connectSub(s.name);
-          else this.subForm(s); };
-        box.appendChild(tile);
-        if(s.signed_in || s.borrowing){
-          const out=document.createElement("button");
-          out.className="subout";
-          out.textContent=s.borrowing?"stop using it":"sign out";
-          // THE BUTTON SITS BESIDE THE TILE, NOT INSIDE IT. Inside, a click on
-          // it would bubble into the tile and start the browser leg it was
-          // meant to end -- the trap the MCP head already carries a note about.
-          out.onclick=()=>{ if(s.borrowing) this.borrowSub(s.name,false);
-                            else this.signOutSub(s.name); };
-          box.appendChild(out); } }); }); },
+      if(again) $("#subsaid").textContent="";
+      (rows||[]).forEach(s => box.appendChild(this.subTile(s)));
+      // THE MODEL PAGE READS THE SAME KEPT ANSWER, so it follows the probe.
+      this.drawProviders(); }); },
 
-  borrowSub(name,on){
-    pywebview.api.provider_borrow(name,on).then(said => {
-      $("#subsaid").textContent=said||"";
-      this.drawSubs(); this.drawProviders(); }); },
-
-  // WHAT `claude setup-token` PRINTS, pasted. The command is shown rather than
-  // run: it is the other product's, it wants a terminal of its own, and a
-  // client that ran it for somebody would be deciding on their behalf what to
-  // mint against their subscription.
-  tokenForm(s){
-    const old=$("#subform");
-    if(old && old.dataset.name===s.name){ old.remove(); return; }
-    if(old) old.remove();
-    const box=document.createElement("div");
-    box.id="subform"; box.className="sform"; box.dataset.name=s.name;
-    const hint=document.createElement("p");
-    hint.className="shint";
-    hint.textContent="Run this in a terminal, then paste what it prints:";
-    const cmd=document.createElement("input");
-    cmd.value=s.command; cmd.readOnly=true;
-    cmd.onclick=()=>cmd.select();
-    const field=document.createElement("input");
-    field.type="password"; field.placeholder=s.hint||"the token";
-    field.onkeydown=(e)=>{ if(e.key==="Enter") save(); };
-    const save=()=>{
-      // THE SAME TRAP, and the same answer: signing out is the side button, not
-      // an empty field somebody pressed Save on.
-      const value=field.value.trim();
-      if(!value){
-        $("#subsaid").textContent="nothing pasted. `sign out` is what clears one.";
-        return; }
-      pywebview.api.provider_token(s.name, value).then(said => {
-        field.value="";
-        $("#subsaid").textContent=said||"";
-        if(!said){ box.remove(); this.drawSubs(); this.drawProviders(); } }); };
-    const go=document.createElement("button");
-    go.textContent="Save"; go.onclick=save;
-    [hint, cmd, field, go].forEach(el => box.appendChild(el));
-    // THE BORROWED SESSION STAYS REACHABLE and stays second: it is built and
-    // tested, and it is the one that came back 429.
-    if(s.borrowable){
-      const other=document.createElement("button");
-      other.className="subout";
-      other.textContent="or use this machine's "+s.product+" sign-in";
-      other.onclick=()=>{ box.remove(); this.borrowSub(s.name,true); };
-      box.appendChild(other); }
-    $("#subs").after(box); },
-
-  // THE FORM THAT REPLACES AN EDITOR. It is drawn on demand rather than always:
-  // a provider that is set up has nothing to fill in, and three empty boxes
-  // under a working tile would read as three things still to do.
-  subForm(s){
-    const old=$("#subform");
-    if(old && old.dataset.name===s.name){ old.remove(); return; }
-    if(old) old.remove();
-    const box=document.createElement("div");
-    box.id="subform"; box.className="sform"; box.dataset.name=s.name;
-    const hint=document.createElement("p");
-    hint.className="shint";
-    hint.textContent=s.label+" — paste the values, then click the tile again "
-      + "to sign in.";
-    box.appendChild(hint);
-    const fields={};
-    const LABEL={client_id:"client_id", authorize:"authorization endpoint",
-                 token:"token endpoint"};
-    s.wants.forEach(key => {
-      const input=document.createElement("input");
-      input.placeholder=LABEL[key]+(s.has[key]?"  (stored)":"");
-      input.onkeydown=(e)=>{ if(e.key==="Enter") save(); };
-      fields[key]=input; box.appendChild(input); });
-    const save=()=>{
-      const out={};
-      // AN UNTOUCHED BOX IS NOT AN EMPTY ONE. Sending "" for a field somebody
-      // left alone would clear a value they never meant to remove -- and the
-      // stored ones are never read back into the page, so a blank box is the
-      // normal state of a filled key.
-      Object.keys(fields).forEach(k => { const v=fields[k].value.trim();
-        if(v) out[k]=v; });
-      pywebview.api.provider_oauth(s.name,out).then(said => {
-        $("#subsaid").textContent=said||"";
-        if(!said){ box.remove(); this.drawSubs(); } }); };
-    const go=document.createElement("button");
-    go.textContent="Save"; go.onclick=save;
-    box.appendChild(go);
-    $("#subs").after(box); },
-
-  connectSub(name){
-    // A BROWSER LEG IS MINUTES, and the sheet has to say so. Somebody reading a
-    // consent screen is not somebody watching a frozen window.
-    $("#subsaid").textContent="the browser is opening \u2026";
-    pywebview.api.provider_authorise(name).then(said => {
-      $("#subsaid").textContent=said||"";
-      this.drawSubs(); this.drawProviders(); }); },
-
-  signOutSub(name){
-    pywebview.api.provider_signout(name).then(said => {
-      $("#subsaid").textContent=said||"";
-      this.drawSubs(); this.drawProviders(); }); },
+  subTile(s){
+    const tile=document.createElement("div");
+    tile.className="sub"+(s.on?" on":"");
+    // BY textContent, every line: what Claude Code printed is a foreign string.
+    const line=(text,cls)=>{ const el=document.createElement("div");
+      el.className=cls||"sdesc"; el.textContent=text; tile.appendChild(el); };
+    tile.appendChild(this.subMark(s.mark));
+    line(s.label,"sname");
+    line(!s.found?"not installed":s.on?"signed in"
+         :s.logged_in?"not the subscription":"not signed in","state");
+    line(s.found?"Claude Code "+(s.version||"found"):s.install);
+    line(s.says);
+    if(s.login){
+      const row=document.createElement("div"); row.className="cmdrow";
+      const cmd=document.createElement("code"); cmd.textContent=s.login;
+      const copy=document.createElement("button"); copy.className="subout";
+      copy.textContent="copy";
+      copy.onclick=()=>this.clip(s.login).then(ok=>{ if(ok)
+        $("#subsaid").textContent="copied — run it in a terminal, then ask again"; });
+      row.appendChild(cmd); row.appendChild(copy); tile.appendChild(row); }
+    // THE GUARD BY NAME, never by value: the variable is the person's setting.
+    if((s.guard||[]).length) line(s.guard.join(", ")+" — "+s.guard_says,"mcpbad");
+    line(s.missing);
+    if(s.logout) line(s.logout);
+    const again=document.createElement("button"); again.className="subout";
+    again.textContent="ask again"; again.onclick=()=>this.drawSubs(true);
+    tile.appendChild(again);
+    return tile; },
 
   drawProviders(){
     pywebview.api.provider_view().then(view => {
@@ -6754,12 +6602,11 @@ const crow = {
     const text=document.createElement("div"); text.className="stext";
     const n=document.createElement("div"); n.className="sname"; n.textContent=p.label;
     const d=document.createElement("div"); d.className="sdesc";
-    // WHAT IS MISSING IS SAID ON THE ROW, not after the click -- and a provider
-    // that is signed in is not missing anything. Reading only the key box left
-    // the row saying "needs a key first" under a switch that was already on,
-    // which is the sheet contradicting itself in one line.
-    const held=p.has_key||p.signed_in||p.borrowing;
-    d.textContent=p.blurb+(p.needs_key&&!held?"  ·  needs a key or a sign-in":"");
+    // WHAT IS MISSING IS SAID ON THE ROW, not after the click. #390: `held` is
+    // the core's answer -- a key where one is needed, and for Claude the kept
+    // probe of Claude Code, null until the Subscriptions page asked once. Null
+    // says nothing: an unasked question is not a "no".
+    d.textContent=p.blurb+(p.held===false?"  ·  "+p.unheld:"");
     text.appendChild(n); text.appendChild(d);
     const sw=document.createElement("button");
     sw.className="sw"+(p.name===active?" on":"");
@@ -6786,8 +6633,7 @@ const crow = {
     const n=document.createElement("div"); n.className="sname";
     n.textContent="OpenRouter";
     const d=document.createElement("div"); d.className="sdesc";
-    const held=p.has_key||p.signed_in||p.borrowing;
-    d.textContent=p.blurb+(p.needs_key&&!held?"  ·  needs a key or a sign-in":"");
+    d.textContent=p.blurb+(p.held===false?"  ·  "+p.unheld:"");
     t.appendChild(n); t.appendChild(d);
     const osw=document.createElement("button");
     osw.className="sw"+(lit?" on":""); osw.id="orsw";
@@ -6881,7 +6727,11 @@ const crow = {
       // open and /props says which, so a picker here would offer a choice the
       // endpoint cannot take.
       const q=document.createElement("p"); q.className="empty";
-      q.textContent="Whatever llama-server has open — the chip at the top says which.";
+      // #390: the subscription has no catalogue either; its models are the
+      // composer chip's list. #391: there is no chip at the top any more.
+      q.textContent=p.name==="claude"
+        ? "Claude Code's models — pick one on the composer's chip."
+        : "Whatever llama-server has open — the composer's chip says which.";
       box.appendChild(q); return; }
     $("#modcount").textContent=p.count?p.count+" models":"";
     if(!p.models.length){
@@ -6976,7 +6826,7 @@ const crow = {
   clearKey(name){
     pywebview.api.provider_key(name,"").then(said => {
       $("#keysaid").textContent=said||"";
-      if(!said){ this.drawProviders(); this.drawSubs(); } }); },
+      if(!said) this.drawProviders(); }); },
 
   // #156. Der GitHub-Abschnitt der Schluesselseite: Client-ID eintragen,
   // Konto verbinden, Konto trennen -- drei Handgriffe an einer Stelle.
@@ -7159,6 +7009,8 @@ const crow = {
     // github.com, and this window already refuses to spend one on a catalogue
     // nobody asked to see.
     if(name==="about"){ this.updateCheck(); this.engineCheck(); }
+    // #390: the same rule for Claude Code -- asked when its page opens.
+    if(name==="subs") this.drawSubs(false);
   },
 
   updateCheck(){
@@ -7978,18 +7830,33 @@ const crow = {
     if(this.foreignRunning()) shown.unshift([this.modelKey, this.modelName]);
     shown.forEach(x => {
       const running = (x[0] === this.modelKey);
+      // #390. A CLAUDE ROW CARRIES ITS FACTS AS A THIRD ELEMENT (`claude_model_rows`): nothing
+      // restarts there, a model the installed Claude Code is too old for is greyed out with the
+      // update command, and `lock` names the variable that decides the level instead of the chip.
+      const info = x[2] || null;
       out.push({kind:"model", k:x[0], name:x[1],
-                what: running ? "running" : "restarts the server"});
+                what: info ? (info.ready ? (running ? "running" : "") : info.why)
+                           : (running ? "running" : "restarts the server"),
+                off: !!(info && !info.ready)});
       // ONLY UNDER THE RUNNING ONE. `levels` and `groups` describe the model that answered the
       // probe; hanging them under the other row would name steps nobody has measured there.
       if(!running || !(this.levels||[]).length) return;
+      if(info && info.lock){
+        out.push({kind:"level", k:"", name:info.lock, bits:[], tick:false, off:true});
+        return; }
       const now = this.reasoning || "off";
       this.reasonGroups().forEach(g => {
         const bits = [];
         if(g.indexOf("off") >= 0) bits.push("default");
-        out.push({kind:"level", k:this.reasonName(g), name:this.reasonName(g),
-                  bits: bits, tick: (g.indexOf(now) >= 0)}); }); });
+        // A ROW THAT IS ONLY `off` SENDS `off`: on the subscription it is named after the model's
+        // own default ("medium") and still means "send no --effort".
+        out.push({kind:"level", k:(g.length === 1 && g[0] === "off") ? "off" : this.reasonName(g),
+                  name:this.reasonName(g), bits: bits, tick: (g.indexOf(now) >= 0)}); }); });
     return out; },
+
+  // #390: the running row's facts, or null on a local row (which has only [key, label]).
+  chipInfo(){ const row = (this.models||[]).find(x => x[0] === this.modelKey);
+    return (row && row[2]) || null; },
 
   modelMenu(){ const m=$("#modelmenu");
     if(!m.hidden){ m.hidden=true; return; }
@@ -8009,6 +7876,8 @@ const crow = {
     plan.forEach((p,i) => { const el = els[i];
       if(!el) return;
       el.dataset.k = p.k;
+      // #390: a row nobody may pick is a disabled button, not a click that fails later.
+      if(p.off) el.disabled = true;
       const name = p.name;
       el.querySelector("b").textContent = name;
       if(p.kind === "model"){ el.querySelector(".what").textContent = p.what; return; }
@@ -8048,7 +7917,10 @@ const crow = {
   // the absence of a setting, and every template has a default for the absent key -- so a row
   // called `off` beside the step it IS would be the defect #117 was cut for: the chip read
   // `reasoning off` while Qwen reasoned at xhigh, the dearest setting on that model.
-  reasonName(g){ for(const n of g){ if(n!=="off") return n; } return "off"; },
+  // #390: ON THE SUBSCRIPTION `off` HAS A NAME -- the model's own default from the table, so the
+  // chip reads `medium (default)` and not `off (default)` about a model that thinks at medium.
+  reasonName(g){ for(const n of g){ if(n!=="off") return n; }
+    const info = this.chipInfo(); return (info && info.default) || "off"; },
 
   // THE CHIP NAMES THE ROW, ALWAYS -- not the level the chat happens to have stored. A level
   // bound under another name still runs whatever its group renders as: on 0731 a chat set to
@@ -8058,6 +7930,9 @@ const crow = {
   // EMPTY WHEN THE MODEL DECLARES NO LEVELS, rather than a name with nothing behind it: #116's
   // second negative proof is that no manifest entry means no invented levels.
   levelLabel(){ if(!(this.levels||[]).length) return "";
+    // #390: while CLAUDE_CODE_EFFORT_LEVEL decides, the chip names its value and says so.
+    const info = this.chipInfo();
+    if(info && info.lock) return " · " + info.lock_level + " (env)";
     const now = this.reasoning || "off";
     const g = this.reasonGroups().filter(x => x.indexOf(now) >= 0)[0];
     if(!g) return " · " + now;
@@ -8069,42 +7944,23 @@ const crow = {
   // and the template lands there anyway. Dropping the word to save six characters would put the
   // chip back to naming a setting instead of naming what the model DOES.
   showModel(){ const c = $("#model");
-    this.showEngine();                     // #382: the title bar says it too
-    if(!this.modelName){ c.hidden = true; return; }
-    c.hidden = false;
     // #385: the mockup's chip -- dot, name, the level as its own dim word (the
-    // chip's gap is the separator, as on the engine chip), chevron.
+    // chip's gap is the separator), chevron.
     c.innerHTML = '<span class="dot"></span><b></b><span class="lvl"></span>' + RICON.chevron;
     c.querySelector("b").textContent = this.modelName;
-    c.querySelector(".lvl").textContent = this.levelLabel().replace(/^ · /,""); },
+    c.querySelector(".lvl").textContent = this.levelLabel().replace(/^ · /,"");
+    // #391. NEVER HIDDEN, AND THE ONLY READER OF THE SERVER'S STATE IN THE MAIN
+    // WINDOW (the owner removed the title bar's engine chip, 2026-10-15): its dot
+    // follows data-state, which `case "up"` / `case "down"` set. Before the
+    // first answer, and while the server is gone, a WORD stands where the name
+    // goes -- "connecting" / "no server" -- and it wins over a name still on the
+    // page, because the phone hides the dot and the word is its whole reading.
+    const word = c.dataset.state==="down" ? "no server" : this.modelName ? "" : "connecting";
+    if(word){ c.querySelector("b").textContent = word; c.querySelector(".lvl").textContent = ""; } },
 
   // KEPT AS A NAME the two `case` arms already call, so the merge did not have to touch the
   // seam between the Python side and the page. It sets the level and redraws the one chip.
   showReason(level){ this.reasoning = level || ""; this.showModel(); },
-
-  // #382. THE ENGINE CHIP IN THE TITLE BAR, drawn only from what the page
-  // already holds: the server's state (`up` / `down` set data-state), the
-  // model and its level (the composer chip's own fields), the context (`ctx`)
-  // and the last turn's numbers (`stats`, from the turn-end `cost`). Every
-  // part by textContent -- they all arrived over the bridge. A part with
-  // nothing to say is hidden, not drawn empty between two gaps.
-  showEngine(){ const b=$("#engine"); if(!b) return;
-    const st=b.dataset.state;
-    const part=(sel,text)=>{ const el=b.querySelector(sel);
-      el.textContent=text||""; el.hidden=!text; };
-    b.querySelector(".ename").textContent = this.modelName
-      || (st==="down" ? "no server" : "connecting");
-    part(".elvl", this.levelLabel().replace(/^ · /,""));
-    const rate=(this.stats||{}).decode_rate;
-    part(".erate", typeof rate==="number" ? rate.toFixed(2)+" tok/s" : "");
-    const used=(this.ctxNow||[0,0])[0], limit=(this.ctxNow||[0,0])[1];
-    part(".ectx", used>0 ? this.tokK(used)+(limit>0 ? " / "+(limit/1000).toFixed(0)+"k" : "")
-                         : "");
-    // NOTHING MEASURED YET: the chip says what the server is doing instead, the
-    // way the mockup's start screen says "ready".
-    const none=!(typeof rate==="number") && !(used>0);
-    part(".eword", !none ? "" : st==="up" ? "ready"
-                     : st==="down" ? (this.downWhy||"no server") : "connecting"); },
 
   // #382. THE MONO FACE, ASKED FOR ONCE THE BRIDGE IS THERE. The bytes come as
   // base64 (`Api.mono_font`; on a phone through `/api`), become an ArrayBuffer
@@ -8124,12 +7980,6 @@ const crow = {
                                 {weight:"300 800", style:"normal", display:"swap"});
       return face.load().then(f => { document.fonts.add(f); });
     }).catch(() => {}); },
-
-  // A DISCLOSURE (WAI-ARIA APG): a button that says whether its details are
-  // out. `aria-expanded` is the state, `.open` only what CSS draws from it.
-  engineToggle(){ const b=$("#engine"), open=b.getAttribute("aria-expanded")!=="true";
-    b.setAttribute("aria-expanded", open ? "true" : "false");
-    b.classList.toggle("open", open); },
 
   // #119: `reasonMenu` IS GONE, not renamed. Its rows moved into modelMenu above, keeping the
   // rule the panel existed to hold: a click chooses AND applies, and every name is drawn with
@@ -8482,12 +8332,10 @@ const crow = {
       btn.dataset.armed=""; label.textContent="delete"; },4000);
   },
 
-  // ONE SPELLING OF A TOKEN COUNT for the composer and the title bar (#382).
+  // ONE SPELLING OF A TOKEN COUNT for the composer (#382).
   tokK(n){ return n<1000 ? String(n) : (n/1000).toFixed(1)+"k"; },
 
   ctx(tokens,limit){
-    // #382: kept for the engine chip, which says the same "used / n_ctx".
-    this.ctxNow=[tokens||0, limit||0]; this.showEngine();
     const el=$("#ctx"), used=Math.max(0, tokens||0), n=limit||0;
     // #385: AN EMPTY CHAT READS "0 / 200k" (the mockup's start screen); only
     // with neither number is there nothing to say.
@@ -9800,7 +9648,7 @@ const crow = {
     if(e.k==="subs") this.refSubs(e.items);
     switch(e.k){
       case "up": $("#dot").className="up"; $("#state").textContent="connected";
-        $("#engine").dataset.state="up";
+        $("#model").dataset.state="up";      // #391: the dot; `showModel` below draws it
         // #115: kept on the page rather than asked for when the menu opens, so
         // a click answers from what the last probe SAW instead of racing it.
         if(e.models){ this.models=e.models; }
@@ -9823,7 +9671,7 @@ const crow = {
         this.showReason(e.level); break;
       case "down": $("#dot").className="down";
         $("#state").textContent=e.why||"no server";
-        $("#engine").dataset.state="down"; this.downWhy=e.why||""; this.showEngine(); break;
+        $("#model").dataset.state="down"; this.downWhy=e.why||""; this.showModel(); break;
       // #125. STRAIGHT TO ABOUT. The version used to sit beside the wordmark and
       // be copied into the sheet when it opened; the ribbon is a name and three
       // window buttons now, so the number goes where somebody looks it up.
@@ -9890,8 +9738,8 @@ const crow = {
       case "toolend": this.toolEnd(e.name,e.s,e.rep); break;
       case "toolres": this.toolRes(e.name,e.t,e.cut); this.traceRes(e.name,e.t); break;
       // #382: `stats` is the turn's numbers as numbers; the page keeps the last
-      // one (a chat switch re-sends the line without it) and the engine chip
-      // shows its decode rate. #383 draws the strip from it.
+      // one (a chat switch re-sends the line without it). #383 draws the
+      // strip from it; the engine chip that also read it is gone (#391).
       case "cost": this.cost(e.line,e.share,e.stats,e.cut); if(e.stats) this.stats=e.stats;
         this.ctx(e.tokens,e.n_ctx); break;
       case "ctx": this.ctx(e.tokens,e.n_ctx); break;
@@ -10344,6 +10192,10 @@ new MutationObserver(() => crow.emptyCheck()).observe(flow, {childList:true});
 // is what makes it a place to look rather than something that appears once and
 // is missed.
 crow.toolsCount();
+// #391. THE MODEL CHIP SAYS "connecting" FROM THE FIRST PAINT (data-state wait,
+// the amber dot): it is no longer hidden until a model is known, and the first
+// `up` / `down` redraws it.
+crow.showModel();
 // #175. DASSELBE FUER DEN BROWSER: das Panel steht beim Start schon offen, wenn
 // es beim letzten Mal offen war, und ein Panel ohne einen einzigen Reiter muss
 // sagen, wie man einen bekommt. `brDraw` zeichnet genau das, wenn die Liste
@@ -10480,9 +10332,11 @@ REMOTE_PROXIED = frozenset({
     "drop_project", "git_commit_now", "git_refresh", "github_account_click",
     "github_cancel", "github_client_id_set", "github_disconnect",
     "github_view", "mcp_add", "mcp_confirm", "mcp_refresh", "mcp_remove",
-    "mcp_view", "open", "openrouter_set", "path_info", "provider_borrow",
-    "provider_key", "provider_model_set", "provider_oauth", "provider_pick",
-    "provider_refresh", "provider_signout", "provider_token", "provider_view",
+    "mcp_view", "open", "openrouter_set", "path_info",
+    "provider_key", "provider_model_set", "provider_pick",
+    "provider_refresh", "provider_view",
+    # #390: the Claude tile's probe -- it runs where Claude Code is installed.
+    "provider_subscriptions",
     "ready", "rename", "reopen_subtasks", "reset", "roll_tail", "send",
     "set_chat_root", "set_mode", "set_reasoning", "set_server_key",
     "set_tools", "skills", "stop", "toggle_server", "toggle_skill",
@@ -10538,7 +10392,6 @@ REMOTE_DESKTOP_BOUND = {
     "stage_image_data": "upload",
     "drop_seen": "desktop-only",
     "reveal_path": "desktop", "roll_show": "desktop",
-    "provider_authorise": "desktop",
     "pane_go": "pane", "pane_show": "pane", "pane_hide": "pane",
     "pane_place": "pane", "pane_cover": "pane",
     "remote_open": "desktop-only", "remote_allow": "desktop-only",
@@ -10687,19 +10540,6 @@ body[data-rail="shut"] #mark{display:inline}
   max-height:calc(100dvh - var(--barh) - var(--safe-t) - 16px)}
 .sopt{min-height:var(--tap);align-items:center;font-size:14px}
 .sopt .ss{font-size:12px}
-/* THE MODEL CHIP (#382's engine chip): the dot and the family name
-   (REMOTE_JS `shortModel`), at the header's right end. A tap slides out the
-   decode rate and the context; CROW and the magnifier make room for it, and
-   come back with the next tap. No level, as on the composer's chip. The 44 px
-   box is a pill of 32 drawn inside a transparent 6 px border. */
-#engine{height:var(--tap);margin-left:auto;padding:0 12px;
-  border:6px solid transparent;background-clip:padding-box;
-  box-shadow:inset 0 0 0 1px var(--line-soft)}
-#engine.open{box-shadow:inset 0 0 0 1px var(--line)}
-#engine .elvl{display:none!important}
-#bar:has(#engine.open) #mark{display:none}
-#bar:has(#engine.open) #searchbox{display:none}
-
 /* ---- the chat fills the screen ------------------------------------------ */
 #body{position:relative;background:var(--bg)}
 #main,body[data-rail="shut"] #main{min-width:0;border-radius:0;border:0;margin:0;
@@ -11278,14 +11118,6 @@ REMOTE_JS = r"""
   }
   new MutationObserver(measure).observe(document.getElementById("flow"),
     {childList:true, subtree:true});
-  // THE MODEL CHIP IN THE HEADER (#382's engine chip, #387): the family name,
-  // as on the composer's chip (`shortModel`); the full one in its title.
-  const showEngine = crow.showEngine;
-  if(showEngine) crow.showEngine = function(){ const r = showEngine.apply(this, arguments);
-    const n = document.querySelector("#engine .ename");
-    if(phone.matches && n && this.modelName){ n.textContent = shortModel(this.modelName);
-      document.getElementById("engine").title = this.modelName; }
-    return r; };
   // 4. THE COMPOSER (the owner: remove nothing, shorten). Only on a phone --
   //    at load, or (#387) the first time the page narrows to one.
   let composed = false;
@@ -11362,7 +11194,10 @@ REMOTE_JS = r"""
     crow.showModel = function(){ const r = showModel.apply(this, arguments);
       const b = document.querySelector("#model b");
       const lv = document.querySelector("#model .lvl"); if(lv) lv.remove();
-      if(b && this.modelName){ b.textContent = shortModel(this.modelName);
+      // #391: a down server's word ("no server") is the chip's reading of the
+      // state here -- no dot on the phone -- so the family name never replaces it.
+      if(b && this.modelName && document.getElementById("model").dataset.state !== "down"){
+        b.textContent = shortModel(this.modelName);
         document.getElementById("model").title = this.modelName; }
       return r; };
     // NO REASONING LEVEL ON THE PHONE (the owner, 2026-09-24): the operating
@@ -12292,6 +12127,11 @@ class Turn(TurnEvents):
             self._content_chars += cc
             total = self._reasoning_chars + self._content_chars
             self.share = 100.0 * self._reasoning_chars / total
+
+    def context_measured(self, tokens: int, window: int) -> None:
+        # #390: Claude Code's usage per request moves the composer's bar while
+        # the turn runs -- the same `ctx` event a rollover sends.
+        self._put({"k": "ctx", "tokens": int(tokens), "n_ctx": int(window)})
 
     def cache_promise_broken(self) -> None:
         # #262: a diagnostic about the server's cache, not about
@@ -13328,6 +13168,9 @@ class Api:
         # in flight, because the loop that asks is the one that blocks.
         self._asked = threading.Event()
         self._answer = "no"
+        # #391: what the page was last told about the LOCAL server -- the
+        # health watcher pushes only a change, never the same state twice.
+        self._health_down = False
         # #156. The device-flow poller reads this between sleeps; the card's
         # cancel button sets it. A plain flag and not an Event, because nobody
         # waits on it -- the thread checks it and gives up.
@@ -13822,6 +13665,49 @@ class Api:
         # der erste Blick auf das Fenster nicht darauf warten darf.
         self.git_refresh()
         threading.Thread(target=self._probe, daemon=True).start()
+
+    # #391. THE DOT FOLLOWS THE LOCAL SERVER WITHOUT A LINE BEING SENT. Before
+    # this the state was asked twice in a window's life -- at `ready()` and on a
+    # page reload -- so a crow-nest point stopped mid-session left the dot green
+    # until a turn failed (the owner, live 2026-10-15). The question is the one
+    # `_look` already asks, `GET /health`, every HEALTH_EVERY seconds.
+    #
+    # LOCAL ONLY (the owner, 2026-10-15: "on the subscription the lamp must not
+    # turn red, you are using your subscription"). A remote provider and the
+    # Claude subscription are never asked here: their state is on disk (`_look`)
+    # and a stopped crow-nest point is nothing to them.
+    #
+    # NOT DURING A TURN: the turn's own failure says it then, and a second voice
+    # on the same breath would be the noise. ONLY CHANGES ARE PUSHED: up -> down
+    # once, down -> up re-runs the probe, so name, window and levels come from
+    # the server that came back rather than from the one that went.
+    HEALTH_EVERY = 5.0
+    HEALTH_TIMEOUT = 2.0
+
+    def _health_tick(self) -> None:
+        """One look at the local server; a push only when the state changed."""
+        spot = self._endpoint()
+        if spot.get("remote"):
+            return
+        if self._worker and self._worker.is_alive():
+            return
+        try:
+            check_endpoint(spot["base_url"], timeout=self.HEALTH_TIMEOUT)
+        except Exception as exc:           # noqa: BLE001 - said on the chip
+            if not self._health_down:
+                self._health_down = True
+                self.push({"k": "down", "why": str(exc)[:120]})
+            return
+        if self._health_down:
+            self._probe(redraw=True)
+
+    def _health_watch(self) -> None:
+        while True:
+            time.sleep(self.HEALTH_EVERY)
+            try:
+                self._health_tick()
+            except Exception:              # noqa: BLE001 - the next tick asks again
+                pass
 
     def _ready_again(self) -> None:
         """#209: THE SAME WINDOW, A NEW PAGE. `pywebviewready` fires once per
@@ -14596,10 +14482,55 @@ class Api:
             return (check_endpoint(spot["base_url"]),
                     model_display_name(fetch_model_name(spot["base_url"])),
                     fetch_n_ctx(spot["base_url"]))
+        # #390. THE SUBSCRIPTION HAS NO CATALOGUE, so name and window come from
+        # what Claude Code last reported (init.model, modelUsage) and, before
+        # its first turn, from the table. No pick is no refusal here: Claude
+        # Code then runs its own default model.
+        if spot.get("transport") == crow_core.TRANSPORT_CLAUDE_CLI:
+            return ("ready", crow_core.claude_model_shown(spot["model"]),
+                    crow_core.claude_context_window(spot["model"]))
         if not spot["model"]:
             return ("no model picked", spot["label"], 0)
         return ("ready", spot["model"],
                 crow_core.provider_context(spot["provider"], spot["model"]))
+
+    def _chip_menu(self, spot: dict, name: str) -> dict:
+        """The chip's half of an `up` payload. ONE builder for the three pushes.
+
+        #115: the list travels with the probe that learned the name, so the two
+        can never disagree about which model is the running one. [key, label]
+        -- the key is what the menu sends back, the label is what a person
+        recognises (see model_label). #225: a point whose manifest entry fixes
+        its thinking offers no level, and the chip then shows none. #117:
+        `groups` says which levels render the SAME prompt, measured; empty
+        means unmeasured, and the page collapses nothing on an empty list.
+
+        #390. ON THE SUBSCRIPTION THE LIST IS CLAUDE_MODELS, never the bootable
+        models, each row carrying whether the installed Claude Code serves it
+        (`claude_model_rows`). The levels are the picked model's `--effort`
+        steps, and the stored level only shows while that model takes it.
+        """
+        if spot.get("transport") == crow_core.TRANSPORT_CLAUDE_CLI:
+            picked = spot.get("model") or ""
+            row = crow_core.claude_model(picked)
+            levels = list(crow_core.claude_effort_menu(picked))
+            version = crow_core.claude_cli_version_cached()
+            # STILL [key, label] FIRST, the shape #115's guard holds every
+            # producer to; the facts ride behind them as a third element.
+            return {"models": [[k, label, facts] for k, label, facts
+                               in crow_core.claude_model_rows(version)],
+                    "model_key": row["alias"] if row else picked,
+                    "reasoning": (self._reasoning
+                                  if self._reasoning in levels else ""),
+                    "levels": levels, "groups": []}
+        remote = spot.get("remote")
+        return {"models": [[k, crow_core.model_label(k)]
+                           for k in crow_core.bootable_models()],
+                "model_key": "" if remote else crow_core.model_key_for(name),
+                "reasoning": self._reasoning or "",
+                "levels": [] if remote else list(crow_core.reasoning_menu_for(name)),
+                "groups": [] if remote else
+                          [list(g) for g in crow_core.reasoning_menu_groups_for(name)]}
 
     def _probe(self, redraw: bool = False) -> None:
         spot = self._endpoint()
@@ -14620,6 +14551,11 @@ class Api:
                 # #209: THE LIVE CHAT'S LEVEL STANDS -- a reload is not a
                 # start, and the file may be older than the chat.
                 note = ""
+            elif spot.get("transport") == crow_core.TRANSPORT_CLAUDE_CLI:
+                # #390: the chat's level, like #209's, against the picked
+                # model's `--effort` steps instead of a manifest.
+                self._reasoning, note = crow_core.claude_effort_for_chat(
+                    spot["model"], SESSION_FILE)
             elif spot["remote"]:
                 self._reasoning, note = None, ""
             else:
@@ -14628,24 +14564,10 @@ class Api:
                 self.push({"k": "note", "t": note})
             self.push({"k": "up", "model": name, "n_ctx": self._n_ctx,
                        "tokens": self._context_tokens, "state": state,
-                       # #115: the chip's list travels with the probe that
-                       # learned the name, so the two can never disagree about
-                       # which model is the running one.
-                       # [key, label] -- the key is what the menu sends back,
-                       # the label is what a person recognises. See model_label.
-                       "models": [[k, crow_core.model_label(k)]
-                                  for k in crow_core.bootable_models()],
-                       "model_key": "" if spot["remote"] else crow_core.model_key_for(name),
-                       "reasoning": self._reasoning or "",
-                       # #225: a point whose manifest entry fixes
-                       # its thinking offers no level -- the chip then shows
-                       # none (`levelLabel` is empty on an empty list).
-                       "levels": [] if spot["remote"] else list(crow_core.reasoning_menu_for(name)),
-                       # #117. Which of those levels render the SAME prompt, measured. Empty
-                       # means unmeasured, and the page collapses nothing on an empty list.
-                       "groups": [] if spot["remote"] else
-                                 [list(g) for g in crow_core.reasoning_menu_groups_for(name)]})
+                       **self._chip_menu(spot, name)})
+            self._health_down = False      # #391
         except Exception as exc:           # noqa: BLE001 - shown, never raised
+            self._health_down = True       # #391
             self.push({"k": "down", "why": str(exc)[:120]})
             return
         if redraw or not self._args.session:
@@ -14709,6 +14631,8 @@ class Api:
         self._notes = crow_core.session_notes()
         self._timings = crow_core.session_timings()      # #171
         self._conversation.restore(messages)
+        # #390: the Claude Code session comes back with the chat it belongs to.
+        self._conversation.claude_session = crow_core.session_claude()
         self._context_tokens, self._promised_warm = tokens, kv
         # An empty restored chat is still an empty chat; `turn()` takes the line
         # back off the moment `_replay` puts a row in.
@@ -15053,6 +14977,22 @@ class Api:
         """
         if self._worker and self._worker.is_alive():
             return "the model does not change mid-turn"
+        # #390. ON THE SUBSCRIPTION A NAME THAT IS NOT A LOCAL MODEL IS A CLAUDE
+        # MODEL -- an alias off the chip or a full id typed -- and it is kept
+        # per provider like any slug. The chat and its Claude Code session
+        # stay: Claude Code resumes them with the other model.
+        picked = " ".join(rest).strip()
+        if (picked not in crow_core.bootable_models()
+                and crow_core.provider_active() == crow_core.CLAUDE_PROVIDER):
+            said, model, changed = crow_core.claude_model_command(
+                picked, crow_core.provider_model_for(crow_core.CLAUDE_PROVIDER),
+                crow_core.claude_cli_version_cached())
+            if changed:
+                problem = crow_core.provider_model_set(crow_core.CLAUDE_PROVIDER, model)
+                if problem:
+                    return problem
+                self._endpoint_changed(reset=False)
+            return said
         # NAMING A LOCAL MODEL IS COMING BACK TO THE LOCAL PROVIDER, so the
         # choice is written rather than left to disagree with the server that is
         # about to answer. Refusing here instead would leave the chip -- the one
@@ -15130,6 +15070,18 @@ class Api:
         request is built; nothing about the turn in flight changes, and refusing
         would be a rule with no failure behind it.
         """
+        # #390: on the subscription the levels are the picked model's
+        # `--effort` steps, and "(default)" sends none.
+        if crow_core.provider_active() == crow_core.CLAUDE_PROVIDER:
+            picked = crow_core.provider_model_for(crow_core.CLAUDE_PROVIDER)
+            said, level, changed = crow_core.claude_effort_command(
+                " ".join(rest), picked, self._reasoning)
+            if changed:
+                self._reasoning = level
+                self.push({"k": "reasoning", "level": level or "",
+                           "levels": list(crow_core.claude_effort_menu(picked)),
+                           "groups": []})
+            return said
         said, level, changed = crow_core.reasoning_command(
             " ".join(rest), self._model, self._reasoning)
         if changed:
@@ -15422,7 +15374,14 @@ class Api:
         DER TEXT IST EINE ANWEISUNG AN DAS MODELL, keine Nutzerzeile: er steht
         in eckigen Klammern wie die Rollover-Notiz, damit `_spoken_carry` ihn
         beim naechsten Schnitt NICHT als eigene Worte des Nutzers mitnimmt.
+
+        #390. NO NUDGE ON THE SUBSCRIPTION. Claude Code gets neither
+        `goal_set` nor `goal_step`, so it can never close a step, and every
+        nudge would be a turn paid from the account's five-hour window -- up
+        to the 25-turn step cap for nothing. Goals run on the local model.
         """
+        if self._endpoint().get("transport") == crow_core.TRANSPORT_CLAUDE_CLI:
+            return None
         goal = crow_core.goal_load()
         if not goal or goal.get("status") == crow_core.GOAL_DONE:
             return None
@@ -15675,16 +15634,7 @@ class Api:
         spot = remote or {}
         name = self._model or ""
         self.push({"k": "up", "model": name, "n_ctx": self._n_ctx,
-                   "tokens": 0, "state": "ok",
-                   "models": [[k, crow_core.model_label(k)]
-                              for k in crow_core.bootable_models()],
-                   "model_key": "" if spot.get("remote")
-                   else crow_core.model_key_for(name),
-                   "reasoning": self._reasoning or "",
-                   "levels": [] if spot.get("remote")
-                   else list(crow_core.reasoning_menu_for(name)),
-                   "groups": [] if spot.get("remote")
-                   else [list(g) for g in crow_core.reasoning_menu_groups_for(name)]})
+                   "tokens": 0, "state": "ok", **self._chip_menu(spot, name)})
         self.push_goal(force=True)
 
     def push_goal(self, force: bool = False, moved: bool = False) -> None:
@@ -15901,6 +15851,8 @@ class Api:
         # still delivers is dropped and its card ends "interrupted".
         INTERRUPT.set()
         crow_core.cancel_subtasks()
+        # #390: a running `claude -p` child dies now, with what it started.
+        crow_core.claude_cli_stop()
         # #282: and the goal engine pauses -- see `_goal_nudge`.
         self._goal_paused = True
 
@@ -16669,6 +16621,8 @@ class Api:
         # mitgeschleppt, der gerade geschlossen wurde.
         self._notes = crow_core.session_notes(path)
         self._timings = crow_core.session_timings(path)  # #171
+        # #390: and the Claude Code session it resumes, from the same file.
+        self._conversation.claude_session = crow_core.session_claude(path)
         self.push({"k": "clear"})     # the page no longer guesses; see crow.open
         self._hello()
         self._replay(messages, self._notes)
@@ -18306,63 +18260,14 @@ class Api:
         """Ask a provider for its model list again. The problem, or ""."""
         return crow_core.provider_refresh(name) or ""
 
-    def provider_authorise(self, name: str) -> str:
-        """The Subscriptions tile. Opens the browser and waits. Problem, or "".
+    def provider_subscriptions(self, again=False) -> list:
+        """#390: the Claude tile -- what Claude Code says, kept or asked anew.
 
-        IT BLOCKS FOR AS LONG AS THE PERSON TAKES, up to five minutes -- the
-        same shape `mcp_add` has, and for the same reason: the flow is not done
-        until somebody has finished at the provider, and a call that returned
-        early would leave the page saying "signed in" while nothing was.
-
-        REFUSED MID-TURN: the credential this replaces is the one the running
-        turn is authenticating with.
+        THE PAGE ASKS WHEN THE SUBSCRIPTIONS PAGE OPENS, never at window start:
+        the probe spawns `claude` twice. `again` is the tile's "ask again". It
+        changes nothing anywhere, so it is not refused mid-turn.
         """
-        if self._worker and self._worker.is_alive():
-            return "the sign-in does not run mid-turn"
-        return crow_core.provider_authorise(name) or ""
-
-    def provider_oauth(self, name: str, fields: dict) -> str:
-        """The setup form on a Subscriptions tile. The problem, or "".
-
-        THE VALUES ARRIVE FROM THE PAGE AS A DICT and are filtered in the core,
-        not here: which keys a login may carry is not a window decision.
-        """
-        return crow_core.provider_oauth_set(name, dict(fields or {})) or ""
-
-    def provider_borrow(self, name: str, on: bool) -> str:
-        """Use, or stop using, another program's sign-in. Problem, or "".
-
-        REFUSED MID-TURN, like every other credential change: the running turn
-        is authenticating with the one this replaces.
-        """
-        if self._worker and self._worker.is_alive():
-            return "the sign-in does not change mid-turn"
-        return crow_core.provider_borrow_set(name, bool(on)) or ""
-
-    def provider_token(self, name: str, token: str) -> str:
-        """What `claude setup-token` printed, kept. The problem, or "".
-
-        REFUSED MID-TURN like every other credential change.
-        """
-        if self._worker and self._worker.is_alive():
-            return "the sign-in does not change mid-turn"
-        problem = crow_core.provider_token_paste(name, token)
-        if problem:
-            return problem
-        if (token or "").strip():
-            # THE CATALOGUE IS ASKED FOR HERE, the one moment somebody expects
-            # to wait -- and a refusal from it is not a refusal of the token.
-            crow_core.provider_refresh(name)
-        return ""
-
-    def provider_signout(self, name: str) -> str:
-        """Drop one stored login. The problem, or "".
-
-        THE PASTED KEY, IF THERE IS ONE, SURVIVES. They are two credentials in
-        two files, and signing out of a subscription is not the same act as
-        forgetting a key somebody typed.
-        """
-        return crow_core.provider_token_drop(name) or ""
+        return crow_core.provider_subscriptions(bool(again))
 
     def _endpoint_changed(self, reset: bool) -> None:
         """Re-read the endpoint and tell the page. Empties the chat if asked.
@@ -18398,20 +18303,15 @@ class Api:
         try:
             state, name, window = self._look(spot)
         except Exception as exc:           # noqa: BLE001 - shown, never raised
+            self._health_down = True       # #391
             self.push({"k": "down", "why": str(exc)[:120]})
             return
+        self._health_down = False          # #391
         self._model = name
         self._n_ctx = window
         self.push({"k": "up", "model": name, "n_ctx": self._n_ctx,
                    "tokens": self._context_tokens, "state": state,
-                   "models": [[k, crow_core.model_label(k)]
-                              for k in crow_core.bootable_models()],
-                   "model_key": "" if spot["remote"] else crow_core.model_key_for(name),
-                   "reasoning": self._reasoning or "",
-                   "levels": [] if spot["remote"] else
-                             list(crow_core.reasoning_menu_for(name)),
-                   "groups": [] if spot["remote"] else
-                             [list(g) for g in crow_core.reasoning_menu_groups_for(name)]})
+                   **self._chip_menu(spot, name)})
 
     def set_theme(self, name: str) -> bool:
         """The picker in Aussehen. True when the choice reached the disk.
@@ -19920,6 +19820,13 @@ class Api:
                       # #211: der Schnitt buendelt den Fensterzustand neu --
                       # siehe `_surface`.
                       surface_reload=self._surface)
+        # #390. THE SUBSCRIPTION TURN LEAVES HERE, before anything below runs:
+        # no rollover and no tool-result clearing (Claude Code compacts its own
+        # session), no memory pin and no review (Crow's prompt is not sent).
+        where = self._endpoint()
+        if where.get("transport") == crow_core.TRANSPORT_CLAUDE_CLI:
+            self._run_claude(text, where, events)
+            return
         rolled = False
         # #268: a stuck render loop asks for the cut below the threshold too.
         forced = getattr(self, "_goal_roll_due", False)
@@ -20133,36 +20040,7 @@ class Api:
         # soll dagegen messen und nicht gegen die Tiefe von davor.
         crow_core.goal_tokens_mark(self._context_tokens)
         self._promised_warm = getattr(result, "promised_warm", self._promised_warm)
-        cost = getattr(result, "cost", None)
-        line = cost.line() if cost is not None and getattr(cost, "rounds", 0) else ""
-        # #382: ONE `record()` for the archive and the page, so both carry the
-        # same `waited_s` (it is read off the clock inside the call).
-        record = cost.record() if line else None
-        if record is not None:
-            # #171. DIESELBE BILANZ, DIE DIE ZEILE ZEIGT, als Zahlen ins Band --
-            # `at` sagt, nach wievielen Nachrichten der Zug endete, damit ein
-            # Auswerter sie im Archiv den Zuegen zuordnen kann. Ein Zug ohne
-            # Runden hat keine Bilanz; deshalb haengt es an derselben Bedingung
-            # wie die Zeile und nicht an einer zweiten.
-            self._timings.append(dict(record, at=len(self._conversation)))
-            del self._timings[:-crow_core.SESSION_TIMINGS_MAX]
-        self.push({"k": "cost", "line": "[" + line + "]" if line else "",
-                   "share": events.share, "tokens": self._context_tokens,
-                   "n_ctx": self._n_ctx,
-                   # #143. This turn's delegation share, token counts only.
-                   "sub": self._sub_share(sub_before) if line else "",
-                   # #382. The same balance as numbers, for the page.
-                   "stats": turn_stats(record),
-                   # #383. The cut-off warning under the strip, in the
-                   # core's words (the line carries it as its last bit).
-                   "cut": (crow_core.CUT_OFF_NOTE
-                           if (record or {}).get("finish") == "length" else "")})
-        self._persist_live()
-        # THE RAIL FOLLOWS THE TURN. A chat that had just been given its first
-        # message went on calling itself "new chat" until something else
-        # happened to redraw the list.
-        self._reload_rail()
-        self.push({"k": "idle"})
+        line = self._turn_end(result, events, sub_before)
         # #122. AFTER `idle`, AND THAT ORDER IS THE FIX FOR A DEFECT the owner found
         # live on 2026-08-21. The review sat inside `run_turn`, so the turn did
         # not end until it had thought about the whole conversation at the
@@ -20219,6 +20097,81 @@ class Api:
                 gate=getattr(self._args, "memory_approval",
                              crow_core.MEMORY_APPROVAL_DEFAULT),
                 events=events)
+
+    def _turn_end(self, result, events: "Turn", sub_before: "set | None" = None) -> str:
+        """The close every turn shares: cost line, numbers, save, rail, `idle`.
+
+        ONE CLOSING FOR BOTH KINDS OF TURN (#390), so a Claude Code turn ends on
+        the page exactly as a local one does. Returns the line, "" for a turn
+        without rounds -- the review's seed bookkeeping reads it.
+        """
+        cost = getattr(result, "cost", None)
+        line = cost.line() if cost is not None and getattr(cost, "rounds", 0) else ""
+        # #382: ONE `record()` for the archive and the page, so both carry the
+        # same `waited_s` (it is read off the clock inside the call).
+        record = cost.record() if line else None
+        if record is not None:
+            # #171. DIESELBE BILANZ, DIE DIE ZEILE ZEIGT, als Zahlen ins Band --
+            # `at` sagt, nach wievielen Nachrichten der Zug endete, damit ein
+            # Auswerter sie im Archiv den Zuegen zuordnen kann. Ein Zug ohne
+            # Runden hat keine Bilanz; deshalb haengt es an derselben Bedingung
+            # wie die Zeile und nicht an einer zweiten.
+            self._timings.append(dict(record, at=len(self._conversation)))
+            del self._timings[:-crow_core.SESSION_TIMINGS_MAX]
+        self.push({"k": "cost", "line": "[" + line + "]" if line else "",
+                   "share": events.share, "tokens": self._context_tokens,
+                   "n_ctx": self._n_ctx,
+                   # #143. This turn's delegation share, token counts only.
+                   "sub": (self._sub_share(sub_before)
+                           if line and sub_before is not None else ""),
+                   # #382. The same balance as numbers, for the page.
+                   "stats": turn_stats(record),
+                   # #383. The cut-off warning under the strip, in the
+                   # core's words (the line carries it as its last bit).
+                   "cut": (crow_core.CUT_OFF_NOTE
+                           if (record or {}).get("finish") == "length" else "")})
+        self._persist_live()
+        # THE RAIL FOLLOWS THE TURN. A chat that had just been given its first
+        # message went on calling itself "new chat" until something else
+        # happened to redraw the list.
+        self._reload_rail()
+        self.push({"k": "idle"})
+        return line
+
+    def _run_claude(self, text, spot: dict, events: "Turn") -> None:
+        """#390. One turn on the subscription: a `claude -p` child in the chat's
+        working area, Claude Code's own tools, its events drawn by this window.
+
+        WHAT `_run` DOES AND THIS DOES NOT: the rollover before and inside the
+        turn, the memory pin, the image gate, `run_turn`'s rounds and the review
+        after -- `crow_core.run_claude_turn` says why for each. WHAT IS THE SAME:
+        the line enters the transcript first, the rail learns the chat exists,
+        and `_turn_end` closes it.
+        """
+        if self._staged_images:
+            # STAGED PICTURES STAY STAGED, and that is said: the child's stdin
+            # is text, and a picture dropped without a word is #142's loss.
+            self.push({"k": "note", "t": "the staged images stay here -- turns "
+                                         "on Claude (subscription) carry text only"})
+        self._conversation.append("user", text)
+        self._reload_rail()
+        try:
+            result = crow_core.run_claude_turn(
+                self._conversation, text, model=spot.get("model") or "",
+                effort=self._reasoning,
+                mode=getattr(self._args, "mode", DEFAULT_MODE),
+                cwd=crow_core.get_root(), context_tokens=self._context_tokens,
+                events=events)
+        except Exception as exc:           # noqa: BLE001 - a window survives its turns
+            self.push({"k": "fail", "t": "%s: %s" % (type(exc).__name__, exc)})
+            self.push({"k": "idle"})
+            return
+        self._context_tokens = result.context_tokens
+        self._promised_warm = False
+        # THE CHIP NAMES WHAT CLAUDE CODE RAN (init.model) against the window it
+        # reported: the same `up` a probe sends, read from what the turn saw.
+        self._endpoint_changed(reset=False)
+        self._turn_end(result, events)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -20381,6 +20334,14 @@ def main(argv: list[str] | None = None) -> int:
     if not crow_platform.IS_WINDOWS:
         window.events.before_show += api.pane_embed
     threading.Thread(target=api.pump, daemon=True).start()
+    # #391: the local server's health, every HEALTH_EVERY seconds for the
+    # window's life. Started HERE, beside `pump`, and not in `ready()`: a loop
+    # that never returns does not belong in a method the suites drive with a
+    # Thread that runs its target inline (`_RunsNow`) -- that hung the gate
+    # for 55 minutes on 2026-10-15.
+    threading.Thread(target=api._health_watch, daemon=True, name="crow-health").start()
+    # #390: the token file of the removed sign-in, deleted once with one line.
+    crow_core.retire_provider_tokens()
     # #300: the image server warms while the window opens, if the core has one.
     warm_image_server()
     # #249: `remote_enabled` -- the mirror starts with the window, so the

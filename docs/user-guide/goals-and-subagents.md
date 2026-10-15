@@ -7,7 +7,7 @@ itself and works through step by step, and a **subagent** is a task it hands to 
 while it keeps going.
 
 <div align="center">
-<img src="../images/window-goal-2026-10-14.png" alt="A goal at 3/3, rendered by tools/render_window.py from the goal-run fixture of 2026-09-16: the trace strip with the goal, run_command and delegate calls, the one-line d1 subtask card in the flow, the telemetry strip, and the inspector on its Goal tab with three done steps" width="900">
+<img src="../images/window-goal-2026-10-15.png" alt="A goal at 3/3, rendered by tools/render_window.py from the goal-run fixture of 2026-09-16: the trace strip with the goal, run_command and delegate calls, the one-line d1 subtask card in the flow, the telemetry strip, and the inspector on its Goal tab with three done steps" width="900">
 </div>
 
 ---

@@ -92,7 +92,9 @@ crow_core.mcp_apply()
 # a turn goes. A path whose parent does not exist is the empty configuration.
 crow_core.PROVIDERS_FILE = os.path.join(_SANDBOX, "has-no-provider", "providers.json")
 crow_core.PROVIDER_KEYS_FILE = os.path.join(_SANDBOX, "has-no-provider", "keys.json")
-crow_core.PROVIDER_TOKEN_FILE = os.path.join(_SANDBOX, "has-no-provider", "tokens.json")
+# #390: the leftover of the removed sign-in, which a start deletes.
+crow_core.PROVIDER_TOKENS_LEFTOVER = os.path.join(_SANDBOX, "has-no-provider",
+                                                  "provider_tokens.json")
 # 2026-08-28: die Dauer-Freigaben ("always") schreiben nach APPROVALS_FILE --
 # dieselbe Regel, gefunden vom Waechter unten am Abend ihrer Einfuehrung.
 crow_core.APPROVALS_FILE = os.path.join(_SANDBOX, "has-no-provider", "approvals.json")
@@ -843,16 +845,13 @@ class TheSecondRolloverFiresTests(ApiCase):
         # spaetere Lauf findet einen gewaehlten Provider vor, wo "leer"
         # versprochen ist -- gefunden am 401 des Bild-Falls, 2026-08-29.
         super().setUp()
-        self._prov = (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE,
-                      crow_core.PROVIDER_TOKEN_FILE)
+        self._prov = (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE)
         self.addCleanup(self._restore_prov)
         crow_core.PROVIDERS_FILE = os.path.join(self.dir, "providers.json")
         crow_core.PROVIDER_KEYS_FILE = os.path.join(self.dir, "provider_keys.json")
-        crow_core.PROVIDER_TOKEN_FILE = os.path.join(self.dir, "provider_tokens.json")
 
     def _restore_prov(self) -> None:
-        (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE,
-         crow_core.PROVIDER_TOKEN_FILE) = self._prov
+        (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE) = self._prov
 
     def test_every_turn_starts_with_a_fresh_rolled_flag(self):
         """POSITIV: auch NACH einem Turn, der rollte (result.rolled=True),
@@ -1163,7 +1162,7 @@ class TheWindowAsksTheManifestAboutTheServedModelTests(ApiCase):
         # in the module sandbox leaves it chosen, and this class is about the
         # local path -- same fence as the rollover class above.
         super().setUp()
-        for name in ("PROVIDERS_FILE", "PROVIDER_KEYS_FILE", "PROVIDER_TOKEN_FILE"):
+        for name in ("PROVIDERS_FILE", "PROVIDER_KEYS_FILE"):
             self.addCleanup(setattr, crow_core, name, getattr(crow_core, name))
             setattr(crow_core, name, os.path.join(self.dir, name.lower() + ".json"))
 
@@ -6431,7 +6430,7 @@ class TheComposerOfTheMockupTests(unittest.TestCase):
     def run_ctx(self) -> dict:
         js = (_FAKE_PAGE_DOM + "const crow = {\n"
               + _crow_methods(self.source, "tokK", "ctx") + "\n"
-              "  showEngine(){} };\n"
+              "};\n"
               "const el = $('#ctx'), out = {};\n"
               "const look = () => ({html: el.innerHTML, text: el.lastChild.textContent,\n"
               "  fill: el.firstChild.firstChild.style.width || ''});\n"
@@ -7268,16 +7267,13 @@ class TheRemoteEndpointTests(ApiCase):
 
     def setUp(self) -> None:
         super().setUp()
-        self._prov = (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE,
-                      crow_core.PROVIDER_TOKEN_FILE)
+        self._prov = (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE)
         self.addCleanup(self._restore_prov)
         crow_core.PROVIDERS_FILE = os.path.join(self.dir, "providers.json")
         crow_core.PROVIDER_KEYS_FILE = os.path.join(self.dir, "provider_keys.json")
-        crow_core.PROVIDER_TOKEN_FILE = os.path.join(self.dir, "provider_tokens.json")
 
     def _restore_prov(self) -> None:
-        (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE,
-         crow_core.PROVIDER_TOKEN_FILE) = self._prov
+        (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE) = self._prov
 
     def remote(self, model: str = "z-ai/glm-5.2:free", context: int = 131072):
         """A configured provider, exactly as the sheet would leave one."""
@@ -7467,21 +7463,27 @@ class TheRemoteEndpointTests(ApiCase):
             self.assertTrue(callable(getattr(crow_gui.Api, method, None)), method)
         self.assertNotIn("Coming soon", page)
 
-    def test_the_subscriptions_page_exists_and_its_tiles_are_wired(self):
-        """A tile nobody can click, or a click calling a method that is not
-        there, is the shape a page-level defect takes -- and no behaviour test
-        reaches it. The marks are drawn rather than fetched: the page has no
+    def test_the_subscriptions_page_exists_and_its_tile_is_wired(self):
+        """A tile nobody can reach, or a call to a method that is not there, is
+        the shape a page-level defect takes -- and no behaviour test reaches it.
+        #390: ONE tile, Claude, wired to `provider_subscriptions` and to nothing
+        that signs in. The mark is drawn rather than fetched: the page has no
         external host to load an image from."""
         page = crow_gui.PAGE
         for hook in ('data-cat="subs"', "crow.settingsCat('subs')", 'id="subs"',
-                     "provider_authorise(", "provider_signout(", "subMark("):
+                     "provider_subscriptions(", "subTile(", "subMark(",
+                     "Your Claude subscription runs through Claude Code.",
+                     "Crow starts it and never sees your sign-in."):
             self.assertIn(hook, page, hook)
-        for method in ("provider_authorise", "provider_signout"):
-            self.assertTrue(callable(getattr(crow_gui.Api, method, None)), method)
+        self.assertTrue(callable(getattr(crow_gui.Api, "provider_subscriptions", None)))
+        # NEGATIVE: the sign-in doors are gone from the page AND from the window.
+        for gone in ("provider_authorise", "provider_oauth", "provider_borrow",
+                     "provider_token", "provider_signout"):
+            self.assertNotIn("pywebview.api.%s(" % gone, page)
+            self.assertFalse(hasattr(crow_gui.Api, gone), gone)
+        self.assertNotIn("The browser opens at the provider", page)
         # NOTHING IS LOADED FROM A HOST. A logo behind a URL would be a
-        # settings pane that needs the network to draw itself -- and on the one
-        # screen where somebody is about to sign in, a remote asset is also a
-        # request that says when they opened it.
+        # settings pane that needs the network to draw itself.
         self.assertNotIn('src="http', page)
         self.assertNotIn("url(http", page)
 
@@ -7501,11 +7503,10 @@ class TheRemoteEndpointTests(ApiCase):
         """
         page = crow_gui.PAGE
         self.assertIn('anthropic: {box: "0 0 35 24"', page)
-        self.assertIn('openai: {box: "29 29 122 122"', page)
-        # The wordmark's counter and the knot's first curve, each long enough
-        # to be that path and nothing else.
+        # The wordmark's counter, long enough to be that path and nothing else.
+        # #390: the OpenAI knot went with the OpenAI sign-in and provider.
         self.assertIn("M24.5475 0H19.3384L28.8374 24H34.0465L24.5475 0Z", page)
-        self.assertIn("M75.91 73.628V62.232c0-.96.36-1.68 1.199-2.16", page)
+        self.assertNotIn("M75.91 73.628V62.232c0-.96.36-1.68 1.199-2.16", page)
         self.assertNotIn("M12 2l2.3 6.4L20.6 10", page)          # the old spark
         self.assertNotIn("M12 3.2 18.6 7v7.6L12 18.4", page)     # the old hexagon
         self.assertIn(".sub .mark{width:26px;height:26px;color:var(--text-hi)}", page)
@@ -7519,22 +7520,6 @@ class TheRemoteEndpointTests(ApiCase):
         subs = page[page.index("#subs{"):page.index(".subout")]
         subs = _re.sub(r"/\*.*?\*/", "", subs, flags=_re.S)
         self.assertNotIn("#", subs.replace("#subs{", ""))
-
-    def test_a_tile_that_cannot_sign_in_yet_opens_a_form_instead(self):
-        """robin, 2026-08-23: the click answered with the sentence already
-        printed on the tile, which reads as nothing having happened. A control
-        does the next step -- with the values in place that is the browser,
-        without them it is the form that puts them there. And the line under the
-        sheet no longer repeats what the tile says."""
-        page = crow_gui.PAGE
-        self.assertIn("subForm(", page)
-        self.assertIn('id="subform"', page)
-        self.assertIn("if(s.ready) this.connectSub(s.name);", page)
-        self.assertTrue(callable(getattr(crow_gui.Api, "provider_oauth", None)))
-        # THE TILE'S OWN TEXT IS NOT THE STORED SENTENCE any more: `missing`
-        # names a file and a key, which is what a person editing by hand needed
-        # and exactly what a person with a form does not.
-        self.assertNotIn("s.ready?s.blurb:s.missing", page)
 
     def test_both_senders_carry_the_same_sticky_key(self):
         """THE SISTER CASE TO THE ONE BELOW, and it fails the same way: quietly.
@@ -7603,52 +7588,6 @@ class TheRemoteEndpointTests(ApiCase):
         self.assertEqual(seen["turn"], {})
         self.assertEqual(seen["review"], {})
 
-    def test_both_senders_are_told_which_dialect_the_endpoint_speaks(self):
-        """Anthropic answers `POST /v1/messages` and nothing else; the OpenAI
-        shape is a different door at the same host. A transport that reached
-        only the visible turn would leave the background review posting an
-        OpenAI body to an endpoint that does not read one -- and that is the
-        request nobody is watching."""
-        crow_core.provider_key_set("anthropic", "not-a-real-anthropic-key-abcd")
-        doc = crow_core.provider_doc()
-        doc["catalog"] = {"anthropic": {"fetched": 1, "models": [
-            {"id": "claude-opus-5", "name": "Opus", "context": 1000000}]}}
-        crow_core.provider_write(doc)
-        crow_core.provider_pick("anthropic", "claude-opus-5")
-        seen = {}
-
-        def fake_run(conversation, **kw):
-            seen["turn"] = kw.get("transport")
-            seen["cap"] = kw.get("max_tokens")
-            conversation.append("assistant", "done")
-            return crow_core.TurnResult(cost="", context_tokens=9,
-                                        promised_warm=False, rolled=False,
-                                        stopped=False, reported=True)
-
-        def fake_review(conversation, **kw):
-            seen["review"] = kw.get("transport")
-            return []
-
-        api = self.api()
-        api._conversation.append("user", "hello")
-        with mock.patch.object(crow_gui, "run_turn", fake_run),              mock.patch.object(crow_core, "review_turn", fake_review),              mock.patch.object(crow_core, "review_due", lambda *a, **k: 1.0):
-            api._run("hello")
-        self.assertEqual(seen.get("turn"), crow_core.TRANSPORT_MESSAGES)
-        self.assertEqual(seen.get("review"), seen.get("turn"))
-        self.assertEqual(seen.get("cap"), crow_core.REMOTE_MAX_TOKENS)
-        # THE LOCAL SERVER IS THE NEGATIVE HALF: without it this would pass on a
-        # client that had started sending the Anthropic dialect everywhere.
-        crow_core.provider_pick(crow_core.LOCAL_PROVIDER)
-        api = self.api()
-        api._conversation.append("user", "hello")
-        with mock.patch.object(crow_gui, "run_turn", fake_run),              mock.patch.object(crow_core, "review_turn", fake_review),              mock.patch.object(crow_core, "review_due", lambda *a, **k: 1.0):
-            api._run("hello")
-        self.assertEqual(seen.get("turn"), crow_core.TRANSPORT_CHAT)
-        # AND THE SAME CAP AT HOME, which is the half that used to be None: a
-        # body without the field inherits the server's default, and crow-nest's
-        # 1024 cut a tool call off mid-argument on 2026-09-18.
-        self.assertEqual(seen.get("cap"), crow_core.MAX_TOKENS)
-
     def test_a_model_can_be_typed_when_no_catalogue_answers(self):
         """The field is always there rather than appearing on failure: a control
         that only exists after something went wrong is one nobody finds when it
@@ -7657,18 +7596,6 @@ class TheRemoteEndpointTests(ApiCase):
         self.assertIn("model id, as the provider lists it", page)
         self.assertIn("slug.value.trim()", page)
         self.assertIn('use.textContent="Use"', page)
-
-    def test_the_tile_offers_the_documented_command(self):
-        """robin, 2026-08-23, from Hermes' own sign-in dialog: it prints
-        `claude setup-token` and waits. No client_id borrowed from a product
-        that never granted one -- which is why the browser leg is not what this
-        tile reaches for first."""
-        page = crow_gui.PAGE
-        self.assertIn("tokenForm(", page)
-        self.assertIn("if(s.command) this.tokenForm(s);", page)
-        self.assertIn("provider_token(", page)
-        self.assertTrue(callable(getattr(crow_gui.Api, "provider_token", None)))
-        self.assertIn("cmd.readOnly=true", page)
 
     def test_saving_an_untouched_field_does_not_clear_a_stored_credential(self):
         """robin, 2026-08-23, and it cost him his OpenRouter key. The stored
@@ -7682,17 +7609,57 @@ class TheRemoteEndpointTests(ApiCase):
         page = crow_gui.PAGE
         self.assertIn("clearKey(", page)
         self.assertIn("`Remove` is what clears a stored key.", page)
-        self.assertIn("`sign out` is what clears one.", page)
         # NEGATIVE: the old wiring blanked the box and called the SAVE path.
         self.assertNotIn("box2.value=\"\"; this.saveKey(", page)
         self.assertIn("gone.onclick=()=>this.clearKey(p.name);", page)
 
-    def test_a_sign_in_does_not_run_mid_turn(self):
-        """The credential it replaces is the one the running turn is
-        authenticating with."""
-        api = self.api()
-        api._worker = _AliveWorker()
-        self.assertIn("mid-turn", api.provider_authorise("anthropic"))
+    def test_the_claude_tile_is_asked_on_its_page_and_never_at_start(self):
+        """#390: the probe spawns `claude` twice. A window -- or a sheet opening
+        on another page -- that ran it would wait on a process nobody asked
+        about. The page asks when it opens, "ask again" asks anew, and between
+        them the kept answer is drawn."""
+        page = crow_gui.PAGE
+        self.assertIn('if(name==="subs") this.drawSubs(false);', page)
+        self.assertIn("again.onclick=()=>this.drawSubs(true);", page)
+        self.assertNotIn("this.drawSubs();", page)
+        self.assertIn("provider_subscriptions", crow_gui.REMOTE_PROXIED)
+        calls = []
+
+        def auth():
+            calls.append(1)
+            return {"logged_in": True, "method": "claude.ai", "plan": "max",
+                    "problem": None}
+        crow_core._CLAUDE_PROBE.clear()
+        self.addCleanup(crow_core._CLAUDE_PROBE.clear)
+        with mock.patch.multiple(crow_core, claude_cli_path=lambda: "claude",
+                                 claude_cli_version=lambda: ("2.1.300", None),
+                                 claude_cli_auth=auth):
+            api = self.api()
+            api.provider_view()
+            self.assertEqual(calls, [])
+            rows = api.provider_subscriptions(False)
+            api.provider_subscriptions(False)
+            self.assertEqual(len(calls), 1)
+            api.provider_subscriptions(True)
+            self.assertEqual(len(calls), 2)
+        self.assertEqual([r["name"] for r in rows], ["claude"])
+
+    def test_the_tile_copies_the_command_and_offers_nothing_that_signs_in(self):
+        """The tile REPORTS: a copy of `claude auth login` for the person's own
+        terminal and an "ask again". No browser, no paste field, no sign-out."""
+        page = crow_gui.PAGE
+        tile = page[page.index("  subTile(s){"):page.index("  drawProviders(){")]
+        self.assertIn('copy.textContent="copy"', tile)
+        self.assertIn("this.clip(s.login)", tile)
+        self.assertIn('again.textContent="ask again"', tile)
+        for gone in ("input", "password", "open_url", "provider_"):
+            self.assertNotIn(gone, tile, gone)
+
+    def test_the_window_start_deletes_the_leftover_token_file(self):
+        """#390, expected result 12, the wiring half: the start calls the core's
+        one deletion, whose behaviour test_crow_core pins."""
+        self.assertIn("crow_core.retire_provider_tokens()",
+                      inspect.getsource(crow_gui.main))
 
     def test_both_senders_carry_the_providers_own_headers(self):
         """THE HEADER TRAVELS WITH THE CREDENTIAL, and it has to reach BOTH
@@ -7730,19 +7697,17 @@ class TheRemoteEndpointTests(ApiCase):
         self.assertIsNone(seen.get("turn"))
         self.assertIsNone(seen.get("review"))
 
-        crow_core.provider_token_write({"openrouter": {
-            "access_token": "tok", "client_id": "c",
-            "token_endpoint": "https://example.invalid/token"}})
-        real = dict(crow_core.PROVIDER_OAUTH_HEADERS)
-        crow_core.PROVIDER_OAUTH_HEADERS["openrouter"] = {"x-crow-probe": "1"}
-        self.addCleanup(lambda: (crow_core.PROVIDER_OAUTH_HEADERS.clear(),
-                                 crow_core.PROVIDER_OAUTH_HEADERS.update(real)))
-        api = self.api()
-        api._conversation.append("user", "hello")
-        with mock.patch.object(crow_gui, "run_turn", fake_run), \
-             mock.patch.object(crow_core, "review_turn", fake_review), \
-             mock.patch.object(crow_core, "review_due", lambda *a, **k: 1.0):
-            api._run("hello")
+        # #390: NO CREDENTIAL KIND CARRIES A HEADER OF ITS OWN ANY MORE -- the
+        # sign-in's beta flag went with the sign-in -- so the provider's headers
+        # are stood in for where they are decided, the seam both senders read.
+        with mock.patch.object(crow_core, "provider_headers",
+                               lambda *a, **k: {"x-crow-probe": "1"}):
+            api = self.api()
+            api._conversation.append("user", "hello")
+            with mock.patch.object(crow_gui, "run_turn", fake_run), \
+                 mock.patch.object(crow_core, "review_turn", fake_review), \
+                 mock.patch.object(crow_core, "review_due", lambda *a, **k: 1.0):
+                api._run("hello")
         self.assertEqual(seen.get("turn"), {"x-crow-probe": "1"})
         self.assertEqual(seen.get("review"), seen.get("turn"))
 
@@ -7821,16 +7786,13 @@ class TheOpenRouterPageTests(ApiCase):
 
     def setUp(self) -> None:
         super().setUp()
-        self._prov = (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE,
-                      crow_core.PROVIDER_TOKEN_FILE)
+        self._prov = (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE)
         self.addCleanup(self._restore_prov)
         crow_core.PROVIDERS_FILE = os.path.join(self.dir, "providers.json")
         crow_core.PROVIDER_KEYS_FILE = os.path.join(self.dir, "provider_keys.json")
-        crow_core.PROVIDER_TOKEN_FILE = os.path.join(self.dir, "provider_tokens.json")
 
     def _restore_prov(self) -> None:
-        (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE,
-         crow_core.PROVIDER_TOKEN_FILE) = self._prov
+        (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE) = self._prov
 
     def broker(self, model: str = "z-ai/glm-5.2:free") -> None:
         """Key and catalogue on disk, and NO pick: turns stay on the machine."""
@@ -12435,6 +12397,15 @@ class AFailedStepIsRetriedNotSkippedTests(ApiCase):
     def goals(self, api) -> list:
         return [m["goal"] for m in self.drained(api) if m.get("k") == "goal"]
 
+    def test_no_nudge_goes_to_the_subscription(self):
+        """#390: Claude Code has no goal tools, so a nudge could never close a
+        step and every one would be a turn paid from the subscription."""
+        api = self.api()
+        self.assertIsNotNone(api._goal_nudge(), "the open goal is not nudged locally")
+        claude = {"transport": crow_core.TRANSPORT_CLAUDE_CLI, "remote": True}
+        with mock.patch.object(api, "_endpoint", return_value=claude):
+            self.assertIsNone(api._goal_nudge())
+
     def test_the_nudge_after_a_failure_quotes_its_note(self):
         """Second turn of the same step, the model worked -- the short "still
         open" line would go out. After a `failed` the note goes out instead."""
@@ -16107,7 +16078,7 @@ class RemoteApiParityTests(RemoteCase):
     to the desktop with a stated replacement -- and a call from one client
     produces the push the other one needs."""
 
-    PAGE_METHODS = 109         # 88 at fb31ca2 + the six pairing controls (#249 stage 5) + stage_image_data, drop_seen (#312) + the eight image_* (#311) + video_src, video_reveal (#340) + engine_check, engine_update_start (#367) + mono_font (#382)
+    PAGE_METHODS = 105         # 88 at fb31ca2 + the six pairing controls (#249 stage 5) + stage_image_data, drop_seen (#312) + the eight image_* (#311) + video_src, video_reveal (#340) + engine_check, engine_update_start (#367) + mono_font (#382) - the five sign-in doors + provider_subscriptions (#390)
 
     def page_methods(self) -> set:
         page = crow_gui.PAGE
@@ -16136,7 +16107,7 @@ class RemoteApiParityTests(RemoteCase):
         self.assertTrue(crow_gui.REMOTE_PROXIED <= allowed)
         self.assertEqual(allowed - crow_gui.REMOTE_PROXIED,
                          {"stage_image", "stage_image_data", "reveal_path",
-                          "roll_show", "provider_authorise",
+                          "roll_show",
                           # #311: the lightbox's actions on the desktop's file
                           "image_reveal", "image_copy", "image_open",
                           "image_trash",
@@ -16615,44 +16586,47 @@ class ThePhoneMirrorOfTheRedesignTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout.strip().splitlines()[-1])
 
-    def test_the_header_is_rail_search_model_and_inspector(self):
+    def test_the_header_is_rail_search_and_inspector(self):
         """The desktop's zones stay zones, in the mockup's order: the rail
-        toggle and CROW, the magnifier and the model chip, the inspector
-        toggle. Git is a tab and a phone has no live browser pane, so those
-        two toggles stay off with the window buttons."""
+        toggle and CROW, the magnifier, the inspector toggle. #391: the model
+        chip left the header with the desktop's engine chip -- the composer's
+        chip says it. Git is a tab and a phone has no live browser pane, so
+        those two toggles stay off with the window buttons."""
         css = self.rules()
         self.assertNotIn("display:contents", css)
         self.assertIn("#gittoggle,#browsertoggle,#barr>.vsep{display:none!important}", css)
-        for keep in ("railtoggle", "searchbox", "search", "engine", "codetoggle"):
+        for keep in ("railtoggle", "searchbox", "search", "codetoggle"):
             self.assertNotRegex(css, r"(?m)(^|\})\s*#%s\{[^}]*display:none" % keep, keep)
         bar = crow_gui.PAGE[crow_gui.PAGE.index('<div id="bar"'):
                             crow_gui.PAGE.index('<div id="remotedlg"')]
         order = [bar.index(m) for m in ('id="railtoggle"', 'id="mark"', 'id="searchbox"',
-                                        'id="engine"', 'id="codetoggle"')]
+                                        'id="codetoggle"')]
         self.assertEqual(order, sorted(order))
         self.assertIn("#bar #barm{flex:1 1 auto}", css)
-        self.assertIn("margin-left:auto", self.rule("#engine{"))
 
     def test_every_header_target_is_44_px(self):
-        """WCAG 2.2 SC 2.5.5: 44 x 44 for the two toggles, the magnifier and
-        the model chip, whose 32 px pill is drawn inside its 44 px box."""
+        """WCAG 2.2 SC 2.5.5: 44 x 44 for the two toggles and the magnifier."""
         self.assertIn("--tap:44px;", self.rules())
         self.assertIn("width:var(--tap);height:var(--tap)", self.rule("#railtoggle,#codetoggle{"))
         self.assertIn("width:var(--tap);height:var(--tap)", self.rule("#search{"))
         self.assertIn("width:var(--tap);height:var(--tap)", self.rule("#search .s-ico{"))
-        chip = self.rule("#engine{")
-        self.assertIn("height:var(--tap)", chip)
-        self.assertIn("border:6px solid transparent;background-clip:padding-box", chip)
-        self.assertIn("#engine .elvl{display:none!important}", self.rules())
 
-    def test_the_model_chip_wears_the_family_name(self):
-        """`shortModel`, as on the composer's chip; the full name in its title."""
+    def test_the_composer_chip_wears_the_family_name_unless_the_server_is_down(self):
+        """`shortModel` on the composer's chip, the full name in its title. #391:
+        while the server is down the chip says "no server", which on the phone
+        (no dot) is the whole state, so the family name never replaces it."""
         out = self.run_hooks(
-            'crow.showEngine = function(){ el("ename").textContent = this.modelName; };\n',
-            'document.querySelector = s => s === "#engine .ename" ? el("ename") : null;\n'
-            'crow.modelName = "Qwen3.8-Flash-Next"; crow.showEngine();\n'
-            'console.log(JSON.stringify({name: el("ename").textContent, title: el("engine").title}));\n')
-        self.assertEqual(out, {"name": "Qwen", "title": "Qwen3.8-Flash-Next"})
+            "",
+            'const b = {textContent: ""}, chip = el("model");\n'
+            'document.querySelector = s => s === "#model b" ? b : null;\n'
+            'crow.modelName = "Qwen3.8-Flash-Next";\n'
+            'chip.dataset.state = "up"; b.textContent = crow.modelName; crow.showModel();\n'
+            'const up = [b.textContent, chip.title];\n'
+            'chip.title = ""; chip.dataset.state = "down"; b.textContent = "no server";\n'
+            'crow.showModel();\n'
+            'console.log(JSON.stringify({up, down: [b.textContent, chip.title]}));\n')
+        self.assertEqual(out, {"up": ["Qwen", "Qwen3.8-Flash-Next"],
+                               "down": ["no server", ""]})
 
     GOAL = r"""
 body.dataset.git = "shut";                           // the desktop's git toggle is off
@@ -19121,7 +19095,7 @@ class TheWindowShellTests(unittest.TestCase):
     """#382. The window's shell as in the mockup robin approved on 2026-10-14
     (vault Crow/02_docs/mockup-crow-gui-redesign-2026-10-14/Main.dc.html):
     the palette, the rounded chat panel, the three title-bar zones over the
-    three columns, the search field, the engine chip, the mono face."""
+    three columns, the search field, the mono face."""
 
     NEW_NAMES = ("--accent-soft", "--sub-soft", "--ok-soft", "--warn-soft", "--on-accent")
 
@@ -19216,7 +19190,7 @@ class TheWindowShellTests(unittest.TestCase):
     def test_the_bar_holds_the_mockups_controls_in_its_order(self):
         at = 0
         for mark in ('id="barl"', 'id="railtoggle"', 'id="mark"', 'id="barm"',
-                     'id="search"', 'id="engine"', 'id="barr"', 'id="codetoggle"',
+                     'id="search"', 'id="barr"', 'id="codetoggle"',
                      'id="gittoggle"', 'id="browsertoggle"', 'id="remotetoggle"',
                      '<span class="vsep"></span>', 'id="wbtns"'):
             self.assertIn(mark, self.bar[at:], "%s is out of the mockup's order" % mark)
@@ -19265,75 +19239,93 @@ class TheWindowShellTests(unittest.TestCase):
         self.assertIn('if(e.key!=="Escape") return;', key)
         self.assertIn("searchIn.blur();", key)
 
-    # -- the engine chip ------------------------------------------------------
+    # -- the model chip carries the server's state (#391) -----------------------
+    # robin removed the title bar's engine chip by decision on 2026-10-15: the
+    # cases that pinned it (a disclosure button, its slide-out, its dot rules)
+    # went with it. The server's state moved onto the composer's chip.
 
-    def test_the_engine_chip_is_a_disclosure_button(self):
-        chip = self.bar[self.bar.index('<button id="engine"'):]
-        chip = chip[:chip.index("</button>")]
-        self.assertIn('type="button"', chip)
-        self.assertIn('aria-expanded="false"', chip)
-        self.assertIn('onclick="crow.engineToggle()"', chip)
-        for part in ("edot", "ename", "elvl", "erate", "ectx"):
-            self.assertIn('class="%s"' % part, chip)
-        self.assertIn(".engine.open .more{max-width:280px;opacity:1;padding-left:10px}",
-                      self.css)
+    def test_the_title_bar_carries_no_engine_chip(self):
+        gone = re.compile(r'id="engine"|showEngine|engineToggle|\.engine\b')
+        self.assertEqual(gone.findall(self.source), [])
+        for part in (crow_gui.PAGE, crow_gui.REMOTE_CSS, crow_gui.REMOTE_JS):
+            self.assertNotIn("#engine", part)
+        middle = self.bar[self.bar.index('id="barm"'):self.bar.index('id="barr"')]
+        self.assertNotIn("<button", middle, "the middle zone holds the search alone")
+
+    ARMS_FROM = '      case "up": $("#dot")'
+    ARMS_TO = "      // #125. STRAIGHT TO ABOUT."
 
     def _chip_run(self) -> dict:
-        node = _node()
-        if not node:
-            self.skipTest("no node on this machine")
-        page = crow_gui.PAGE
-        def method(name: str, end: str) -> str:
-            start = page.index("\n  %s(" % name) + 1
-            return page[start:page.index(end, start) + len(end)]
-        methods = (method("tokK", "},") + "\n"
-                   + method("showEngine", '"connecting"); },') + "\n"
-                   + method("engineToggle", 'b.classList.toggle("open", open); },'))
-        js = r"""
-const parts = {}; for (const k of [".ename",".elvl",".erate",".ectx",".eword"])
-  parts[k] = {textContent: "", hidden: k !== ".ename"};
-const attrs = {"aria-expanded": "false"}, cls = new Set();
-const engine = {dataset: {state: "wait"}, querySelector: s => parts[s],
-  getAttribute: k => (k in attrs ? attrs[k] : null), setAttribute: (k, v) => { attrs[k] = String(v); },
-  classList: {toggle: (c, on) => { on ? cls.add(c) : cls.delete(c); }}};
-const $ = s => (s === "#engine" ? engine : null);
-const crow = {levelLabel(){ return " · high"; },
-""" + methods + r"""
-};
-const snap = () => ({expanded: attrs["aria-expanded"], open: cls.has("open"),
-  parts: Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, v.hidden ? null : v.textContent]))});
-const out = {};
-crow.showEngine(); out.wait = snap();
-engine.dataset.state = "up"; crow.modelName = "Qwen3.8-Flash-Next"; crow.showEngine(); out.ready = snap();
-crow.stats = {decode_rate: 35.85}; crow.ctxNow = [6100, 200000]; crow.showEngine(); out.ran = snap();
-crow.engineToggle(); out.click1 = snap(); crow.engineToggle(); out.click2 = snap();
+        """The page's own `showModel` and its `up` / `reasoning` / `down` arms,
+        run in node over the fake DOM: the chip is drawn from what the events
+        left on it. `levelLabel` is stubbed, the grouping is not what is tested."""
+        src = self.source
+        arms = src[src.index(self.ARMS_FROM):src.index(self.ARMS_TO)]
+        js = (_FAKE_PAGE_DOM + 'const RICON = {chevron: "<chevron/>"};\n'
+              "const crow = {\n"
+              + _crow_methods(src, "showModel", "showReason") + "\n"
+              '  levelLabel(){ return " \u00b7 high"; }, ctx(){},\n'
+              "  on(e){ switch(e.k){\n" + arms + "\n  } } };\n"
+              r"""
+const chip = $("#model"); chip.dataset.state = "wait";     // the markup's start value
+const snap = () => ({state: chip.dataset.state, hidden: chip.hidden,
+  name: chip.querySelector("b").textContent, level: chip.querySelector(".lvl").textContent,
+  drawn: chip.innerHTML.includes("<chevron/>"), sheetDot: $("#dot").className});
+const out = {}, up = {k: "up", model: "Qwen3.8-Flash-Next", tokens: 0, n_ctx: 200000};
+crow.showModel(); out.start = snap();
+crow.on({k: "down", why: "no server"}); out.downFirst = snap();
+crow.on(up); out.up = snap();
+crow.on({k: "down", why: "connection refused"}); out.downKnown = snap();
+crow.on(up); out.upAgain = snap();
 console.log(JSON.stringify(out));
-"""
-        done = subprocess.run([node, "-e", js], capture_output=True, text=True,
-                              encoding="utf-8", timeout=30)
-        self.assertEqual(done.returncode, 0, done.stderr)
-        return json.loads(done.stdout)
+""")
+        return _run_page(self, js)
 
-    def test_a_click_slides_out_level_rate_and_context(self):
+    def test_the_chip_starts_amber_and_says_connecting(self):
+        start = self._chip_run()["start"]
+        self.assertEqual((start["state"], start["hidden"], start["drawn"]), ("wait", False, True))
+        self.assertEqual(start["name"], "connecting")
+        chip = self.source[self.source.index('<span class="chip pick" id="model"'):]
+        chip = chip[:chip.index(">")]
+        self.assertIn('data-state="wait"', chip)
+        self.assertNotIn("hidden", chip)
+        self.assertRegex(self.source, r"(?m)^crow\.showModel\(\);",
+                         "the chip is drawn at boot, before the first answer")
+
+    def test_up_gives_the_chip_the_model_and_a_green_dot(self):
+        up = self._chip_run()["up"]
+        self.assertEqual((up["state"], up["hidden"], up["name"], up["level"]),
+                         ("up", False, "Qwen3.8-Flash-Next", "high"))
+        self.assertEqual(up["sheetDot"], "up", "the settings sheet's own dot stays")
+
+    def test_down_says_no_server_in_the_chip(self):
         out = self._chip_run()
-        self.assertEqual(out["wait"]["parts"][".ename"], "connecting")
-        self.assertEqual(out["ready"]["parts"][".ename"], "Qwen3.8-Flash-Next")
-        self.assertEqual(out["ready"]["parts"][".eword"], "ready")
-        ran = out["ran"]["parts"]
-        self.assertEqual(ran[".elvl"], "high")
-        self.assertEqual(ran[".erate"], "35.85 tok/s")
-        self.assertEqual(ran[".ectx"], "6.1k / 200k")
-        self.assertIsNone(ran[".eword"], "a measured chip still says 'ready'")
-        self.assertEqual((out["ran"]["expanded"], out["ran"]["open"]), ("false", False))
-        self.assertEqual((out["click1"]["expanded"], out["click1"]["open"]), ("true", True))
-        self.assertEqual((out["click2"]["expanded"], out["click2"]["open"]), ("false", False))
+        first = out["downFirst"]                       # no model known yet
+        self.assertEqual((first["state"], first["hidden"]), ("down", False))
+        self.assertIn("no server", first["name"])
+        self.assertEqual(first["level"], "", "a level beside a word names nothing")
+        self.assertEqual(first["sheetDot"], "down", "the settings sheet's own dot stays")
+        # the word wins over a name still on the page (the phone has no dot) ...
+        known = out["downKnown"]
+        self.assertEqual((known["state"], known["name"]), ("down", "no server"))
+        # ... and the name comes back with the server
+        again = out["upAgain"]
+        self.assertEqual((again["state"], again["name"], again["level"]),
+                         ("up", "Qwen3.8-Flash-Next", "high"))
 
-    def test_the_chip_hears_the_server_and_the_turn(self):
-        page = crow_gui.PAGE
-        self.assertIn('$("#engine").dataset.state="up";', page)
-        self.assertIn('$("#engine").dataset.state="down";', page)
-        self.assertIn("if(e.stats) this.stats=e.stats;", page)
-        self.assertIn('#engine[data-state="up"] .edot{background:var(--ok)', self.css)
+    def test_the_dot_follows_the_state(self):
+        for state, colour in (("wait", "--warn"), ("up", "--ok"), ("down", "--bad")):
+            self.assertIn('#model[data-state="%s"] .dot{background:var(%s)}'
+                          % (state, colour), self.css)
+        self.assertNotIn("#model .dot{background:var(--ok)}", self.css,
+                         "the dot is green whatever the server does")
+
+    def test_the_phone_says_the_state_in_a_word_not_a_dot(self):
+        """#387's rule stays (the sheet's chips: the word, not the desktop's
+        dot); the word is what carries the state there."""
+        self.assertIn("#model .dot,#model svg,#mtools #root svg,#ctx .ctxbar{display:none}",
+                      crow_gui.REMOTE_CSS)
+        self.assertIn("no server", self._chip_run()["downFirst"]["name"])
 
     # -- the rail's foot, motion ------------------------------------------------
 
@@ -19341,7 +19333,7 @@ console.log(JSON.stringify(out));
         start = self.css.index("@media (prefers-reduced-motion:reduce){\n  #rail")
         block = self.css[start:self.css.index("}}", start)]
         for sel in ("#rail", "#side", "#main", "#barl", ".search", ".search input",
-                    ".s-kbd", ".engine .more"):
+                    ".s-kbd"):
             self.assertIn(sel, block)
         self.assertIn("transition:none", block)
         # AFTER every rule that sets one of these transitions, or it loses.
@@ -19643,7 +19635,6 @@ const view = () => ({
         focus, and folds on blur even with a query in it (no Escape on a
         phone); the results drop under it, header-wide. 16 px, or iOS zooms."""
         css = crow_gui.REMOTE_CSS
-        self.assertNotIn("#searchbox,#search,#engine", css)
         self.assertIn("#search input{width:0;font-size:16px}", css)
         self.assertIn("#searchbox:focus-within #search{position:absolute;", css)
         self.assertIn("#searchbox:focus-within #search input{flex:1 1 auto;width:auto;", css)
@@ -20022,6 +20013,339 @@ class TheTurnStatsReachThePageTests(ApiCase):
         costs = self._turn(crow_core.TurnCost())
         self.assertTrue(costs)
         self.assertIsNone(costs[-1]["stats"])
+
+
+# #390. A STAND-IN FOR `claude`, the window's copy of the one in
+# cli/test_crow_core.py: replays a stream-json turn, logs argv and pid. Never
+# the real CLI -- a suite that spent subscription quota is a suite nobody runs.
+CLAUDE_STAND_IN = r'''
+import json
+import os
+import sys
+import time
+
+args = sys.argv[1:]
+if args == ["--version"]:
+    sys.stdout.write(os.environ.get("CROW_FAKE_CLAUDE_VERSION", "2.1.300")
+                     + " (Claude Code)\n")
+    sys.exit(0)
+prompt = sys.stdin.buffer.read().decode("utf-8")
+with open(os.environ["CROW_FAKE_CLAUDE_LOG"], "a", encoding="utf-8") as fh:
+    fh.write(json.dumps({"argv": args, "stdin": prompt, "pid": os.getpid()}) + "\n")
+with open(os.environ["CROW_FAKE_CLAUDE_REPLAY"], "rb") as fh:
+    for raw in fh:
+        sys.stdout.buffer.write(raw)
+        sys.stdout.buffer.flush()
+if os.environ.get("CROW_FAKE_CLAUDE_HANG"):
+    time.sleep(60)
+'''
+
+# Expected result 17's stream: 1200 + 30000 + 500 in use, Opus 5.5, and a
+# result that names no window -- so the table's declared one must stand.
+CLAUDE_USAGE_TURN = [
+    {"type": "system", "subtype": "init", "session_id": "s-window",
+     "model": "claude-opus-5-5", "claude_code_version": "2.1.283"},
+    {"type": "stream_event", "event": {"type": "message_start", "message": {}}},
+    {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                       "delta": {"type": "text_delta", "text": "ok"}}},
+    {"type": "assistant", "message": {
+        "content": [{"type": "text", "text": "ok"}],
+        "usage": {"input_tokens": 1200, "cache_read_input_tokens": 30000,
+                  "cache_creation_input_tokens": 500, "output_tokens": 2}}},
+    {"type": "stream_event", "event": {"type": "message_delta",
+                                       "delta": {"stop_reason": "end_turn"},
+                                       "usage": {"output_tokens": 2}}},
+    {"type": "stream_event", "event": {"type": "message_stop"}},
+    {"type": "result", "subtype": "success", "is_error": False,
+     "session_id": "s-window", "result": "ok", "modelUsage": {}},
+]
+
+
+class TheClaudeChipAndTurnTests(ApiCase):
+    """#390 amendment 2: the chat panel's model, level and context on the
+    subscription, and the turn runner's claude_cli branch end to end."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.root = os.path.join(self.dir, "work")
+        os.makedirs(self.root)
+        stand = os.path.join(self.dir, "stand-in")
+        os.makedirs(stand)
+        script = os.path.join(stand, "claude_stand_in.py")
+        with open(script, "w", encoding="utf-8") as fh:
+            fh.write(CLAUDE_STAND_IN)
+        if os.name == "nt":
+            self.exe = os.path.join(stand, "claude.cmd")
+            with open(self.exe, "w", encoding="ascii") as fh:
+                fh.write('@echo off\r\n"%s" "%s" %%*\r\n' % (sys.executable, script))
+        else:
+            self.exe = os.path.join(stand, "claude")
+            with open(self.exe, "w", encoding="utf-8") as fh:
+                fh.write("#!%s\n" % sys.executable + CLAUDE_STAND_IN)
+            os.chmod(self.exe, 0o755)
+        self.log = os.path.join(stand, "spawns.jsonl")
+        self.replay = os.path.join(stand, "turn.ndjson")
+        with open(self.replay, "w", encoding="utf-8") as fh:
+            fh.write("".join(json.dumps(e) + "\n" for e in CLAUDE_USAGE_TURN))
+        env = mock.patch.dict(os.environ, {"CROW_FAKE_CLAUDE_LOG": self.log,
+                                           "CROW_FAKE_CLAUDE_REPLAY": self.replay})
+        env.start()
+        self.addCleanup(env.stop)
+        # A shell inside the Claude app carries ANTHROPIC_BASE_URL (measured
+        # 2026-10-15): the guard would refuse every case here.
+        for name in (*crow_core.CLAUDE_CLI_ENV_GUARD, crow_core.CLAUDE_CLI_EFFORT_ENV):
+            os.environ.pop(name, None)
+        for patcher in (
+                mock.patch.object(crow_core, "PROVIDERS_FILE",
+                                  os.path.join(self.dir, "providers.json")),
+                mock.patch.object(crow_core, "claude_cli_path", return_value=self.exe),
+                mock.patch.object(crow_core, "claude_cli_version",
+                                  return_value=("2.1.283", None)),
+                mock.patch.object(crow_core, "_CLAUDE_SEEN",
+                                  {"version": "", "at": None, "models": {},
+                                   "windows": {}}),
+                mock.patch.object(crow_core, "_ROOT", self.root)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        crow_core.provider_write({"active": "claude", "model": {"claude": "opus"}})
+
+    def spawns(self) -> list:
+        try:
+            with open(self.log, encoding="utf-8") as fh:
+                return [json.loads(line) for line in fh if line.strip()]
+        except OSError:
+            return []
+
+    def ups(self, api) -> list:
+        return [m for m in self.drained(api) if m.get("k") == "up"]
+
+    def test_the_up_payloads_carry_the_claude_table_with_readiness(self):
+        """Expected result 14, for all three pushes that build the chip."""
+        api = self.api()
+        api._endpoint_changed(reset=False)
+        api._surface()
+        api._probe(redraw=True)
+        ups = self.ups(api)
+        self.assertEqual(len(ups), 3)
+        for up in ups:
+            keys = [row[0] for row in up["models"]]
+            self.assertEqual(keys, [row["alias"] for row in crow_core.CLAUDE_MODELS])
+            for key in crow_core.bootable_models():
+                self.assertNotIn(key, keys)
+            ready = {row[0]: row[2]["ready"] for row in up["models"]}
+            # Claude Code 2.1.283: Opus 5.5 needs 2.1.280, Sonnet 5.5 2.1.284.
+            self.assertEqual(ready, {"fable": True, "opus": True,
+                                     "sonnet": False, "haiku": False})
+            self.assertEqual(up["models"][2][2]["why"],
+                             "needs Claude Code ≥ 2.1.284 — claude update")
+            self.assertEqual(up["model_key"], "opus")
+            self.assertEqual(up["levels"], list(crow_core.CLAUDE_EFFORTS))
+        self.assertEqual(ups[0]["model"], "Opus 5.5")
+        self.assertEqual(ups[0]["n_ctx"], crow_core.claude_model("opus")["window"])
+
+    def test_a_model_too_new_for_the_cli_is_refused_from_the_chip(self):
+        api = self.api()
+        api.choose_model("sonnet")
+        notes = [m["t"] for m in self.drained(api) if m.get("k") == "note"]
+        self.assertTrue(any("claude update" in n for n in notes), notes)
+        self.assertEqual(crow_core.provider_model_for("claude"), "opus")
+        api.choose_model("claude-opus-5-5[1m]")        # a full id, typed
+        self.assertEqual(crow_core.provider_model_for("claude"), "claude-opus-5-5[1m]")
+
+    def test_the_effort_variable_disables_the_levels(self):
+        """Expected result 16."""
+        os.environ[crow_core.CLAUDE_CLI_EFFORT_ENV] = "max"
+        api = self.api()
+        api._endpoint_changed(reset=False)
+        up = self.ups(api)[-1]
+        for row in up["models"]:
+            self.assertEqual(row[2]["lock"], "set by CLAUDE_CODE_EFFORT_LEVEL=max")
+            self.assertEqual(row[2]["lock_level"], "max")
+        api.set_reasoning("high")
+        notes = [m["t"] for m in self.drained(api) if m.get("k") == "note"]
+        self.assertIn("CLAUDE_CODE_EFFORT_LEVEL=max", notes[-1])
+        self.assertIsNone(api._reasoning)
+
+    def test_opus_high_reaches_the_child_and_default_sends_no_effort(self):
+        """Expected result 15, from the chip's own doors."""
+        api = self.api()
+        api.set_reasoning("high")
+        self.assertEqual(api._reasoning, "high")
+        api._run("first")
+        api.set_reasoning("off")                    # the "(default)" row
+        self.assertIsNone(api._reasoning)
+        api._run("second")
+        picked, default = self.spawns()
+        self.assertEqual(picked["argv"][picked["argv"].index("--model") + 1], "opus")
+        self.assertEqual(picked["argv"][picked["argv"].index("--effort") + 1], "high")
+        self.assertNotIn("--effort", default["argv"])
+        # The second turn of the same chat resumes the session the first reported.
+        self.assertEqual(default["argv"][default["argv"].index("--resume") + 1],
+                         "s-window")
+
+    def test_a_claude_turn_never_rolls_and_shows_the_context_and_the_model(self):
+        """Expected results 17 and 18: no `should_roll`, no clearing, no review,
+        no `run_turn`; 31.7k against the table's window; the chip names what
+        Claude Code ran; the session is in the chat file."""
+        api = self.api()
+        api._context_tokens = 10 ** 9              # would roll on any local turn
+        api._n_ctx = 1000
+        with mock.patch.object(crow_core, "should_roll",
+                               side_effect=AssertionError("rolled")) as roll, \
+                mock.patch.object(crow_core, "clear_before_roll",
+                                  side_effect=AssertionError("cleared")), \
+                mock.patch.object(crow_core, "review_turn",
+                                  side_effect=AssertionError("reviewed")), \
+                mock.patch.object(crow_gui, "run_turn",
+                                  side_effect=AssertionError("ran Crow's loop")):
+            api._run("hello")
+        roll.assert_not_called()
+        said = self.drained(api)
+        self.assertFalse([m for m in said if m.get("k") == "fail"], said)
+        window = crow_core.claude_model("opus")["window"]
+        cost = [m for m in said if m.get("k") == "cost"][-1]
+        self.assertEqual((cost["tokens"], cost["n_ctx"]), (31700, window))
+        self.assertIn({"k": "ctx", "tokens": 31700, "n_ctx": window}, said)
+        up = [m for m in said if m.get("k") == "up"][-1]
+        self.assertEqual(up["model"], "claude-opus-5-5")
+        self.assertEqual(api._conversation.claude_session, "s-window")
+        self.assertEqual(crow_core.session_claude(self.session), "s-window")
+        self.assertEqual(self.spawns()[0]["stdin"], "hello")
+
+    def test_stop_kills_the_running_child(self):
+        os.environ["CROW_FAKE_CLAUDE_HANG"] = "1"
+        api = self.api()
+        worker = threading.Thread(target=api._run, args=("hang",), daemon=True)
+        worker.start()
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and not (
+                self.spawns() and crow_core._CLAUDE_CHILD):
+            time.sleep(0.05)
+        pid = self.spawns()[0]["pid"]
+        api.stop()
+        worker.join(timeout=30)
+        self.assertFalse(worker.is_alive(), "the turn outlived Stop")
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and crow_platform.pid_alive(pid):
+            time.sleep(0.1)
+        self.assertFalse(crow_platform.pid_alive(pid), "the child outlived Stop")
+        self.assertIn({"k": "fail", "t": crow_core.ABORT_NOTE}, self.drained(api))
+
+    # The page's menu members, cut out by their own heads and RUN in node.
+    MENU = (("  modelPlan(){", "  modelMenu(){"),
+            ("  foreignRunning(){", "  chooseModel(k){"),
+            ("  reasonGroups(){", "  levelLabel(){"),
+            ("  levelLabel(){", "  // #119. ONE CHIP FOR BOTH"))
+
+    def menu(self, models: list, reasoning: str = "") -> dict:
+        node = _node()
+        if not node:
+            self.skipTest("no node on this machine")
+        page = crow_gui.PAGE
+        members = "".join(page[page.index(a):page.index(b, page.index(a))]
+                          for a, b in self.MENU)
+        prog = ("const o={models:%s, modelKey:'opus', modelName:'Opus 5.5', "
+                "levels:%s, groups:[], reasoning:%s, %s};\n"
+                "console.log(JSON.stringify({plan:o.modelPlan().map(p=>[p.kind,p.k,"
+                "p.name,p.what||'',!!p.off,(p.bits||[]).join(' '),!!p.tick]),"
+                "label:o.levelLabel()}));\n"
+                % (json.dumps(models), json.dumps(list(crow_core.CLAUDE_EFFORTS)),
+                   json.dumps(reasoning), members))
+        done = subprocess.run([node, "-e", prog], capture_output=True, text=True,
+                              encoding="utf-8", timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_the_menu_greys_out_and_names_the_default_level(self):
+        """Amendment 2 on the page: a model too new for Claude Code 2.1.283 is a
+        disabled row naming `claude update`; "(default)" is named after the
+        model's own default and sends `off` -- no `--effort`."""
+        models = crow_core.claude_model_rows("2.1.283", {})
+        out = self.menu(models)
+        rows = {(p[0], p[1]): p for p in out["plan"]}
+        self.assertEqual(rows[("model", "sonnet")][3:5],
+                         ["needs Claude Code ≥ 2.1.284 — claude update", True])
+        self.assertEqual(rows[("model", "opus")][3:5], ["running", False])
+        self.assertEqual(rows[("level", "off")][2:],
+                         ["medium", "", False, "default", True])
+        self.assertEqual([p[1] for p in out["plan"] if p[0] == "level"],
+                         ["off", *crow_core.CLAUDE_EFFORTS])
+        self.assertEqual(out["label"], " · medium (default)")
+        self.assertEqual(self.menu(models, "high")["label"], " · high")
+
+    def test_the_menu_shows_the_effort_variable_instead_of_levels(self):
+        models = crow_core.claude_model_rows(
+            "2.1.300", {crow_core.CLAUDE_CLI_EFFORT_ENV: "max"})
+        out = self.menu(models, "high")
+        levels = [p for p in out["plan"] if p[0] == "level"]
+        self.assertEqual(levels, [["level", "", "set by CLAUDE_CODE_EFFORT_LEVEL=max",
+                                   "", True, "", False]])
+        self.assertEqual(out["label"], " · max (env)")
+
+
+class TheLocalServerIsWatchedTests(ApiCase):
+    """#391, reopened on the owner's live check of 2026-10-15: a crow-nest point
+    stopped mid-session left the composer dot green, because the state was
+    asked at `ready()` and on a reload and never again."""
+
+    LOCAL = {"remote": False, "base_url": "http://127.0.0.1:1/v1"}
+
+    def _ups_and_downs(self, api) -> list:
+        return [m["k"] for m in self.drained(api) if m.get("k") in ("up", "down")]
+
+    def test_a_stopped_server_says_so_once_and_a_return_asks_again(self):
+        api = self.api()
+        gone = crow_core.CrowError("no endpoint at http://127.0.0.1:1/health")
+        with mock.patch.object(api, "_endpoint", return_value=self.LOCAL), \
+             mock.patch.object(crow_gui, "check_endpoint", side_effect=gone):
+            api._health_tick()
+            api._health_tick()
+        self.assertEqual(self._ups_and_downs(api), ["down"], "said once, not every tick")
+        probed = []
+        with mock.patch.object(api, "_endpoint", return_value=self.LOCAL), \
+             mock.patch.object(crow_gui, "check_endpoint", return_value="ok"), \
+             mock.patch.object(api, "_probe",
+                               side_effect=lambda redraw=False: probed.append(redraw)):
+            api._health_tick()
+        self.assertEqual(probed, [True], "the server that came back is asked again")
+
+    def test_a_server_that_stays_up_is_not_reprobed(self):
+        api = self.api()
+        with mock.patch.object(api, "_endpoint", return_value=self.LOCAL), \
+             mock.patch.object(crow_gui, "check_endpoint", return_value="ok"), \
+             mock.patch.object(api, "_probe") as probe:
+            api._health_tick()
+            api._health_tick()
+        probe.assert_not_called()
+        self.assertEqual(self._ups_and_downs(api), [])
+
+    def test_the_subscription_never_asks_the_local_server(self):
+        """The owner, 2026-10-15: on the Claude subscription a stopped crow-nest
+        point must not turn the lamp red -- the turns do not go there."""
+        api = self.api()
+        api._health_down = False
+        claude = {"remote": True, "transport": crow_core.TRANSPORT_CLAUDE_CLI,
+                  "base_url": ""}
+        with mock.patch.object(api, "_endpoint", return_value=claude), \
+             mock.patch.object(crow_gui, "check_endpoint") as asked:
+            api._health_tick()
+        asked.assert_not_called()
+        self.assertEqual(self._ups_and_downs(api), [])
+
+    def test_the_window_starts_the_watcher_and_ready_does_not(self):
+        """Started beside `pump` in `main`. In `ready()` the never-ending loop
+        ran inline under the suites' `_RunsNow` Thread and hung the gate for 55
+        minutes on 2026-10-15."""
+        self.assertIn("target=api._health_watch", inspect.getsource(crow_gui.main))
+        self.assertNotIn("_health_watch", inspect.getsource(crow_gui.Api.ready))
+
+    def test_a_running_turn_is_not_talked_over(self):
+        api = self.api()
+        api._worker = mock.Mock(is_alive=lambda: True)
+        with mock.patch.object(api, "_endpoint", return_value=self.LOCAL), \
+             mock.patch.object(crow_gui, "check_endpoint") as asked:
+            api._health_tick()
+        asked.assert_not_called()
 
 
 if __name__ == "__main__":
