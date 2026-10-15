@@ -27277,10 +27277,9 @@ LOCAL_PROVIDER = "local"
 # sending it would be asking for whatever is current.
 ANTHROPIC_VERSION = "2023-06-01"
 
-# WHAT AN OAUTH CREDENTIAL COSTS IN HEADERS, per provider. A pasted key needs
-# none of this; a token minted by a sign-in is only accepted when the request
-# says that is what it is carrying.
-PROVIDER_OAUTH_HEADERS = {"anthropic": {"anthropic-beta": "oauth-2025-04-20"}}
+# #390, 2026-10-15: NO SIGN-IN CREDENTIAL TRAVELS ANY MORE, so no header for one
+# either. A remote provider here is a pasted key or nothing; the Claude
+# subscription is its own provider, `claude`, and Claude Code signs in by itself.
 
 # ORDERED, because the sheet draws it in this order: the machine first, then the
 # one key that reaches everything else. Step 2 of the decided order -- direct
@@ -27362,18 +27361,15 @@ PROVIDERS = {
         "key_hint": "sk-ant-...",
         "catalog": "https://api.anthropic.com/v1/models",
         "catalog_auth": "anthropic",
-        # ITS OWN DIALECT, AND FOR BOTH CREDENTIAL KINDS. The OpenAI-shaped
-        # layer at the same host takes an API key and is documented by Anthropic
-        # as a way to compare models rather than a way to run on them -- and a
-        # subscription token does not reach it at all. One transport for the
-        # provider is one answer; one per credential kind would be two.
+        # ITS OWN DIALECT. The OpenAI-shaped layer at the same host takes an API
+        # key and is documented by Anthropic as a way to compare models rather
+        # than a way to run on them. A pasted `sk-ant-` key only, since #390
+        # (2026-10-15): the subscription is the `claude` entry below.
         "transport": TRANSPORT_MESSAGES,
         # `max_input_tokens` is where Anthropic reports the window; there is no
         # `context_length` field on that endpoint at all.
         "context_keys": ("max_input_tokens", "context_length"),
         "blurb": "Claude, on its own Messages API.",
-        "sub_blurb": "Sign in with your Claude subscription.",
-        "oauth": {},
     },
     "openai": {
         "label": "OpenAI",
@@ -27385,11 +27381,9 @@ PROVIDERS = {
         # the bar stays off. That is the honest outcome of the rule one line
         # further down in `provider_context`, not an oversight here.
         "blurb": "GPT models, straight from the source.",
-        "sub_blurb": "Sign in with your ChatGPT account.",
-        # MEASURED 2026-08-22: auth.openai.com publishes an
-        # openid-configuration with authorize and token endpoints. It publishes
-        # NO registration_endpoint, so the client_id still has to be named.
-        "oauth": {"issuer": "https://auth.openai.com"},
+        # A PASTED `sk-...` KEY ONLY. The ChatGPT sign-in went with #390
+        # (the owner, 2026-10-15) and comes back in its own ticket, once OpenAI's
+        # terms are read the way Anthropic's were.
     },
     # #390. THE SUBSCRIPTION, as its own provider and not a credential kind of
     # `anthropic`: no base URL, no key, no catalogue -- Claude Code is the
@@ -27565,6 +27559,9 @@ def provider_fetch_models(name: str, key: "str | None" = None,
     a55b` and `...:free` are two entries with two bills, and a client that tidies
     the suffix away sends the paid twin. `:extended` is a DIFFERENT window under
     the same name; `:nitro` and `:floor` change which provider serves it.
+
+    `kind` IS WHAT `provider_credential` SAID, and since #390 that is "key" or
+    "": there is no second credential kind left to spell differently.
     """
     spec = PROVIDERS.get(name) or {}
     url = spec.get("catalog") or ""
@@ -27576,14 +27573,11 @@ def provider_fetch_models(name: str, key: "str | None" = None,
     # `/v1/models` is the native API and wants `x-api-key` and a version -- one
     # provider, two dialects, and a client that assumed one of them gets a 401
     # from an endpoint it can otherwise talk to.
-    if key and spec.get("catalog_auth") == "anthropic" and kind != "oauth":
+    if key and spec.get("catalog_auth") == "anthropic":
         headers["x-api-key"] = key
         headers["anthropic-version"] = ANTHROPIC_VERSION
     elif key:
         headers["Authorization"] = "Bearer %s" % key
-        if spec.get("catalog_auth") == "anthropic":
-            headers["anthropic-version"] = ANTHROPIC_VERSION
-            headers.update(PROVIDER_OAUTH_HEADERS.get(name) or {})
     try:
         request = urllib.request.Request(url, headers=headers, method="GET")
         with urllib.request.urlopen(request, timeout=timeout) as resp:
@@ -27680,13 +27674,10 @@ def provider_pick(name: str, model: "str | None" = None) -> "str | None":
     # control that changes the answer.
     if name == "openrouter" and not openrouter_on():
         return OPENROUTER_OFF_NOTE
-    # A LOGIN COUNTS AS A KEY. Refusing a provider somebody just signed in to,
-    # because the key box beside it is empty, would be the sheet answering a
-    # question nobody asked.
-    if PROVIDERS[name]["needs_key"] and not (provider_key_for(name)
-                                             or provider_signed_in(name)
-                                             or provider_borrowing(name)):
-        return "%s needs a key or a sign-in first" % PROVIDERS[name]["label"]
+    # A KEY IS THE ONLY CREDENTIAL since #390. The subscription is `claude`,
+    # which needs none -- Claude Code signs in by itself -- and is picked freely.
+    if PROVIDERS[name]["needs_key"] and not provider_key_for(name):
+        return "%s needs a key first" % PROVIDERS[name]["label"]
     doc = provider_doc()
     doc["active"] = name
     if model is not None:
@@ -27781,18 +27772,16 @@ def provider_active(doc: "dict | None" = None) -> str:
 def provider_headers(name: str, kind: str, credential: str) -> dict:
     """What this provider wants on top of the transport's own headers.
 
-    THE CREDENTIAL DECIDES THE SPELLING, not the provider. Anthropic takes an
-    API key as `x-api-key` and an OAuth token as `Authorization: Bearer` with a
-    beta flag beside it; the same endpoint, two ways of saying who is asking,
-    and sending both is a request with two opinions.
+    ANTHROPIC TAKES ITS KEY AS `x-api-key`, every other provider as
+    `Authorization: Bearer` -- which the transport writes itself when nobody
+    named a key header. Sending both is a request with two opinions about who
+    is asking. Since #390 a key is the only credential kind there is.
     """
     spec = PROVIDERS.get(name) or {}
     head = {}
     if spec.get("transport") == TRANSPORT_MESSAGES:
         head["anthropic-version"] = ANTHROPIC_VERSION
-    if kind == "oauth":
-        head.update(PROVIDER_OAUTH_HEADERS.get(name) or {})
-    elif kind == "key" and spec.get("catalog_auth") == "anthropic" and credential:
+    if kind == "key" and spec.get("catalog_auth") == "anthropic" and credential:
         head["x-api-key"] = credential
     return head
 
@@ -27968,16 +27957,22 @@ def provider_view() -> dict:
     for name, spec in PROVIDERS.items():
         key = provider_key_for(name)
         models = provider_models(name, doc)
+        # #390: WHAT THE PROVIDER NEEDS IS HELD -- a key where one is needed;
+        # for `claude`, Claude Code found and signed in, read from the LAST
+        # PROBE and never asked here: the probe spawns two processes, and this
+        # view is drawn every time the sheet opens. None = not asked yet.
+        if name == CLAUDE_PROVIDER:
+            held, unheld = claude_held(), CLAUDE_UNHELD
+        else:
+            held, unheld = (bool(key) or not spec["needs_key"]), "needs a key"
         rows.append({"name": name, "label": spec["label"], "blurb": spec["blurb"],
                      "remote": name != LOCAL_PROVIDER,
                      "needs_key": spec["needs_key"], "key_hint": spec["key_hint"],
                      "key": provider_key_mask(key), "has_key": bool(key),
-                     "signed_in": provider_signed_in(name),
-                     "borrowing": provider_borrowing(name, doc),
+                     "held": held, "unheld": unheld,
                      "listable": bool(spec["catalog"]), "models": models,
                      "model": provider_model_for(name, doc), "count": len(models)})
     return {"active": provider_active(doc), "providers": rows,
-            "subscriptions": provider_subscriptions(),
             # #148: what the favourites dropdowns preselect.
             "delegate_favorites": delegate_favorites(doc),
             # The broker page's switch state (2026-08-28). Absent means on.
@@ -27985,553 +27980,156 @@ def provider_view() -> dict:
             "file": PROVIDERS_FILE, "note": REMOTE_ENDPOINT_NOTE}
 
 
-# ------------------------------------------------------- subscriptions (OAuth)
+# ------------------------------------------- credentials and the tile (#390)
 
-# NEITHER PROVIDER LETS THIS CLIENT REGISTER ITSELF. Measured 2026-08-22 against
-# the endpoints, not read anywhere:
-#
-#   claude.ai, api.anthropic.com, console.anthropic.com
-#       /.well-known/oauth-authorization-server   404
-#       /.well-known/openid-configuration         404
-#   auth.openai.com
-#       /.well-known/openid-configuration         200, authorize + token present,
-#                                                 registration_endpoint  null
-#
-# So the browser leg is buildable -- every piece of it already exists for MCP --
-# and the ONE thing missing is a `client_id`. Crow answers that the way it
-# already answers it for an MCP server with no dynamic registration: the value
-# comes out of the configuration, named, and until it is there the tile says so
-# instead of opening a login that comes back 400.
-#
-# WHAT IS NOT DONE HERE: sending somebody else's `client_id`. A client that
-# presents itself as another product to get past a registration it was never
-# granted is the disguise half of the line this codebase already draws at
-# `User-Agent` -- naming yourself is not dressing up as somebody else. If that
-# is wanted it is a value a person puts in the file knowingly, not a constant
-# this file ships.
-PROVIDER_TOKEN_FILE = os.path.join(crow_platform.config_dir(), "provider_tokens.json")
-
-# Refresh this many seconds before expiry, and the reason is MCP_TOKEN_SKEW's:
-# a token valid when the request is built and stale when it arrives is the
-# failure a margin exists for.
-PROVIDER_TOKEN_SKEW = 60.0
-
-# How long the browser leg may take. A person is reading a consent screen.
-PROVIDER_OAUTH_WAIT = 300.0
-
-# Said where a tile cannot open a browser, and it names the file and the key
-# rather than the concept -- the same shape the MCP path answers with.
-PROVIDER_NO_CLIENT = ("%s does not let a client register itself, so it needs a "
-                      "client_id. Put one in providers.json under "
-                      "oauth.%s.client_id")
-
-
-# THE SANCTIONED WAY IN, and it is neither a browser leg nor a borrowed session.
-# `claude setup-token` is documented as "generate a long-lived OAuth token for CI
-# and scripts. Prints the token to the terminal without saving it. Requires a
-# Claude subscription" -- a credential the subscriber mints FOR another program,
-# which is exactly what Crow is here. Claude Code itself stores it under the name
-# below when it wires up GitHub Actions, and Hermes' own sign-in dialog does the
-# same thing: it prints this command and waits.
-#
-# WHAT IT REPLACES: nothing had to be invented after all. No client_id borrowed
-# from another product, no refresh of somebody else's grant, no reading a session
-# store that was refused anyway -- measured 2026-08-23, a borrowed Claude Code
-# session token authenticated at `/v1/messages` and came back 429 with a body
-# that named no limit, while the account's own five-hour window stood at 7 %.
-PROVIDER_SETUP = {
-    "anthropic": {"command": "claude setup-token",
-                  "env": "CLAUDE_CODE_OAUTH_TOKEN",
-                  "hint": "sk-ant-oat..."},
-}
-
-
-def provider_setup_env(name: str) -> str:
-    """A subscription token handed over by the environment, or "".
-
-    THE SAME NAME CLAUDE CODE USES for it, so a machine that already exports one
-    for CI needs nothing typed here at all.
-    """
-    spec = PROVIDER_SETUP.get(name) or {}
-    return (os.environ.get(spec.get("env") or "") or "").strip()
-
-
-def provider_token_paste(name: str, token: str) -> "str | None":
-    """Keep a pasted subscription token. The problem, or None.
-
-    NO REFRESH TOKEN AND NO EXPIRY, because that is what "long-lived" means: it
-    is minted once and used until the person revokes it. Storing an expiry this
-    client invented would put a deadline on a credential that has none.
-    """
-    if name not in PROVIDER_SETUP:
-        return "%s has no setup command" % name
-    token = (token or "").strip()
-    doc = provider_tokens()
-    if not token:
-        doc.pop(name, None)
-        return provider_token_write(doc)
-    doc[name] = {"access_token": token, "source": "setup-token"}
-    return provider_token_write(doc)
-
-
-def provider_oauth_block(name: str, doc: "dict | None" = None) -> dict:
-    """What is known about a provider's login: the built-in half plus the file.
-
-    THE FILE WINS, because everything the built-in half can carry was measured
-    against a public endpoint and everything it cannot -- the `client_id` above
-    all -- is a value only the person running this has.
-    """
-    spec = (PROVIDERS.get(name) or {}).get("oauth") or {}
-    doc = provider_doc() if doc is None else doc
-    theirs = (doc.get("oauth") or {}).get(name)
-    block = dict(spec)
-    if isinstance(theirs, dict):
-        for key, value in theirs.items():
-            if isinstance(value, str) and value.strip():
-                block[key] = value.strip()
-    return block
-
-
-# WHERE ANOTHER PROGRAM'S SIGN-IN LIVES, and every one of these is a PATTERN
-# rather than a value: the home directory is expanded at call time, so no path
-# belonging to whoever runs this is written down here, and nothing out of these
-# files is ever copied into Crow's own.
-#
-# READ, NEVER WRITTEN, AND NEVER REFRESHED. The refresh token in these stores
-# belongs to the program that owns them; spending it would rotate the credential
-# the other product is still using and could sign a person out of the tool they
-# were working in. An expired borrowed token is therefore reported and not
-# repaired -- the owning program refreshes it the next time it runs.
-#
-# WHAT IT MEANS ON THE WIRE, said once here because it is the whole trade: a
-# request authenticated this way carries a grant issued to that other product.
-# Nothing is registered under a false name and no new grant is created, but the
-# provider sees that grant. It happens only when somebody switches it on.
-PROVIDER_BORROW = {
-    "anthropic": {"product": "Claude Code",
-                  "path": ("~", ".claude", ".credentials.json"),
-                  "block": "claudeAiOauth", "token": "accessToken",
-                  "expires": "expiresAt", "unit": 1000.0},
-}
-
-# WHY CODEX IS NOT IN THAT TABLE, and it was for one build. `~/.codex/auth.json`
-# holds an access token, and borrowing it looked like the same trade as Claude
-# Code's. Measured 2026-08-23 the moment it was switched on: `GET
-# https://api.openai.com/v1/models` answers **HTTP 403**, not 401 -- the request
-# authenticates and is then refused the resource, which is what a token for a
-# different audience looks like. That token belongs to the ChatGPT backend
-# Codex talks to; the platform API at api.openai.com wants an `sk-...` key from
-# a billing account, and no header turns one into the other. Hermes carries the
-# same split as two separate providers, `openai-codex` beside `openai-api`.
-#
-# A CODEX PROVIDER WOULD BE ITS OWN ENTRY with its own base URL, and that URL is
-# not written here because nobody has measured it. A tile that said "signed in"
-# while every turn came back 403 is the failure this line exists to prevent.
-
-
-def provider_borrow_path(name: str) -> str:
-    """Where that provider's other sign-in would be, expanded. "" if none."""
-    spec = PROVIDER_BORROW.get(name)
-    if not spec:
-        return ""
-    parts = list(spec["path"])
-    root = os.path.expanduser(parts[0]) if parts[0] == "~" else parts[0]
-    return os.path.join(root, *parts[1:])
-
-
-def provider_borrow_seen(name: str) -> bool:
-    """Whether such a store exists at all. Says nothing about what is in it."""
-    target = provider_borrow_path(name)
-    return bool(target) and os.path.isfile(target)
-
-
-def provider_borrowed(name: str) -> "tuple[str, str | None]":
-    """The token another program holds. (token, problem), and it never writes.
-
-    THE FILE IS OPENED FOR THE ONE FIELD IT IS ASKED FOR. Everything else in it
-    -- and these stores hold plenty -- is not read into any structure this
-    process keeps, is never logged, and never reaches a view.
-
-    A STALE `expiresAt` IS NOT A VETO, and that was wrong for one build.
-    Measured 2026-08-23: the field said 00:11, the clock said 00:49, and the file
-    had not been written since 21:41 -- while the program that owns it was
-    running the whole time. The timestamp is another program's bookkeeping, and
-    the authority on whether a credential still works is the provider that
-    issued it. So the token is handed over and the staleness is SAID; a refusal
-    here turns "probably expired" into "certainly unusable" on evidence that is
-    second-hand. `provider_borrowed_stale` is what a surface asks.
-    """
-    spec = PROVIDER_BORROW.get(name)
-    if not spec:
-        return "", "%s has no sign-in to borrow" % name
-    target = provider_borrow_path(name)
-    if not os.path.isfile(target):
-        return "", "no %s sign-in on this machine" % spec["product"]
-    try:
-        with open(target, encoding="utf-8") as fh:
-            doc = json.load(fh)
-    except (OSError, ValueError) as exc:
-        return "", ("%s's sign-in could not be read (%s)"
-                    % (spec["product"], type(exc).__name__))
-    block = doc.get(spec["block"])
-    token = (block or {}).get(spec["token"]) if isinstance(block, dict) else None
-    if not isinstance(token, str) or not token:
-        return "", "%s is not signed in" % spec["product"]
-    return token, None
-
-
-def provider_borrowed_stale(name: str) -> str:
-    """The line to show when the borrowed token looks past its date, or "".
-
-    NOT REPAIRED, EVER. The refresh token in that file is the other product's,
-    and spending it would rotate the credential that program is still using.
-    """
-    spec = PROVIDER_BORROW.get(name)
-    if not spec or not spec["expires"] or not spec["unit"]:
-        return ""
-    try:
-        with open(provider_borrow_path(name), encoding="utf-8") as fh:
-            block = (json.load(fh) or {}).get(spec["block"]) or {}
-    except (OSError, ValueError):
-        return ""
-    due = block.get(spec["expires"]) if isinstance(block, dict) else None
-    if isinstance(due, (int, float)) and due / spec["unit"] <= time.time():
-        return ("%s's sign-in looks expired -- open %s once and it refreshes "
-                "itself" % (spec["product"], spec["product"]))
-    return ""
-
-
-def provider_borrowing(name: str, doc: "dict | None" = None) -> bool:
-    """Whether this machine's other sign-in is switched on for that provider.
-
-    A FLAG FOR A PROVIDER THIS BUILD CANNOT BORROW FROM IS NOT A STATE. Codex
-    was in that table for one build and came out of it after a measured 403; a
-    file switched on back then must not leave the resolver reaching for a store
-    it no longer knows -- it falls through to the key, which is the answer this
-    build has.
-    """
-    if name not in PROVIDER_BORROW:
-        return False
-    doc = provider_doc() if doc is None else doc
-    return bool((doc.get("borrow") or {}).get(name))
-
-
-def provider_borrow_set(name: str, on: bool) -> "str | None":
-    """Switch it on or off. The problem, or None.
-
-    ON IS A DECISION AND IT IS TAKEN ONCE, in the sheet, by a person who is told
-    what it means. Nothing switches it on by finding a file.
-    """
-    if name not in PROVIDER_BORROW:
-        return "%s has no sign-in to borrow" % name
-    if on:
-        _token, problem = provider_borrowed(name)
-        if problem:
-            return problem
-    doc = provider_doc()
-    block = doc.get("borrow")
-    if not isinstance(block, dict):
-        block = {}
-    if on:
-        block[name] = True
-    else:
-        block.pop(name, None)
-    doc["borrow"] = block
-    return provider_write(doc)
-
-
-def provider_oauth_set(name: str, fields: dict) -> "str | None":
-    """Put a login's missing halves in the file. The problem, or None.
-
-    THE SHEET WRITES THIS AND NOT A PERSON WITH AN EDITOR. The values are the
-    ones no endpoint would hand over -- neither provider publishes a
-    registration document -- so they have to be typed once; asking somebody to
-    find `providers.json` to do it is a control that exists only in a sentence.
-
-    AN EMPTY FIELD CLEARS ITS KEY rather than storing emptiness, the same rule
-    `provider_key_set` follows: a box somebody blanked means "not this one", and
-    a stored "" would read as a value.
-    """
-    if name not in PROVIDERS:
-        return "no provider called %s" % name
-    doc = provider_doc()
-    block = doc.get("oauth")
-    if not isinstance(block, dict):
-        block = {}
-    mine = dict(block.get(name) or {})
-    for key in ("client_id", "authorize", "token", "scope", "client_secret"):
-        if key not in fields:
-            continue
-        value = str(fields.get(key) or "").strip()
-        if value:
-            mine[key] = value
-        else:
-            mine.pop(key, None)
-    if mine:
-        block[name] = mine
-    else:
-        block.pop(name, None)
-    doc["oauth"] = block
-    return provider_write(doc)
-
-
-def provider_tokens(path: "str | None" = None) -> dict:
-    """Every stored token by provider. NEVER handed to a surface as it stands."""
-    try:
-        with open(path or PROVIDER_TOKEN_FILE, encoding="utf-8") as fh:
-            doc = json.load(fh)
-    except (OSError, ValueError):
-        return {}
-    return doc if isinstance(doc, dict) else {}
-
-
-def provider_token_write(doc: dict, path: "str | None" = None) -> "str | None":
-    target = path or PROVIDER_TOKEN_FILE
-    try:
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "w", encoding="utf-8") as fh:
-            json.dump(doc, fh, indent=1)
-        try:
-            os.chmod(target, 0o600)
-        except OSError:
-            pass
-    except OSError as exc:
-        return "provider_tokens.json could not be written: %s" % exc
-    if provider_tokens(target) != doc:
-        return "provider_tokens.json did not read back as it was written"
-    return None
-
-
-def provider_token_drop(name: str) -> "str | None":
-    """Sign out of one provider. The reason it failed, or None."""
-    doc = provider_tokens()
-    if name not in doc:
-        return None
-    doc.pop(name, None)
-    return provider_token_write(doc)
-
-
-def provider_signed_in(name: str) -> bool:
-    """Whether a login is on disk. Says nothing about whether it still works."""
-    return bool((provider_tokens().get(name) or {}).get("access_token"))
-
-
-def provider_refresh_token(name: str) -> "str | None":
-    """Trade the refresh token for a fresh access token. The problem, or None.
-
-    A PROVIDER THAT ISSUED NO REFRESH TOKEN IS NOT A FAILURE -- it is a login
-    that runs out, and the honest answer to that is the tile saying so, not a
-    silent retry loop against an endpoint that will keep refusing.
-    """
-    record = provider_tokens().get(name) or {}
-    refresh = record.get("refresh_token")
-    if not refresh:
-        return "%s issued no refresh token -- sign in again" % name
-    meta = {"token_endpoint": record.get("token_endpoint") or ""}
-    if not _oauth_safe(meta["token_endpoint"]):
-        return "%s has no token endpoint on file -- sign in again" % name
-    form = {"grant_type": "refresh_token", "refresh_token": refresh,
-            "client_id": record.get("client_id") or ""}
-    if record.get("scope"):
-        form["scope"] = record["scope"]
-    answer, problem = _oauth_exchange(meta, form)
-    if problem:
-        return problem
-    doc = provider_tokens()
-    kept = dict(doc.get(name) or {})
-    kept["access_token"] = answer["access_token"]
-    # THE OLD REFRESH TOKEN IS KEPT WHEN THE ANSWER CARRIES NONE. Overwriting it
-    # with an empty value would turn every future refresh into a browser leg.
-    if answer.get("refresh_token"):
-        kept["refresh_token"] = answer["refresh_token"]
-    try:
-        kept["expires_at"] = time.time() + float(answer.get("expires_in"))
-    except (TypeError, ValueError):
-        kept.pop("expires_at", None)
-    doc[name] = kept
-    return provider_token_write(doc)
+# A KEY OR NOTHING, for every remote provider, since #390 (the owner, 2026-10-15).
+# What stood here until then -- Crow's own browser sign-in, the pasted
+# `claude setup-token`, a subscription token read from the environment and the
+# one read out of Claude Code's own store -- each sent subscription credentials
+# through a third-party program, which Anthropic's terms forbid
+# (code.claude.com/docs/en/legal-and-compliance, "Authentication and credential
+# use", read 2026-10-15). The ChatGPT sign-in went in the same change and comes
+# back in its own ticket. The subscription is the `claude` provider now: Claude
+# Code holds the sign-in, and Crow never sees it.
 
 
 def provider_credential(name: str) -> "tuple[str, str, str | None]":
-    """(value, kind, problem). `kind` is "oauth", "key" or "".
+    """(value, kind, problem). `kind` is "key" or "", and `problem` is None.
 
-    A LOGIN OUTRANKS A PASTED KEY, because a person who signed in meant to use
-    the subscription they signed in with -- and a key left in the box from last
-    week would quietly spend money instead.
-
-    THE KIND TRAVELS WITH THE VALUE and is not derived from it later. A token
-    and a key are the same shape on the wire; only the caller that resolved them
-    knows which one it holds, and the headers differ.
+    THE TRIPLE STAYS, so its four callers keep their shape: the kind still
+    travels with the value into `provider_headers`, which is where Anthropic's
+    `x-api-key` is spelled.
     """
-    record = provider_tokens().get(name) or {}
-    token = record.get("access_token")
-    if token:
-        due = record.get("expires_at")
-        if isinstance(due, (int, float)) and due - PROVIDER_TOKEN_SKEW <= time.time():
-            problem = provider_refresh_token(name)
-            if problem:
-                return "", "oauth", problem
-            token = (provider_tokens().get(name) or {}).get("access_token") or ""
-        return str(token), "oauth", None
-    # THEN THE ENVIRONMENT, under the name Claude Code gives it. A machine that
-    # already exports one for CI is a machine that has already answered this
-    # question, and asking again would be a second place for the same fact.
-    token = provider_setup_env(name)
-    if token:
-        return token, "oauth", None
-    # AND ONLY THEN A BORROWED SESSION. It is last among the OAuth sources
-    # because it is the one that was refused: measured 2026-08-23, 429 from
-    # `/v1/messages` with no limit named and the account's own window at 7 %.
-    if provider_borrowing(name):
-        token, problem = provider_borrowed(name)
-        if problem:
-            return "", "oauth", problem
-        return token, "oauth", None
     key = provider_key_for(name)
     if key:
         return key, "key", None
     return "", "", None
 
 
-def provider_authorise(name: str) -> "str | None":
-    """The whole browser flow for one provider. None when it worked.
+# THE LEFTOVER ON DISK. `provider_tokens.json` held the tokens of the removed
+# sign-ins and nothing else, and nothing reads it now. It is Crow's own file, so
+# Crow removes it: on the first start that finds it, with ONE line in crow.log,
+# and that is all -- no other file is opened. An `"oauth"` or `"borrow"` block
+# left in providers.json is an unknown key like any other: read by nobody, and
+# not rewritten either.
+PROVIDER_TOKENS_LEFTOVER = os.path.join(crow_platform.config_dir(),
+                                        "provider_tokens.json")
 
-    EVERY PIECE OF THIS ALREADY EXISTED for MCP -- PKCE, the loopback catcher,
-    the browser, the metadata check, the exchange. What is new is only where the
-    endpoints come from: an MCP server hands them over in its own metadata,
-    while these two are named in the configuration because neither publishes a
-    document this client is allowed to register against.
 
-    NO `resource`. RFC 8707 binds a token to the API it was issued for, and the
-    MCP path sends it because the specification requires it there. Here there is
-    no resource identifier to send: asking for a token bound to a name nobody
-    published would be this client inventing an audience.
-    """
-    if name not in PROVIDERS:
-        return "no provider called %s" % name
-    block = provider_oauth_block(name)
-    client_id = block.get("client_id")
-    if not client_id:
-        return PROVIDER_NO_CLIENT % (PROVIDERS[name]["label"], name)
-
-    issuer = block.get("issuer") or ""
-    if issuer:
-        meta, problem = _oauth_server_metadata(issuer)
-        if problem:
-            return problem
-    else:
-        # NAMED BY HAND, AND CHECKED THE SAME WAY. `_oauth_safe` is what keeps a
-        # typo in a config file from sending a consent screen to plain http or
-        # to something that is not a URL at all.
-        meta = {"authorization_endpoint": block.get("authorize") or "",
-                "token_endpoint": block.get("token") or ""}
-        for field, key in (("authorization_endpoint", "authorize"),
-                           ("token_endpoint", "token")):
-            if not _oauth_safe(meta[field]):
-                return ("%s has no usable %s -- put one in providers.json under "
-                        "oauth.%s.%s" % (PROVIDERS[name]["label"], key, name, key))
-
-    listener, redirect = _oauth_listen(block.get("redirect_host") or "127.0.0.1")
+def retire_provider_tokens(path: "str | None" = None) -> bool:
+    """Delete the leftover token file. True when there was one. Never raises."""
+    target = path or PROVIDER_TOKENS_LEFTOVER
     try:
-        verifier, challenge = _oauth_pkce()
-        state = _oauth_state()
-        query = {"response_type": "code", "client_id": client_id,
-                 "redirect_uri": redirect, "state": state,
-                 "code_challenge": challenge, "code_challenge_method": "S256"}
-        if block.get("scope"):
-            query["scope"] = block["scope"]
-        where = (meta["authorization_endpoint"]
-                 + ("&" if "?" in meta["authorization_endpoint"] else "?")
-                 + urllib.parse.urlencode(query))
-        _oauth_open(where)
-        if not listener.done.wait(PROVIDER_OAUTH_WAIT):
-            return ("nobody finished the sign-in for %s within %gs"
-                    % (PROVIDERS[name]["label"], PROVIDER_OAUTH_WAIT))
-        caught = listener.caught
-        if caught.get("error"):
-            return ("%s refused: %s %s" % (
-                PROVIDERS[name]["label"],
-                strip_tag_characters(str(caught.get("error")))[:80],
-                strip_tag_characters(str(caught.get("error_description") or ""))[:200]))
-        # THE STATE IS THE BINDING. Without it anything that can reach the
-        # loopback port can feed this client a code of its own.
-        if caught.get("state") != state:
-            return "the sign-in came back with a state this client did not send"
-        if not caught.get("code"):
-            return "the sign-in came back without a code"
-        form = {"grant_type": "authorization_code", "code": caught["code"],
-                "redirect_uri": redirect, "client_id": client_id,
-                "code_verifier": verifier}
-        if block.get("client_secret"):
-            form["client_secret"] = block["client_secret"]
-        answer, problem = _oauth_exchange(meta, form)
-        if problem:
-            return problem
-        record = {"access_token": answer["access_token"],
-                  "client_id": str(client_id),
-                  "token_endpoint": meta["token_endpoint"]}
-        if answer.get("refresh_token"):
-            record["refresh_token"] = answer["refresh_token"]
-        if block.get("scope"):
-            record["scope"] = block["scope"]
-        try:
-            record["expires_at"] = time.time() + float(answer.get("expires_in"))
-        except (TypeError, ValueError):
-            pass
-        doc = provider_tokens()
-        doc[name] = record
-        problem = provider_token_write(doc)
-        if problem:
-            return problem
-        # THE CATALOGUE IS FETCHED ON THE WAY OUT, while the person is still
-        # looking at the sheet they just signed in from. A list fetched later is
-        # a wait nobody is expecting.
-        provider_refresh(name)
-        return None
-    finally:
-        listener.shutdown()
-        listener.server_close()
+        os.remove(target)
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        log_note("provider_tokens.json is left over from the removed sign-in and "
+                 "could not be removed: %s" % type(exc).__name__, "providers")
+        return False
+    log_note("removed provider_tokens.json: the subscription sign-in it held is "
+             "gone (#390); Claude Code signs in by itself", "providers")
+    return True
 
 
-def provider_subscriptions() -> list:
-    """What the Subscriptions page draws. One row per provider that can log in."""
-    doc = provider_doc()
-    rows = []
-    for name, spec in PROVIDERS.items():
-        # `in`, NOT truthiness. Anthropic's block is EMPTY -- it publishes no
-        # discovery document, so there is nothing to prefill -- and a tile that
-        # vanished because nothing could be measured about it would be the page
-        # hiding the provider the person came here for.
-        if "oauth" not in spec:
-            continue
-        block = provider_oauth_block(name, doc)
-        # WHICH HALVES ARE MISSING, not merely that one is. A provider that
-        # publishes discovery needs the client_id alone; one that publishes
-        # nothing needs the two endpoints as well, and a form that asked for all
-        # three either way would make the simpler case look like the harder one.
-        wants = ["client_id"] if block.get("issuer") else ["client_id", "authorize", "token"]
-        borrow = PROVIDER_BORROW.get(name) or {}
-        setup = PROVIDER_SETUP.get(name) or {}
-        rows.append({"name": name, "label": spec["label"],
-                     "command": setup.get("command") or "",
-                     "hint": setup.get("hint") or "",
-                     "from_env": bool(provider_setup_env(name)),
-                     "blurb": spec.get("sub_blurb") or spec["blurb"],
-                     "signed_in": provider_signed_in(name),
-                     "ready": bool(block.get("client_id")),
-                     "wants": wants,
-                     "has": {k: bool(block.get(k)) for k in wants},
-                     "discovers": bool(block.get("issuer")),
-                     # THE STORE IS ONLY REPORTED AS PRESENT OR NOT. What is in
-                     # it does not cross into a view, and the product's NAME is
-                     # the only thing about it a person is shown.
-                     "product": borrow.get("product") or "",
-                     "borrowable": provider_borrow_seen(name),
-                     "borrowing": provider_borrowing(name, doc),
-                     "stale": provider_borrowed_stale(name),
-                     "missing": "" if block.get("client_id")
-                                else PROVIDER_NO_CLIENT % (spec["label"], name)})
-    return rows
+# THE SUBSCRIPTIONS PAGE IS ONE TILE, the `claude` provider, and it REPORTS:
+# no browser, no paste field, no sign-out. Signing in is `claude auth login`,
+# run by the person in their own terminal and finished in Anthropic's own flow;
+# signing out is `claude auth logout`, shown as text. Three facts, none of them
+# stored anywhere but in this process:
+#   * `claude --version` -- found, or the install command;
+#   * `claude auth status` -- signed in, how, and the plan. NEVER WHO: the email
+#     and the organisation stay inside `claude_cli_auth`;
+#   * the env guard -- the variables that would move the bill, by name.
+#
+# ASKED WHEN THE PAGE OPENS AND ON "ask again", NEVER AT WINDOW START. The two
+# probes spawn two processes (CLAUDE_CLI_TIMEOUT each, at worst), and a window
+# that waited on them to open would be the mistake `provider_models` refuses
+# for catalogues. The answer is kept until the next ask, and the Model page
+# reads the kept one.
+
+# WHAT THE TILE SAYS PER `authMethod` (code.claude.com/docs/en/cli-reference,
+# read 2026-10-15: none / claude.ai / oauth_token / api_key / api_key_helper /
+# third_party). `oauth_token` is a token Claude Code reads from ITS environment:
+# the tile counts it as signed in, and Crow still never reads the variable.
+CLAUDE_SUB_SAYS = {
+    "claude.ai": "signed in with your subscription",
+    "oauth_token": ("signed in with a long-lived token from the environment, "
+                    "which Claude Code reads itself"),
+    "api_key": "Claude Code bills an API key, not your subscription",
+    "api_key_helper": "Claude Code bills an API key, not your subscription",
+    "third_party": "Claude Code runs on a cloud platform, not your subscription",
+}
+CLAUDE_SUB_OUT = "not signed in"
+CLAUDE_SUB_GUARD = "turns are refused while these are set"
+CLAUDE_SUB_MISSING = "image tools and goals: use the local model"
+CLAUDE_SUB_LOGOUT = "sign out: claude auth logout"
+# Said on the Model page beside `claude` when the kept probe says no.
+CLAUDE_UNHELD = "Claude Code is not signed in -- see Subscriptions"
+
+_CLAUDE_PROBE: dict = {}
+_CLAUDE_PROBE_LOCK = threading.Lock()
+
+
+def claude_probe(again: bool = False) -> dict:
+    """The kept answer of `claude --version` and `claude auth status`.
+
+    Asked the first time and then kept; `again` asks anew. The lock guards the
+    dict, not the spawn: two asks at once cost two probes, never a torn answer.
+    """
+    with _CLAUDE_PROBE_LOCK:
+        if _CLAUDE_PROBE and not again:
+            return dict(_CLAUDE_PROBE)
+    found = bool(claude_cli_path())
+    version, problem = claude_cli_version() if found else ("", None)
+    auth = (claude_cli_auth() if found
+            else {"logged_in": False, "method": "", "plan": "", "problem": None})
+    said = {"found": found, "version": version,
+            "logged_in": bool(auth.get("logged_in")),
+            "method": str(auth.get("method") or ""),
+            "plan": str(auth.get("plan") or ""),
+            "problem": problem or auth.get("problem") or ""}
+    with _CLAUDE_PROBE_LOCK:
+        _CLAUDE_PROBE.clear()
+        _CLAUDE_PROBE.update(said)
+    return dict(said)
+
+
+def claude_held() -> "bool | None":
+    """Found and signed in, from the KEPT probe. None while nobody has asked."""
+    with _CLAUDE_PROBE_LOCK:
+        if not _CLAUDE_PROBE:
+            return None
+        return bool(_CLAUDE_PROBE["found"] and _CLAUDE_PROBE["logged_in"])
+
+
+def provider_subscriptions(again: bool = False) -> list:
+    """What the Subscriptions page draws: exactly one row, `claude`."""
+    probe = claude_probe(again)
+    spec = PROVIDERS[CLAUDE_PROVIDER]
+    method = probe["method"]
+    if not probe["found"]:
+        says = "Claude Code is not installed"
+    elif probe["logged_in"]:
+        says = CLAUDE_SUB_SAYS.get(method) or "signed in"
+        if method == "claude.ai" and probe["plan"]:
+            says += " (%s)" % probe["plan"]
+    else:
+        says = probe["problem"] or CLAUDE_SUB_OUT
+    guard = claude_cli_env_conflicts()
+    return [{"name": CLAUDE_PROVIDER, "label": spec["label"],
+             "transport": spec["transport"], "mark": "anthropic",
+             "found": probe["found"], "version": probe["version"],
+             "install": "" if probe["found"] else CLAUDE_CLI_INSTALL,
+             # LIT ONLY FOR THE SUBSCRIPTION. Signed in with a key is signed
+             # in, and it is still not what this page is about.
+             "on": probe["logged_in"] and method in ("claude.ai", "oauth_token"),
+             "logged_in": probe["logged_in"], "method": method,
+             "plan": probe["plan"], "says": says,
+             "login": "" if probe["logged_in"] else CLAUDE_CLI_LOGIN,
+             "logout": CLAUDE_SUB_LOGOUT if probe["logged_in"] else "",
+             "guard": guard, "guard_says": CLAUDE_SUB_GUARD if guard else "",
+             "missing": CLAUDE_SUB_MISSING, "problem": probe["problem"]}]
 
 
 # ------------------------------------------------------- the claude CLI (#390)

@@ -92,7 +92,9 @@ crow_core.mcp_apply()
 # a turn goes. A path whose parent does not exist is the empty configuration.
 crow_core.PROVIDERS_FILE = os.path.join(_SANDBOX, "has-no-provider", "providers.json")
 crow_core.PROVIDER_KEYS_FILE = os.path.join(_SANDBOX, "has-no-provider", "keys.json")
-crow_core.PROVIDER_TOKEN_FILE = os.path.join(_SANDBOX, "has-no-provider", "tokens.json")
+# #390: the leftover of the removed sign-in, which a start deletes.
+crow_core.PROVIDER_TOKENS_LEFTOVER = os.path.join(_SANDBOX, "has-no-provider",
+                                                  "provider_tokens.json")
 # 2026-08-28: die Dauer-Freigaben ("always") schreiben nach APPROVALS_FILE --
 # dieselbe Regel, gefunden vom Waechter unten am Abend ihrer Einfuehrung.
 crow_core.APPROVALS_FILE = os.path.join(_SANDBOX, "has-no-provider", "approvals.json")
@@ -843,16 +845,13 @@ class TheSecondRolloverFiresTests(ApiCase):
         # spaetere Lauf findet einen gewaehlten Provider vor, wo "leer"
         # versprochen ist -- gefunden am 401 des Bild-Falls, 2026-08-29.
         super().setUp()
-        self._prov = (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE,
-                      crow_core.PROVIDER_TOKEN_FILE)
+        self._prov = (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE)
         self.addCleanup(self._restore_prov)
         crow_core.PROVIDERS_FILE = os.path.join(self.dir, "providers.json")
         crow_core.PROVIDER_KEYS_FILE = os.path.join(self.dir, "provider_keys.json")
-        crow_core.PROVIDER_TOKEN_FILE = os.path.join(self.dir, "provider_tokens.json")
 
     def _restore_prov(self) -> None:
-        (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE,
-         crow_core.PROVIDER_TOKEN_FILE) = self._prov
+        (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE) = self._prov
 
     def test_every_turn_starts_with_a_fresh_rolled_flag(self):
         """POSITIV: auch NACH einem Turn, der rollte (result.rolled=True),
@@ -1163,7 +1162,7 @@ class TheWindowAsksTheManifestAboutTheServedModelTests(ApiCase):
         # in the module sandbox leaves it chosen, and this class is about the
         # local path -- same fence as the rollover class above.
         super().setUp()
-        for name in ("PROVIDERS_FILE", "PROVIDER_KEYS_FILE", "PROVIDER_TOKEN_FILE"):
+        for name in ("PROVIDERS_FILE", "PROVIDER_KEYS_FILE"):
             self.addCleanup(setattr, crow_core, name, getattr(crow_core, name))
             setattr(crow_core, name, os.path.join(self.dir, name.lower() + ".json"))
 
@@ -7268,16 +7267,13 @@ class TheRemoteEndpointTests(ApiCase):
 
     def setUp(self) -> None:
         super().setUp()
-        self._prov = (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE,
-                      crow_core.PROVIDER_TOKEN_FILE)
+        self._prov = (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE)
         self.addCleanup(self._restore_prov)
         crow_core.PROVIDERS_FILE = os.path.join(self.dir, "providers.json")
         crow_core.PROVIDER_KEYS_FILE = os.path.join(self.dir, "provider_keys.json")
-        crow_core.PROVIDER_TOKEN_FILE = os.path.join(self.dir, "provider_tokens.json")
 
     def _restore_prov(self) -> None:
-        (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE,
-         crow_core.PROVIDER_TOKEN_FILE) = self._prov
+        (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE) = self._prov
 
     def remote(self, model: str = "z-ai/glm-5.2:free", context: int = 131072):
         """A configured provider, exactly as the sheet would leave one."""
@@ -7467,21 +7463,27 @@ class TheRemoteEndpointTests(ApiCase):
             self.assertTrue(callable(getattr(crow_gui.Api, method, None)), method)
         self.assertNotIn("Coming soon", page)
 
-    def test_the_subscriptions_page_exists_and_its_tiles_are_wired(self):
-        """A tile nobody can click, or a click calling a method that is not
-        there, is the shape a page-level defect takes -- and no behaviour test
-        reaches it. The marks are drawn rather than fetched: the page has no
+    def test_the_subscriptions_page_exists_and_its_tile_is_wired(self):
+        """A tile nobody can reach, or a call to a method that is not there, is
+        the shape a page-level defect takes -- and no behaviour test reaches it.
+        #390: ONE tile, Claude, wired to `provider_subscriptions` and to nothing
+        that signs in. The mark is drawn rather than fetched: the page has no
         external host to load an image from."""
         page = crow_gui.PAGE
         for hook in ('data-cat="subs"', "crow.settingsCat('subs')", 'id="subs"',
-                     "provider_authorise(", "provider_signout(", "subMark("):
+                     "provider_subscriptions(", "subTile(", "subMark(",
+                     "Your Claude subscription runs through Claude Code.",
+                     "Crow starts it and never sees your sign-in."):
             self.assertIn(hook, page, hook)
-        for method in ("provider_authorise", "provider_signout"):
-            self.assertTrue(callable(getattr(crow_gui.Api, method, None)), method)
+        self.assertTrue(callable(getattr(crow_gui.Api, "provider_subscriptions", None)))
+        # NEGATIVE: the sign-in doors are gone from the page AND from the window.
+        for gone in ("provider_authorise", "provider_oauth", "provider_borrow",
+                     "provider_token", "provider_signout"):
+            self.assertNotIn("pywebview.api.%s(" % gone, page)
+            self.assertFalse(hasattr(crow_gui.Api, gone), gone)
+        self.assertNotIn("The browser opens at the provider", page)
         # NOTHING IS LOADED FROM A HOST. A logo behind a URL would be a
-        # settings pane that needs the network to draw itself -- and on the one
-        # screen where somebody is about to sign in, a remote asset is also a
-        # request that says when they opened it.
+        # settings pane that needs the network to draw itself.
         self.assertNotIn('src="http', page)
         self.assertNotIn("url(http", page)
 
@@ -7519,22 +7521,6 @@ class TheRemoteEndpointTests(ApiCase):
         subs = page[page.index("#subs{"):page.index(".subout")]
         subs = _re.sub(r"/\*.*?\*/", "", subs, flags=_re.S)
         self.assertNotIn("#", subs.replace("#subs{", ""))
-
-    def test_a_tile_that_cannot_sign_in_yet_opens_a_form_instead(self):
-        """robin, 2026-08-23: the click answered with the sentence already
-        printed on the tile, which reads as nothing having happened. A control
-        does the next step -- with the values in place that is the browser,
-        without them it is the form that puts them there. And the line under the
-        sheet no longer repeats what the tile says."""
-        page = crow_gui.PAGE
-        self.assertIn("subForm(", page)
-        self.assertIn('id="subform"', page)
-        self.assertIn("if(s.ready) this.connectSub(s.name);", page)
-        self.assertTrue(callable(getattr(crow_gui.Api, "provider_oauth", None)))
-        # THE TILE'S OWN TEXT IS NOT THE STORED SENTENCE any more: `missing`
-        # names a file and a key, which is what a person editing by hand needed
-        # and exactly what a person with a form does not.
-        self.assertNotIn("s.ready?s.blurb:s.missing", page)
 
     def test_both_senders_carry_the_same_sticky_key(self):
         """THE SISTER CASE TO THE ONE BELOW, and it fails the same way: quietly.
@@ -7658,18 +7644,6 @@ class TheRemoteEndpointTests(ApiCase):
         self.assertIn("slug.value.trim()", page)
         self.assertIn('use.textContent="Use"', page)
 
-    def test_the_tile_offers_the_documented_command(self):
-        """robin, 2026-08-23, from Hermes' own sign-in dialog: it prints
-        `claude setup-token` and waits. No client_id borrowed from a product
-        that never granted one -- which is why the browser leg is not what this
-        tile reaches for first."""
-        page = crow_gui.PAGE
-        self.assertIn("tokenForm(", page)
-        self.assertIn("if(s.command) this.tokenForm(s);", page)
-        self.assertIn("provider_token(", page)
-        self.assertTrue(callable(getattr(crow_gui.Api, "provider_token", None)))
-        self.assertIn("cmd.readOnly=true", page)
-
     def test_saving_an_untouched_field_does_not_clear_a_stored_credential(self):
         """robin, 2026-08-23, and it cost him his OpenRouter key. The stored
         value is never read back into the field, so a BLANK box is the normal
@@ -7682,17 +7656,57 @@ class TheRemoteEndpointTests(ApiCase):
         page = crow_gui.PAGE
         self.assertIn("clearKey(", page)
         self.assertIn("`Remove` is what clears a stored key.", page)
-        self.assertIn("`sign out` is what clears one.", page)
         # NEGATIVE: the old wiring blanked the box and called the SAVE path.
         self.assertNotIn("box2.value=\"\"; this.saveKey(", page)
         self.assertIn("gone.onclick=()=>this.clearKey(p.name);", page)
 
-    def test_a_sign_in_does_not_run_mid_turn(self):
-        """The credential it replaces is the one the running turn is
-        authenticating with."""
-        api = self.api()
-        api._worker = _AliveWorker()
-        self.assertIn("mid-turn", api.provider_authorise("anthropic"))
+    def test_the_claude_tile_is_asked_on_its_page_and_never_at_start(self):
+        """#390: the probe spawns `claude` twice. A window -- or a sheet opening
+        on another page -- that ran it would wait on a process nobody asked
+        about. The page asks when it opens, "ask again" asks anew, and between
+        them the kept answer is drawn."""
+        page = crow_gui.PAGE
+        self.assertIn('if(name==="subs") this.drawSubs(false);', page)
+        self.assertIn("again.onclick=()=>this.drawSubs(true);", page)
+        self.assertNotIn("this.drawSubs();", page)
+        self.assertIn("provider_subscriptions", crow_gui.REMOTE_PROXIED)
+        calls = []
+
+        def auth():
+            calls.append(1)
+            return {"logged_in": True, "method": "claude.ai", "plan": "max",
+                    "problem": None}
+        crow_core._CLAUDE_PROBE.clear()
+        self.addCleanup(crow_core._CLAUDE_PROBE.clear)
+        with mock.patch.multiple(crow_core, claude_cli_path=lambda: "claude",
+                                 claude_cli_version=lambda: ("2.1.300", None),
+                                 claude_cli_auth=auth):
+            api = self.api()
+            api.provider_view()
+            self.assertEqual(calls, [])
+            rows = api.provider_subscriptions(False)
+            api.provider_subscriptions(False)
+            self.assertEqual(len(calls), 1)
+            api.provider_subscriptions(True)
+            self.assertEqual(len(calls), 2)
+        self.assertEqual([r["name"] for r in rows], ["claude"])
+
+    def test_the_tile_copies_the_command_and_offers_nothing_that_signs_in(self):
+        """The tile REPORTS: a copy of `claude auth login` for the person's own
+        terminal and an "ask again". No browser, no paste field, no sign-out."""
+        page = crow_gui.PAGE
+        tile = page[page.index("  subTile(s){"):page.index("  drawProviders(){")]
+        self.assertIn('copy.textContent="copy"', tile)
+        self.assertIn("this.clip(s.login)", tile)
+        self.assertIn('again.textContent="ask again"', tile)
+        for gone in ("input", "password", "open_url", "provider_"):
+            self.assertNotIn(gone, tile, gone)
+
+    def test_the_window_start_deletes_the_leftover_token_file(self):
+        """#390, expected result 12, the wiring half: the start calls the core's
+        one deletion, whose behaviour test_crow_core pins."""
+        self.assertIn("crow_core.retire_provider_tokens()",
+                      inspect.getsource(crow_gui.main))
 
     def test_both_senders_carry_the_providers_own_headers(self):
         """THE HEADER TRAVELS WITH THE CREDENTIAL, and it has to reach BOTH
@@ -7730,19 +7744,17 @@ class TheRemoteEndpointTests(ApiCase):
         self.assertIsNone(seen.get("turn"))
         self.assertIsNone(seen.get("review"))
 
-        crow_core.provider_token_write({"openrouter": {
-            "access_token": "tok", "client_id": "c",
-            "token_endpoint": "https://example.invalid/token"}})
-        real = dict(crow_core.PROVIDER_OAUTH_HEADERS)
-        crow_core.PROVIDER_OAUTH_HEADERS["openrouter"] = {"x-crow-probe": "1"}
-        self.addCleanup(lambda: (crow_core.PROVIDER_OAUTH_HEADERS.clear(),
-                                 crow_core.PROVIDER_OAUTH_HEADERS.update(real)))
-        api = self.api()
-        api._conversation.append("user", "hello")
-        with mock.patch.object(crow_gui, "run_turn", fake_run), \
-             mock.patch.object(crow_core, "review_turn", fake_review), \
-             mock.patch.object(crow_core, "review_due", lambda *a, **k: 1.0):
-            api._run("hello")
+        # #390: NO CREDENTIAL KIND CARRIES A HEADER OF ITS OWN ANY MORE -- the
+        # sign-in's beta flag went with the sign-in -- so the provider's headers
+        # are stood in for where they are decided, the seam both senders read.
+        with mock.patch.object(crow_core, "provider_headers",
+                               lambda *a, **k: {"x-crow-probe": "1"}):
+            api = self.api()
+            api._conversation.append("user", "hello")
+            with mock.patch.object(crow_gui, "run_turn", fake_run), \
+                 mock.patch.object(crow_core, "review_turn", fake_review), \
+                 mock.patch.object(crow_core, "review_due", lambda *a, **k: 1.0):
+                api._run("hello")
         self.assertEqual(seen.get("turn"), {"x-crow-probe": "1"})
         self.assertEqual(seen.get("review"), seen.get("turn"))
 
@@ -7821,16 +7833,13 @@ class TheOpenRouterPageTests(ApiCase):
 
     def setUp(self) -> None:
         super().setUp()
-        self._prov = (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE,
-                      crow_core.PROVIDER_TOKEN_FILE)
+        self._prov = (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE)
         self.addCleanup(self._restore_prov)
         crow_core.PROVIDERS_FILE = os.path.join(self.dir, "providers.json")
         crow_core.PROVIDER_KEYS_FILE = os.path.join(self.dir, "provider_keys.json")
-        crow_core.PROVIDER_TOKEN_FILE = os.path.join(self.dir, "provider_tokens.json")
 
     def _restore_prov(self) -> None:
-        (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE,
-         crow_core.PROVIDER_TOKEN_FILE) = self._prov
+        (crow_core.PROVIDERS_FILE, crow_core.PROVIDER_KEYS_FILE) = self._prov
 
     def broker(self, model: str = "z-ai/glm-5.2:free") -> None:
         """Key and catalogue on disk, and NO pick: turns stay on the machine."""
@@ -16107,7 +16116,7 @@ class RemoteApiParityTests(RemoteCase):
     to the desktop with a stated replacement -- and a call from one client
     produces the push the other one needs."""
 
-    PAGE_METHODS = 109         # 88 at fb31ca2 + the six pairing controls (#249 stage 5) + stage_image_data, drop_seen (#312) + the eight image_* (#311) + video_src, video_reveal (#340) + engine_check, engine_update_start (#367) + mono_font (#382)
+    PAGE_METHODS = 105         # 88 at fb31ca2 + the six pairing controls (#249 stage 5) + stage_image_data, drop_seen (#312) + the eight image_* (#311) + video_src, video_reveal (#340) + engine_check, engine_update_start (#367) + mono_font (#382) - the five sign-in doors + provider_subscriptions (#390)
 
     def page_methods(self) -> set:
         page = crow_gui.PAGE
@@ -16136,7 +16145,7 @@ class RemoteApiParityTests(RemoteCase):
         self.assertTrue(crow_gui.REMOTE_PROXIED <= allowed)
         self.assertEqual(allowed - crow_gui.REMOTE_PROXIED,
                          {"stage_image", "stage_image_data", "reveal_path",
-                          "roll_show", "provider_authorise",
+                          "roll_show",
                           # #311: the lightbox's actions on the desktop's file
                           "image_reveal", "image_copy", "image_open",
                           "image_trash",
