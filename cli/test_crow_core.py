@@ -28386,6 +28386,392 @@ class TheClaudeCliFactsTests(unittest.TestCase):
                 self.assertNotIn(private, text)
 
 
+# A STAND-IN FOR `claude` (#390): it replays a recorded stream-json turn and
+# logs what it was started with. Never the real CLI -- a suite that spent the
+# owner's subscription quota would be a suite nobody runs.
+FAKE_CLAUDE_SCRIPT = r'''
+import json
+import os
+import sys
+import time
+
+args = sys.argv[1:]
+if args == ["--version"]:
+    sys.stdout.write(os.environ.get("CROW_FAKE_CLAUDE_VERSION", "2.1.300")
+                     + " (Claude Code)\n")
+    sys.exit(0)
+prompt = sys.stdin.buffer.read().decode("utf-8")
+log = os.environ.get("CROW_FAKE_CLAUDE_LOG")
+if log:
+    with open(log, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "argv": args, "stdin": prompt, "cwd": os.getcwd(), "pid": os.getpid(),
+            "mark": os.environ.get("CROW_FAKE_CLAUDE_MARK", ""),
+            "token_passed": os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+            == "fake-oauth-0123456789"}) + "\n")
+which = "CROW_FAKE_CLAUDE_RESUMED" if "--resume" in args else "CROW_FAKE_CLAUDE_REPLAY"
+path = os.environ.get(which) or os.environ.get("CROW_FAKE_CLAUDE_REPLAY", "")
+if path:
+    with open(path, "rb") as fh:
+        for raw in fh:
+            sys.stdout.buffer.write(raw)
+            sys.stdout.buffer.flush()
+if os.environ.get("CROW_FAKE_CLAUDE_HANG"):
+    time.sleep(60)
+'''
+
+
+class _FakeClaude:
+    """`FAKE_CLAUDE_SCRIPT` as an executable `claude` in a temp directory."""
+
+    FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
+
+    def __init__(self, test: unittest.TestCase) -> None:
+        self.dir = tempfile.mkdtemp(prefix="crow-fake-claude-")
+        test.addCleanup(shutil.rmtree, self.dir, True)
+        script = os.path.join(self.dir, "fake_claude.py")
+        with open(script, "w", encoding="utf-8") as fh:
+            fh.write(FAKE_CLAUDE_SCRIPT)
+        if os.name == "nt":
+            self.exe = os.path.join(self.dir, "claude.cmd")
+            with open(self.exe, "w", encoding="ascii") as fh:
+                fh.write('@echo off\r\n"%s" "%s" %%*\r\n' % (sys.executable, script))
+        else:
+            self.exe = os.path.join(self.dir, "claude")
+            with open(self.exe, "w", encoding="utf-8") as fh:
+                fh.write("#!%s\n" % sys.executable + FAKE_CLAUDE_SCRIPT)
+            os.chmod(self.exe, 0o755)
+        self.log = os.path.join(self.dir, "spawns.jsonl")
+        self.turn1 = os.path.join(self.FIXTURES, "claude_stream_turn1.ndjson")
+        self.turn2 = os.path.join(self.FIXTURES, "claude_stream_turn2.ndjson")
+
+    def env(self, **extra) -> dict:
+        """Crow's environment without the guard and effort variables (a shell
+        inside the Claude app carries ANTHROPIC_BASE_URL), plus the fake's own."""
+        drop = set(crow_core.CLAUDE_CLI_ENV_GUARD) | {crow_core.CLAUDE_CLI_EFFORT_ENV}
+        env = {k: v for k, v in os.environ.items() if k not in drop}
+        env.update(CROW_FAKE_CLAUDE_LOG=self.log, CROW_FAKE_CLAUDE_REPLAY=self.turn1,
+                   CROW_FAKE_CLAUDE_RESUMED=self.turn2)
+        env.update(extra)
+        return env
+
+    def spawns(self) -> list:
+        try:
+            with open(self.log, encoding="utf-8") as fh:
+                return [json.loads(line) for line in fh if line.strip()]
+        except OSError:
+            return []
+
+    def stream(self, events: list) -> str:
+        """A synthetic turn written as NDJSON, for the shapes no fixture has."""
+        path = os.path.join(self.dir, "synthetic-%d.ndjson" % len(os.listdir(self.dir)))
+        with open(path, "w", encoding="utf-8") as fh:
+            for event in events:
+                fh.write(json.dumps(event) + "\n")
+        return path
+
+
+class _HeardTurn(crow_core.TurnEvents):
+    """What a turn said, in order -- the events the window draws."""
+
+    def __init__(self) -> None:
+        self.said: list = []
+        self.text: list = []
+
+    def reply_events(self):
+        heard = self
+
+        class Reply(crow_core.ReplyEvents):
+            def answer_text(self, piece: str) -> None:
+                heard.text.append(piece)
+
+        return Reply()
+
+    def turn_failed(self, message: str) -> None:
+        self.said.append(("failed", message))
+
+    def turn_interrupted(self) -> None:
+        self.said.append(("interrupted",))
+
+    def tool_started(self, name: str, arguments: str) -> None:
+        self.said.append(("started", name))
+
+    def tool_finished(self, name: str, seconds: float, repeated: bool) -> None:
+        self.said.append(("finished", name))
+
+    def tool_failed(self, name: str, result: str) -> None:
+        self.said.append(("tool_failed", name))
+
+    def context_measured(self, tokens: int, window: int) -> None:
+        self.said.append(("ctx", tokens, window))
+
+    def failed(self) -> list:
+        return [s[1] for s in self.said if s[0] == "failed"]
+
+
+SESSION_TURN1 = "00000000-0000-4000-8000-000000000001"
+
+
+def _argv_pair(argv: list, flag: str) -> "str | None":
+    """The value after `flag` in an argument list, or None when it is absent."""
+    return argv[argv.index(flag) + 1] if flag in argv else None
+
+
+class TheClaudeCliTurnTests(unittest.TestCase):
+    """#390 Proposed fix A: one `claude -p` child per turn, its stream drawn
+    with the events `run_turn` emits, refused before any spawn when it must be."""
+
+    def setUp(self) -> None:
+        self.fake = _FakeClaude(self)
+        self.root = tempfile.mkdtemp(prefix="crow-claude-root-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+        for patcher in (mock.patch.object(crow_core, "claude_cli_path",
+                                          return_value=self.fake.exe),
+                        mock.patch.object(crow_core, "_CLAUDE_SEEN",
+                                          {"version": "", "at": None,
+                                           "models": {}, "windows": {}})):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        crow_core.INTERRUPT.clear()
+        self.addCleanup(crow_core.INTERRUPT.clear)
+
+    def turn(self, conversation=None, line="run it", **kw):
+        conversation = conversation or crow_core.Conversation("the crow system prompt")
+        conversation.append("user", line)
+        heard = _HeardTurn()
+        kw.setdefault("env", self.fake.env())
+        kw.setdefault("cwd", self.root)
+        result = crow_core.run_claude_turn(conversation, line, events=heard, **kw)
+        return conversation, heard, result
+
+    def test_a_recorded_turn_streams_text_one_tool_and_the_next_resumes(self):
+        """Expected result 2: text, one tool start and finish, then --resume."""
+        conversation, heard, result = self.turn(model="haiku")
+        self.assertFalse(result.stopped, heard.said)
+        self.assertIn("Running `echo crow-probe` in Bash.", "".join(heard.text))
+        self.assertEqual([s for s in heard.said if s[0] in ("started", "finished")],
+                         [("started", "Bash"), ("finished", "Bash")])
+        self.assertEqual(conversation.claude_session, SESSION_TURN1)
+        self.assertEqual(result.model, "claude-haiku-5-5")
+        # The transcript carries the call and its answer, as a local turn would.
+        calls = [m for m in conversation.payload() if m.get("tool_calls")]
+        self.assertEqual(calls[0]["tool_calls"][0]["function"]["name"], "Bash")
+        self.assertIn({"role": "tool", "content": "crow-probe",
+                       "tool_call_id": "toolu_01ASCLENL1MJTQfAExcYJxc3"},
+                      conversation.payload())
+        self.turn(conversation, "what did you run?", model="haiku")
+        first, second = self.fake.spawns()
+        self.assertIsNone(_argv_pair(first["argv"], "--resume"))
+        self.assertEqual(_argv_pair(second["argv"], "--resume"), SESSION_TURN1)
+        self.assertEqual((first["stdin"], second["stdin"]), ("run it", "what did you run?"))
+        self.assertEqual(os.path.normcase(os.path.realpath(first["cwd"])),
+                         os.path.normcase(os.path.realpath(self.root)))
+        # Crow's own system prompt is not what Claude Code is sent.
+        self.assertNotIn("the crow system prompt", json.dumps(first))
+        self.assertEqual(first["argv"][:5], list(crow_core.CLAUDE_STREAM_FLAGS))
+
+    def test_the_line_reaches_stdin_byte_for_byte(self):
+        """A text-mode pipe would write "\\n" as "\\r\\n" on Windows."""
+        self.turn(line="erste Zeile\nzweite → Zeile", model="haiku")
+        self.assertEqual(self.fake.spawns()[0]["stdin"], "erste Zeile\nzweite → Zeile")
+
+    def test_a_new_chat_starts_without_resume(self):
+        conversation, _heard, _result = self.turn(model="haiku")
+        conversation.reset()
+        self.assertIsNone(conversation.claude_session)
+        self.turn(conversation, model="haiku")
+        self.assertIsNone(_argv_pair(self.fake.spawns()[-1]["argv"], "--resume"))
+
+    def test_a_guard_variable_refuses_and_spawns_nothing(self):
+        """Expected result 3."""
+        env = self.fake.env(ANTHROPIC_API_KEY="sk-ant-api-not-real")
+        with mock.patch.object(crow_core.subprocess, "Popen",
+                               side_effect=AssertionError("spawned")) as popen:
+            _c, heard, result = self.turn(model="haiku", env=env)
+        self.assertTrue(result.stopped)
+        self.assertEqual(len(heard.failed()), 1)
+        self.assertIn("ANTHROPIC_API_KEY", heard.failed()[0])
+        popen.assert_not_called()
+        self.assertEqual(self.fake.spawns(), [])
+
+    def test_no_cli_is_the_install_sentence_and_no_fallback(self):
+        """Expected result 4: one sentence, no crash, no other provider asked."""
+        with mock.patch.object(crow_core, "claude_cli_path", return_value=""), \
+                mock.patch.object(crow_core.subprocess, "Popen",
+                                  side_effect=AssertionError("spawned")), \
+                mock.patch.object(crow_core, "_post_stream",
+                                  side_effect=AssertionError("fell back")):
+            _c, heard, result = self.turn(model="haiku")
+        self.assertTrue(result.stopped)
+        self.assertEqual(heard.failed(), [crow_core.CLAUDE_CLI_MISSING])
+        self.assertIn(crow_core.CLAUDE_CLI_INSTALL, heard.failed()[0])
+
+    def test_the_argv_carries_no_token_and_the_env_is_crows_own(self):
+        """Expected result 5: the child signs itself in; Crow passes its env."""
+        env = self.fake.env(CLAUDE_CODE_OAUTH_TOKEN="fake-oauth-0123456789",
+                            CROW_FAKE_CLAUDE_MARK="unchanged")
+        self.turn(model="haiku", env=env)
+        spawn = self.fake.spawns()[0]
+        self.assertNotIn("fake-oauth-0123456789", " ".join(spawn["argv"]) + spawn["stdin"])
+        self.assertEqual(spawn["mark"], "unchanged")
+        self.assertTrue(spawn["token_passed"])
+
+    def test_opus_high_is_model_and_effort_and_the_default_sends_none(self):
+        """Expected result 15."""
+        self.turn(model="opus", effort="high")
+        self.turn(model="opus", effort=None)
+        picked, default = self.fake.spawns()
+        self.assertEqual(_argv_pair(picked["argv"], "--model"), "opus")
+        self.assertEqual(_argv_pair(picked["argv"], "--effort"), "high")
+        self.assertEqual(_argv_pair(default["argv"], "--model"), "opus")
+        self.assertNotIn("--effort", default["argv"])
+
+    def test_the_effort_variable_decides_and_the_chip_says_so(self):
+        """Expected result 16."""
+        env = self.fake.env(CLAUDE_CODE_EFFORT_LEVEL="max")
+        for row in crow_core.claude_model_rows("2.1.300", env):
+            self.assertEqual(row[2]["lock"], "set by CLAUDE_CODE_EFFORT_LEVEL=max")
+        said, level, changed = crow_core.claude_effort_command("high", "opus", None, env)
+        self.assertFalse(changed)
+        self.assertIsNone(level)
+        self.assertIn("CLAUDE_CODE_EFFORT_LEVEL=max", said)
+        self.turn(model="opus", effort="high", env=env)
+        self.assertNotIn("--effort", self.fake.spawns()[0]["argv"])
+
+    def test_the_context_is_the_last_request_against_the_tables_window(self):
+        """Expected result 17: 1200 + 30000 + 500 = 31.7k against the window the
+        table declares for Opus 5.5, because the result names none. The
+        result's own usage (summed over the turn) is not the context."""
+        usage = {"input_tokens": 1200, "cache_read_input_tokens": 30000,
+                 "cache_creation_input_tokens": 500, "output_tokens": 7}
+        replay = self.fake.stream([
+            {"type": "system", "subtype": "init", "session_id": "s-17",
+             "model": "claude-opus-5-5", "claude_code_version": "2.1.300"},
+            {"type": "stream_event", "event": {"type": "message_start",
+                                               "message": {"usage": usage}}},
+            {"type": "stream_event", "event": {"type": "content_block_start", "index": 0,
+                                               "content_block": {"type": "text", "text": ""}}},
+            {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                               "delta": {"type": "text_delta",
+                                                         "text": "hello"}}},
+            {"type": "assistant", "message": {"content": [{"type": "text",
+                                                           "text": "hello"}],
+                                              "usage": usage}},
+            {"type": "stream_event", "event": {"type": "message_delta",
+                                               "delta": {"stop_reason": "end_turn"},
+                                               "usage": {"output_tokens": 7}}},
+            {"type": "stream_event", "event": {"type": "message_stop"}},
+            {"type": "result", "subtype": "success", "is_error": False,
+             "session_id": "s-17", "result": "hello",
+             "usage": {"input_tokens": 99999, "cache_read_input_tokens": 99999},
+             "modelUsage": {}}])
+        _c, heard, result = self.turn(model="opus",
+                                      env=self.fake.env(CROW_FAKE_CLAUDE_REPLAY=replay))
+        window = crow_core.claude_model("opus")["window"]
+        self.assertGreater(window, 0)
+        self.assertEqual((result.context_tokens, result.n_ctx), (31700, window))
+        self.assertIn(("ctx", 31700, window), heard.said)
+
+    def test_the_reported_window_wins_over_the_table(self):
+        """modelUsage[<init.model>].contextWindow, measured 1000000 for haiku."""
+        _c, _heard, result = self.turn(model="haiku")
+        self.assertEqual(result.n_ctx, 1000000)
+        self.assertEqual(result.context_tokens, 2 + 334 + 41633)
+        self.assertEqual(crow_core.claude_context_window("haiku"), 1000000)
+        self.assertEqual(crow_core.claude_model_shown("haiku"), "claude-haiku-5-5")
+
+    def test_stop_kills_the_child_and_what_it_started(self):
+        """Stop mid-turn: the turn ends interrupted and the child is gone. On
+        Windows the logged pid is python under cmd.exe -- the tree kill's case."""
+        replay = self.fake.stream([{"type": "system", "subtype": "init",
+                                    "session_id": "s-stop", "model": "claude-opus-5-5"}])
+        env = self.fake.env(CROW_FAKE_CLAUDE_REPLAY=replay, CROW_FAKE_CLAUDE_HANG="1")
+        conversation = crow_core.Conversation("system")
+        out: dict = {}
+
+        def run() -> None:
+            out["turn"] = self.turn(conversation, model="opus", env=env)
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and not (
+                self.fake.spawns() and conversation.claude_session == "s-stop"):
+            time.sleep(0.05)
+        pid = self.fake.spawns()[0]["pid"]
+        self.assertTrue(crow_platform.pid_alive(pid))
+        crow_core.INTERRUPT.set()
+        worker.join(timeout=30)
+        self.assertFalse(worker.is_alive(), "the turn did not end on Stop")
+        _c, heard, result = out["turn"]
+        self.assertTrue(result.stopped)
+        self.assertIn(("interrupted",), heard.said)
+        self.assertFalse(crow_core.INTERRUPT.is_set())
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and crow_platform.pid_alive(pid):
+            time.sleep(0.1)
+        self.assertFalse(crow_platform.pid_alive(pid), "the child outlived Stop")
+        self.assertEqual(crow_core._CLAUDE_CHILD, [])
+
+    def test_a_typed_id_is_held_to_what_an_id_has(self):
+        with mock.patch.object(crow_core.subprocess, "Popen",
+                               side_effect=AssertionError("spawned")):
+            _c, heard, result = self.turn(model="opus & del x")
+        self.assertTrue(result.stopped)
+        self.assertIn("not a model name", heard.failed()[0])
+        self.assertTrue(crow_core.claude_cli_word("claude-opus-5-5[1m]"))
+
+    def test_no_working_folder_is_refused_before_a_spawn(self):
+        with mock.patch.object(crow_core.subprocess, "Popen",
+                               side_effect=AssertionError("spawned")):
+            _c, heard, _r = self.turn(model="opus", cwd=None)
+        self.assertEqual(heard.failed(), [crow_core.CLAUDE_NO_ROOT])
+
+
+class TheClaudePermissionAndSessionTests(unittest.TestCase):
+    """#390: Crow's dial in Claude Code's words, and the session in the chat file."""
+
+    def test_the_dial_maps_and_only_yolo_bypasses(self):
+        self.assertEqual({mode: crow_core.claude_permission_mode(mode)
+                          for mode in crow_core.MODES},
+                         {"manual": "default", "allowedit": "acceptEdits",
+                          "auto": "auto", "yolo": "bypassPermissions"})
+        self.assertEqual(crow_core.claude_permission_mode("no-such-level"), "default")
+        self.assertEqual(crow_core.claude_permission_mode(None), "default")
+        argv = crow_core.claude_cli_argv("claude", mode="manual")
+        self.assertEqual(_argv_pair(argv, "--permission-mode"), "default")
+
+    def test_the_session_id_rides_in_the_chat_file_and_a_reset_drops_it(self):
+        folder = tempfile.mkdtemp(prefix="crow-claude-session-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "chat.json")
+        conversation = crow_core.Conversation("system")
+        conversation.append("user", "hello")
+        conversation.append("assistant", "hi")
+        conversation.claude_session = SESSION_TURN1
+        crow_core.save_session(conversation, "", 0, path=path, with_kv=False)
+        self.assertEqual(crow_core.session_claude(path), SESSION_TURN1)
+        conversation.reset()
+        self.assertIsNone(conversation.claude_session)
+        conversation.append("user", "a new chat")
+        conversation.append("assistant", "and a new session")
+        crow_core.save_session(conversation, "", 0, path=path, with_kv=False)
+        self.assertIsNone(crow_core.session_claude(path))
+
+    def test_the_subscription_endpoint_carries_no_credential(self):
+        folder = tempfile.mkdtemp(prefix="crow-claude-provider-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        with mock.patch.object(crow_core, "PROVIDERS_FILE",
+                               os.path.join(folder, "providers.json")), \
+                mock.patch.object(crow_core, "provider_credential",
+                                  side_effect=AssertionError("asked for a credential")):
+            crow_core.provider_write({"active": "claude", "model": {"claude": "opus"}})
+            spot = crow_core.provider_endpoint()
+        self.assertEqual((spot["transport"], spot["model"], spot["api_key"],
+                          spot["headers"]),
+                         (crow_core.TRANSPORT_CLAUDE_CLI, "opus", "", {}))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

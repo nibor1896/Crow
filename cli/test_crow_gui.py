@@ -20024,5 +20024,273 @@ class TheTurnStatsReachThePageTests(ApiCase):
         self.assertIsNone(costs[-1]["stats"])
 
 
+# #390. A STAND-IN FOR `claude`, the window's copy of the one in
+# cli/test_crow_core.py: replays a stream-json turn, logs argv and pid. Never
+# the real CLI -- a suite that spent subscription quota is a suite nobody runs.
+CLAUDE_STAND_IN = r'''
+import json
+import os
+import sys
+import time
+
+args = sys.argv[1:]
+if args == ["--version"]:
+    sys.stdout.write(os.environ.get("CROW_FAKE_CLAUDE_VERSION", "2.1.300")
+                     + " (Claude Code)\n")
+    sys.exit(0)
+prompt = sys.stdin.buffer.read().decode("utf-8")
+with open(os.environ["CROW_FAKE_CLAUDE_LOG"], "a", encoding="utf-8") as fh:
+    fh.write(json.dumps({"argv": args, "stdin": prompt, "pid": os.getpid()}) + "\n")
+with open(os.environ["CROW_FAKE_CLAUDE_REPLAY"], "rb") as fh:
+    for raw in fh:
+        sys.stdout.buffer.write(raw)
+        sys.stdout.buffer.flush()
+if os.environ.get("CROW_FAKE_CLAUDE_HANG"):
+    time.sleep(60)
+'''
+
+# Expected result 17's stream: 1200 + 30000 + 500 in use, Opus 5.5, and a
+# result that names no window -- so the table's declared one must stand.
+CLAUDE_USAGE_TURN = [
+    {"type": "system", "subtype": "init", "session_id": "s-window",
+     "model": "claude-opus-5-5", "claude_code_version": "2.1.283"},
+    {"type": "stream_event", "event": {"type": "message_start", "message": {}}},
+    {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                       "delta": {"type": "text_delta", "text": "ok"}}},
+    {"type": "assistant", "message": {
+        "content": [{"type": "text", "text": "ok"}],
+        "usage": {"input_tokens": 1200, "cache_read_input_tokens": 30000,
+                  "cache_creation_input_tokens": 500, "output_tokens": 2}}},
+    {"type": "stream_event", "event": {"type": "message_delta",
+                                       "delta": {"stop_reason": "end_turn"},
+                                       "usage": {"output_tokens": 2}}},
+    {"type": "stream_event", "event": {"type": "message_stop"}},
+    {"type": "result", "subtype": "success", "is_error": False,
+     "session_id": "s-window", "result": "ok", "modelUsage": {}},
+]
+
+
+class TheClaudeChipAndTurnTests(ApiCase):
+    """#390 amendment 2: the chat panel's model, level and context on the
+    subscription, and the turn runner's claude_cli branch end to end."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.root = os.path.join(self.dir, "work")
+        os.makedirs(self.root)
+        stand = os.path.join(self.dir, "stand-in")
+        os.makedirs(stand)
+        script = os.path.join(stand, "claude_stand_in.py")
+        with open(script, "w", encoding="utf-8") as fh:
+            fh.write(CLAUDE_STAND_IN)
+        if os.name == "nt":
+            self.exe = os.path.join(stand, "claude.cmd")
+            with open(self.exe, "w", encoding="ascii") as fh:
+                fh.write('@echo off\r\n"%s" "%s" %%*\r\n' % (sys.executable, script))
+        else:
+            self.exe = os.path.join(stand, "claude")
+            with open(self.exe, "w", encoding="utf-8") as fh:
+                fh.write("#!%s\n" % sys.executable + CLAUDE_STAND_IN)
+            os.chmod(self.exe, 0o755)
+        self.log = os.path.join(stand, "spawns.jsonl")
+        self.replay = os.path.join(stand, "turn.ndjson")
+        with open(self.replay, "w", encoding="utf-8") as fh:
+            fh.write("".join(json.dumps(e) + "\n" for e in CLAUDE_USAGE_TURN))
+        env = mock.patch.dict(os.environ, {"CROW_FAKE_CLAUDE_LOG": self.log,
+                                           "CROW_FAKE_CLAUDE_REPLAY": self.replay})
+        env.start()
+        self.addCleanup(env.stop)
+        # A shell inside the Claude app carries ANTHROPIC_BASE_URL (measured
+        # 2026-10-15): the guard would refuse every case here.
+        for name in (*crow_core.CLAUDE_CLI_ENV_GUARD, crow_core.CLAUDE_CLI_EFFORT_ENV):
+            os.environ.pop(name, None)
+        for patcher in (
+                mock.patch.object(crow_core, "PROVIDERS_FILE",
+                                  os.path.join(self.dir, "providers.json")),
+                mock.patch.object(crow_core, "claude_cli_path", return_value=self.exe),
+                mock.patch.object(crow_core, "claude_cli_version",
+                                  return_value=("2.1.283", None)),
+                mock.patch.object(crow_core, "_CLAUDE_SEEN",
+                                  {"version": "", "at": None, "models": {},
+                                   "windows": {}}),
+                mock.patch.object(crow_core, "_ROOT", self.root)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        crow_core.provider_write({"active": "claude", "model": {"claude": "opus"}})
+
+    def spawns(self) -> list:
+        try:
+            with open(self.log, encoding="utf-8") as fh:
+                return [json.loads(line) for line in fh if line.strip()]
+        except OSError:
+            return []
+
+    def ups(self, api) -> list:
+        return [m for m in self.drained(api) if m.get("k") == "up"]
+
+    def test_the_up_payloads_carry_the_claude_table_with_readiness(self):
+        """Expected result 14, for all three pushes that build the chip."""
+        api = self.api()
+        api._endpoint_changed(reset=False)
+        api._surface()
+        api._probe(redraw=True)
+        ups = self.ups(api)
+        self.assertEqual(len(ups), 3)
+        for up in ups:
+            keys = [row[0] for row in up["models"]]
+            self.assertEqual(keys, [row["alias"] for row in crow_core.CLAUDE_MODELS])
+            for key in crow_core.bootable_models():
+                self.assertNotIn(key, keys)
+            ready = {row[0]: row[2]["ready"] for row in up["models"]}
+            # Claude Code 2.1.283: Opus 5.5 needs 2.1.280, Sonnet 5.5 2.1.284.
+            self.assertEqual(ready, {"fable": True, "opus": True,
+                                     "sonnet": False, "haiku": False})
+            self.assertEqual(up["models"][2][2]["why"],
+                             "needs Claude Code ≥ 2.1.284 — claude update")
+            self.assertEqual(up["model_key"], "opus")
+            self.assertEqual(up["levels"], list(crow_core.CLAUDE_EFFORTS))
+        self.assertEqual(ups[0]["model"], "Opus 5.5")
+        self.assertEqual(ups[0]["n_ctx"], crow_core.claude_model("opus")["window"])
+
+    def test_a_model_too_new_for_the_cli_is_refused_from_the_chip(self):
+        api = self.api()
+        api.choose_model("sonnet")
+        notes = [m["t"] for m in self.drained(api) if m.get("k") == "note"]
+        self.assertTrue(any("claude update" in n for n in notes), notes)
+        self.assertEqual(crow_core.provider_model_for("claude"), "opus")
+        api.choose_model("claude-opus-5-5[1m]")        # a full id, typed
+        self.assertEqual(crow_core.provider_model_for("claude"), "claude-opus-5-5[1m]")
+
+    def test_the_effort_variable_disables_the_levels(self):
+        """Expected result 16."""
+        os.environ[crow_core.CLAUDE_CLI_EFFORT_ENV] = "max"
+        api = self.api()
+        api._endpoint_changed(reset=False)
+        up = self.ups(api)[-1]
+        for row in up["models"]:
+            self.assertEqual(row[2]["lock"], "set by CLAUDE_CODE_EFFORT_LEVEL=max")
+            self.assertEqual(row[2]["lock_level"], "max")
+        api.set_reasoning("high")
+        notes = [m["t"] for m in self.drained(api) if m.get("k") == "note"]
+        self.assertIn("CLAUDE_CODE_EFFORT_LEVEL=max", notes[-1])
+        self.assertIsNone(api._reasoning)
+
+    def test_opus_high_reaches_the_child_and_default_sends_no_effort(self):
+        """Expected result 15, from the chip's own doors."""
+        api = self.api()
+        api.set_reasoning("high")
+        self.assertEqual(api._reasoning, "high")
+        api._run("first")
+        api.set_reasoning("off")                    # the "(default)" row
+        self.assertIsNone(api._reasoning)
+        api._run("second")
+        picked, default = self.spawns()
+        self.assertEqual(picked["argv"][picked["argv"].index("--model") + 1], "opus")
+        self.assertEqual(picked["argv"][picked["argv"].index("--effort") + 1], "high")
+        self.assertNotIn("--effort", default["argv"])
+        # The second turn of the same chat resumes the session the first reported.
+        self.assertEqual(default["argv"][default["argv"].index("--resume") + 1],
+                         "s-window")
+
+    def test_a_claude_turn_never_rolls_and_shows_the_context_and_the_model(self):
+        """Expected results 17 and 18: no `should_roll`, no clearing, no review,
+        no `run_turn`; 31.7k against the table's window; the chip names what
+        Claude Code ran; the session is in the chat file."""
+        api = self.api()
+        api._context_tokens = 10 ** 9              # would roll on any local turn
+        api._n_ctx = 1000
+        with mock.patch.object(crow_core, "should_roll",
+                               side_effect=AssertionError("rolled")) as roll, \
+                mock.patch.object(crow_core, "clear_before_roll",
+                                  side_effect=AssertionError("cleared")), \
+                mock.patch.object(crow_core, "review_turn",
+                                  side_effect=AssertionError("reviewed")), \
+                mock.patch.object(crow_gui, "run_turn",
+                                  side_effect=AssertionError("ran Crow's loop")):
+            api._run("hello")
+        roll.assert_not_called()
+        said = self.drained(api)
+        self.assertFalse([m for m in said if m.get("k") == "fail"], said)
+        window = crow_core.claude_model("opus")["window"]
+        cost = [m for m in said if m.get("k") == "cost"][-1]
+        self.assertEqual((cost["tokens"], cost["n_ctx"]), (31700, window))
+        self.assertIn({"k": "ctx", "tokens": 31700, "n_ctx": window}, said)
+        up = [m for m in said if m.get("k") == "up"][-1]
+        self.assertEqual(up["model"], "claude-opus-5-5")
+        self.assertEqual(api._conversation.claude_session, "s-window")
+        self.assertEqual(crow_core.session_claude(self.session), "s-window")
+        self.assertEqual(self.spawns()[0]["stdin"], "hello")
+
+    def test_stop_kills_the_running_child(self):
+        os.environ["CROW_FAKE_CLAUDE_HANG"] = "1"
+        api = self.api()
+        worker = threading.Thread(target=api._run, args=("hang",), daemon=True)
+        worker.start()
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and not (
+                self.spawns() and crow_core._CLAUDE_CHILD):
+            time.sleep(0.05)
+        pid = self.spawns()[0]["pid"]
+        api.stop()
+        worker.join(timeout=30)
+        self.assertFalse(worker.is_alive(), "the turn outlived Stop")
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and crow_platform.pid_alive(pid):
+            time.sleep(0.1)
+        self.assertFalse(crow_platform.pid_alive(pid), "the child outlived Stop")
+        self.assertIn({"k": "fail", "t": crow_core.ABORT_NOTE}, self.drained(api))
+
+    # The page's menu members, cut out by their own heads and RUN in node.
+    MENU = (("  modelPlan(){", "  modelMenu(){"),
+            ("  foreignRunning(){", "  chooseModel(k){"),
+            ("  reasonGroups(){", "  levelLabel(){"),
+            ("  levelLabel(){", "  // #119. ONE CHIP FOR BOTH"))
+
+    def menu(self, models: list, reasoning: str = "") -> dict:
+        node = _node()
+        if not node:
+            self.skipTest("no node on this machine")
+        page = crow_gui.PAGE
+        members = "".join(page[page.index(a):page.index(b, page.index(a))]
+                          for a, b in self.MENU)
+        prog = ("const o={models:%s, modelKey:'opus', modelName:'Opus 5.5', "
+                "levels:%s, groups:[], reasoning:%s, %s};\n"
+                "console.log(JSON.stringify({plan:o.modelPlan().map(p=>[p.kind,p.k,"
+                "p.name,p.what||'',!!p.off,(p.bits||[]).join(' '),!!p.tick]),"
+                "label:o.levelLabel()}));\n"
+                % (json.dumps(models), json.dumps(list(crow_core.CLAUDE_EFFORTS)),
+                   json.dumps(reasoning), members))
+        done = subprocess.run([node, "-e", prog], capture_output=True, text=True,
+                              encoding="utf-8", timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_the_menu_greys_out_and_names_the_default_level(self):
+        """Amendment 2 on the page: a model too new for Claude Code 2.1.283 is a
+        disabled row naming `claude update`; "(default)" is named after the
+        model's own default and sends `off` -- no `--effort`."""
+        models = crow_core.claude_model_rows("2.1.283", {})
+        out = self.menu(models)
+        rows = {(p[0], p[1]): p for p in out["plan"]}
+        self.assertEqual(rows[("model", "sonnet")][3:5],
+                         ["needs Claude Code ≥ 2.1.284 — claude update", True])
+        self.assertEqual(rows[("model", "opus")][3:5], ["running", False])
+        self.assertEqual(rows[("level", "off")][2:],
+                         ["medium", "", False, "default", True])
+        self.assertEqual([p[1] for p in out["plan"] if p[0] == "level"],
+                         ["off", *crow_core.CLAUDE_EFFORTS])
+        self.assertEqual(out["label"], " · medium (default)")
+        self.assertEqual(self.menu(models, "high")["label"], " · high")
+
+    def test_the_menu_shows_the_effort_variable_instead_of_levels(self):
+        models = crow_core.claude_model_rows(
+            "2.1.300", {crow_core.CLAUDE_CLI_EFFORT_ENV: "max"})
+        out = self.menu(models, "high")
+        levels = [p for p in out["plan"] if p[0] == "level"]
+        self.assertEqual(levels, [["level", "", "set by CLAUDE_CODE_EFFORT_LEVEL=max",
+                                   "", True, "", False]])
+        self.assertEqual(out["label"], " · max (env)")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

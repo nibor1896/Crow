@@ -2943,6 +2943,25 @@ def session_reviewed(path: str | None = None) -> float:
     return float(value) if isinstance(value, (int, float)) else 0.0
 
 
+# #390. THE CLAUDE CODE SESSION THIS CHAT CONTINUES, `--resume <id>` on its
+# next turn. Claude Code holds the context on the subscription path, not Crow's
+# message list, so a chat that lost this id would start every turn from nothing
+# while its transcript said otherwise. Beside `kv: false` in the chat's own
+# file, absent for every chat that never ran on the `claude` provider.
+SESSION_CLAUDE_KEY = "claude_session"
+
+
+def session_claude(path: str | None = None) -> str | None:
+    """The Claude Code session id this chat resumes, or None."""
+    path = path or SESSION_FILE
+    try:
+        with open(path, encoding="utf-8") as fh:
+            value = json.load(fh).get(SESSION_CLAUDE_KEY)
+    except Exception:                       # noqa: BLE001 - no file, no session
+        return None
+    return value if isinstance(value, str) and value else None
+
+
 def review_due(context_tokens: int, n_ctx: int, reviewed: float) -> "float | None":
     """The share this turn crossed and has not been reviewed at, or None.
 
@@ -3395,6 +3414,9 @@ def save_session(conversation: "Conversation", base_url: str, context_tokens: in
                    # before this build reads as 0.0 -- which is true of it.
                    **({SESSION_REVIEWED_KEY: conversation.reviewed}
                       if conversation.reviewed else {}),
+                   # #390: absent until a turn ran on Claude Code.
+                   **({SESSION_CLAUDE_KEY: conversation.claude_session}
+                      if getattr(conversation, "claude_session", None) else {}),
                    **({SESSION_REASONING_KEY: reasoning} if reasoning else {}),
                    # #131: HOW MANY TOOL ROWS THE USER HAS ALREADY DISMISSED.
                    # The conversation itself is untouched -- the model still has
@@ -6025,6 +6047,10 @@ class Conversation:
         # each. It rides on the conversation because that is what a chat IS to
         # every caller here, and because `reset()` then clears it with the rest.
         self._reviewed = 0.0
+        # #390. The Claude Code session this chat resumes, or None. On the
+        # conversation for the reason `_reviewed` is: a new chat and `reset()`
+        # start without it, and every save carries it (SESSION_CLAUDE_KEY).
+        self.claude_session: "str | None" = None
         self._system = system
         self._messages: list[dict[str, str]] = []
         if system:
@@ -6343,6 +6369,7 @@ class Conversation:
         # `_base_system` for it, so this is the line every release up to here had.
         self._pinned = None
         self._reviewed = 0.0
+        self.claude_session = None          # #390: a new chat, a new session
         self._system = self._base_system
         self._messages = []
         self.read_epoch = object()      # #215-H: rollover and new chat alike
@@ -25968,6 +25995,11 @@ def review_turn(conversation: "Conversation", *, base_url: str, model: str,
                 seeds: "list | None" = None) -> "list[str]":
     """Ask once whether this turn left anything worth keeping. Returns what was saved.
 
+    #390: NEVER ON THE SUBSCRIPTION. A review there would be a second `claude
+    -p` per turn, paid from the same quota, about a conversation Claude Code
+    holds and Crow only transcribes. The window does not call it for such a
+    turn; this refusal is the second lock.
+
     IT IS CALLED AFTER THE TURN IS OVER ON SCREEN, never inside it. It sat
     inside `run_turn` for one afternoon and the owner found it live on 2026-08-21:
     the answer was complete, the cost line never came and the composer still
@@ -25988,7 +26020,7 @@ def review_turn(conversation: "Conversation", *, base_url: str, model: str,
     a working answer into an error after the user has already read it. Every
     failure here is silence.
     """
-    if len(conversation) < 2:
+    if len(conversation) < 2 or transport == TRANSPORT_CLAUDE_CLI:
         return []
     messages = conversation.payload() + [{"role": "user",
                                           "content": review_question(incidents)}]
@@ -26242,6 +26274,10 @@ class TurnEvents:
 
     def rollover_refused(self) -> None:
         """Twice in one turn. The question itself does not fit."""
+
+    def context_measured(self, tokens: int, window: int) -> None:
+        """#390. Claude Code reported the context in use mid-turn. `window` is
+        0 when nobody has said one -- a bare count, never a guessed bar."""
 
     def memory_pending(self, what: "list[str]") -> None:
         """#128. The review wants to write and the gate held it. Nothing is on
@@ -27824,6 +27860,15 @@ def provider_endpoint(fallback_base_url: str = "", fallback_model: str = "",
                 "api_key": fallback_key or "local-no-provider", "headers": {},
                 "transport": TRANSPORT_CHAT,
                 "routing": {}, "sticky": False, "filter": False, "params": []}
+    # #390. THE SUBSCRIPTION HAS NO CREDENTIAL TO RESOLVE, and asking for one
+    # would be the very thing the terms forbid: Claude Code signs itself in. No
+    # URL, no key, no header -- `run_claude_turn` starts the CLI instead. The
+    # model is the one the chip picked; "" lets Claude Code choose its own.
+    if spec.get("transport") == TRANSPORT_CLAUDE_CLI:
+        return {"provider": name, "label": spec["label"], "remote": True,
+                "base_url": "", "model": model, "api_key": "", "headers": {},
+                "transport": TRANSPORT_CLAUDE_CLI,
+                "routing": {}, "sticky": False, "filter": False, "params": []}
     credential, kind, _problem = provider_credential(name)
     return {"provider": name, "label": spec["label"], "remote": True,
             "base_url": spec["base_url"], "model": model,
@@ -28570,6 +28615,7 @@ CLAUDE_CLI_ENV_GUARD = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
 CLAUDE_CLI_EFFORT_ENV = "CLAUDE_CODE_EFFORT_LEVEL"
 
 CLAUDE_CLI_INSTALL = "npm install -g @anthropic-ai/claude-code"
+CLAUDE_CLI_MISSING = "Claude Code is not installed: %s" % CLAUDE_CLI_INSTALL
 CLAUDE_CLI_LOGIN = "claude auth login"
 CLAUDE_CLI_TIMEOUT = 15.0
 
@@ -28586,14 +28632,20 @@ CLAUDE_CLI_TIMEOUT = 15.0
 #   * `window` is a FALLBACK only. The real one arrives with every turn as
 #     result.modelUsage[<id>].contextWindow (measured 2026-10-15: 1000000 for
 #     claude-haiku-5-5). 0 = not measured, and 0 means "no bar", never a guess.
+#     The other three are DECLARED, not measured: model-config, "Extended
+#     context", read 2026-10-15 -- "Fable 5.1, Fable 5, Sonnet 5 and later,
+#     Haiku 5.5, and Opus 4.7 and later run with the 1M window by default". A
+#     person who turned 1M off gets the measured number after one turn.
 CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 CLAUDE_MODELS = (
     {"alias": "fable", "id": "claude-fable-5-1", "label": "Fable 5.1",
-     "min": "", "efforts": CLAUDE_EFFORTS, "default": "high", "window": 0},
+     "min": "", "efforts": CLAUDE_EFFORTS, "default": "high", "window": 1000000},
     {"alias": "opus", "id": "claude-opus-5-5", "label": "Opus 5.5",
-     "min": "2.1.280", "efforts": CLAUDE_EFFORTS, "default": "medium", "window": 0},
+     "min": "2.1.280", "efforts": CLAUDE_EFFORTS, "default": "medium",
+     "window": 1000000},
     {"alias": "sonnet", "id": "claude-sonnet-5-5", "label": "Sonnet 5.5",
-     "min": "2.1.284", "efforts": CLAUDE_EFFORTS, "default": "medium", "window": 0},
+     "min": "2.1.284", "efforts": CLAUDE_EFFORTS, "default": "medium",
+     "window": 1000000},
     {"alias": "haiku", "id": "claude-haiku-5-5", "label": "Haiku 5.5",
      "min": "2.1.293", "efforts": CLAUDE_EFFORTS, "default": "medium",
      "window": 1000000},
@@ -28620,7 +28672,7 @@ def _claude_cli_run(args: list, timeout: float = CLAUDE_CLI_TIMEOUT
                     ) -> "tuple[subprocess.CompletedProcess | None, str | None]":
     exe = claude_cli_path()
     if not exe:
-        return None, "Claude Code is not installed: %s" % CLAUDE_CLI_INSTALL
+        return None, CLAUDE_CLI_MISSING
     try:
         done = subprocess.run([exe] + list(args), capture_output=True, text=True,
                               encoding="utf-8", errors="replace", timeout=timeout,
@@ -28686,6 +28738,814 @@ def claude_model_ready(row: dict, version: str) -> bool:
     if not need or not version:
         return True
     return not is_newer(need, version)
+
+
+def claude_model_needs(row: dict) -> str:
+    """The grey row's sentence: which Claude Code this model wants, and how."""
+    return "needs Claude Code ≥ %s — claude update" % (row.get("min") or "?")
+
+
+# --------------------------------------------- the claude CLI: one turn (#390)
+
+# WHAT A TURN ON THE SUBSCRIPTION IS: one `claude -p` child, the typed line on
+# its stdin, NDJSON on its stdout. Claude Code runs the loop itself -- the
+# requests, its own tools, and the person's own hooks, CLAUDE.md, skills and MCP
+# servers, which are their setup and stay theirs -- and Crow translates what it
+# prints into the events `run_turn` emits, so the window draws a Claude Code
+# turn with the parts it already has. Crow's system prompt and Crow's tools are
+# NOT sent: there is no MCP bridge (the owner, 2026-10-15), so image tools and
+# goals stay on the local model.
+#
+# THE SEAM IS STILL THE WIRE, one level up. `_anthropic_chunks` turns
+# Anthropic's events into chunks for `stream_reply`; `ClaudeStream` turns the
+# same events, wrapped in `stream_event`, into the TURN's events -- because
+# here the rounds run inside the child, and replaying them through `run_turn`
+# would run the loop twice. Measured 2026-10-15 (Claude Code 2.1.300, the two
+# turns in cli/fixtures/): 12.5 s and 5.0 s per turn, one process each.
+CLAUDE_STREAM_FLAGS = ("-p", "--output-format", "stream-json", "--verbose",
+                       "--include-partial-messages")
+
+# CROW'S DIAL IN CLAUDE CODE'S WORDS (code.claude.com/docs/en/permission-modes,
+# read 2026-10-15). Under `-p` nobody can answer a prompt -- "no callback means
+# deny" (agent-sdk/agent-loop) -- so a level that would ask becomes a level that
+# refuses: the safe half, the rule `run_turn` keeps for a mode without `approve`.
+#   manual    -> default            Manual: "Reads only" run unasked
+#   allowedit -> acceptEdits        reads, file edits, mkdir/touch/mv/cp
+#   auto      -> auto               "Everything, with background safety
+#                                   checks"; where auto mode is unavailable
+#                                   Claude Code "starts in Manual instead"
+#   yolo      -> bypassPermissions  "Everything" -- and ONLY yolo
+# An unknown word maps to `default`, never upwards. Passed on EVERY turn: "When
+# you resume with -p, Claude Code doesn't restore any other stored permission
+# mode" (docs/en/hooks, read 2026-10-15).
+CLAUDE_PERMISSION_MODES = {"manual": "default", "allowedit": "acceptEdits",
+                           "auto": "auto", "yolo": "bypassPermissions"}
+
+# WHAT MAY STAND IN THE ARGUMENT LIST. A typed model id and a session id read
+# from a file are the two values Crow did not write itself, and on Windows
+# `claude` is often `claude.cmd`, a batch file whose arguments cmd.exe parses
+# again. So both are held to the characters an id has (`claude-opus-5-5[1m]`,
+# a UUID); anything else is refused, never quoted into shape.
+_CLAUDE_WORD = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,127}$")
+
+# Anthropic's stop reasons in the words `TurnCost` and `run_turn` read.
+_CLAUDE_FINISH = {"end_turn": "stop", "stop_sequence": "stop",
+                  "tool_use": "tool_calls", "max_tokens": "length"}
+
+CLAUDE_NO_ROOT = ("Claude Code needs a working folder -- pick one with the "
+                  "folder chip, and it runs there")
+
+# `claude --version` AT MOST THIS OFTEN. The chip is redrawn on every probe and
+# every turn; a process start per redraw would put one in front of each. Every
+# turn's init event refreshes it for free (`claude_code_version`), so after a
+# `claude update` the menu is right again one turn later at the latest.
+CLAUDE_CLI_VERSION_TTL = 300.0
+
+# WHAT THE CHILD HAS SAID SO FAR, for the chip: the version, which id an alias
+# resolved to (init.model -- measured `haiku` -> `claude-haiku-5-5`), and the
+# window result.modelUsage reported. Process state like `_TURN_SPOT`: facts
+# about the installed CLI, not about one chat.
+_CLAUDE_SEEN: dict = {"version": "", "at": None, "models": {}, "windows": {}}
+_CLAUDE_SEEN_LOCK = threading.Lock()
+
+# The running child, for Stop. One turn runs at a time; a list so the empty
+# state needs no sentinel.
+_CLAUDE_CHILD: list = []
+
+
+def claude_permission_mode(mode: "str | None") -> str:
+    """Crow's level as Claude Code's `--permission-mode`. Unknown -> default."""
+    return CLAUDE_PERMISSION_MODES.get(mode or "", "default")
+
+
+def claude_cli_word(value: "str | None") -> bool:
+    """May this value stand in a `claude` argument list? See `_CLAUDE_WORD`."""
+    return bool(_CLAUDE_WORD.match(value or ""))
+
+
+def claude_cli_argv(exe: str, *, model: str = "", effort: "str | None" = None,
+                    mode: str = DEFAULT_MODE, session: "str | None" = None) -> list:
+    """The child's argument list. A LIST, never a shell string, and no token
+    in it: the child signs itself in, and the prompt goes in on stdin."""
+    argv = [exe, *CLAUDE_STREAM_FLAGS]
+    if model:
+        argv += ["--model", model]
+    if effort:
+        argv += ["--effort", effort]
+    argv += ["--permission-mode", claude_permission_mode(mode)]
+    if session:
+        argv += ["--resume", session]
+    return argv
+
+
+def claude_cli_guard_line(names: list) -> str:
+    """The refusal for set guard variables, naming every one of them."""
+    return ("Claude (subscription) refuses this turn: %s %s set in Crow's "
+            "environment, and under `claude -p` that bills an API key or "
+            "another endpoint instead of your subscription -- unset it and "
+            "start Crow again" % (", ".join(names),
+                                  "is" if len(names) == 1 else "are"))
+
+
+def claude_cli_refusal(env: "dict | None" = None,
+                       cwd: "str | None" = None) -> "str | None":
+    """Why a turn on the subscription may not start, or None.
+
+    NOTHING IS SPAWNED FOR A REFUSAL, and there is no fallback to another
+    provider: a turn that quietly went to the local model or to a key would be
+    a bill or an answer nobody chose. The guard comes first because it is the
+    one that costs money.
+    """
+    names = claude_cli_env_conflicts(env)
+    if names:
+        return claude_cli_guard_line(names)
+    if not claude_cli_path():
+        return CLAUDE_CLI_MISSING
+    if not cwd or not os.path.isdir(cwd):
+        return CLAUDE_NO_ROOT
+    return None
+
+
+def claude_effort_lock(env: "dict | None" = None) -> str:
+    """"set by CLAUDE_CODE_EFFORT_LEVEL=<v>" while that variable decides, else ""."""
+    value = (claude_cli_env(env).get(CLAUDE_CLI_EFFORT_ENV) or "").strip()
+    return "set by %s=%s" % (CLAUDE_CLI_EFFORT_ENV, value) if value else ""
+
+
+def claude_effort_menu(model: "str | None") -> tuple:
+    """The `--effort` levels this model takes; () for a model not in the table
+    -- "any other model: no submenu" (#390, model-config read 2026-10-15)."""
+    row = claude_model(model or "")
+    return tuple(row["efforts"]) if row else ()
+
+
+def claude_effort_for_chat(model: "str | None", path: "str | None" = None
+                           ) -> "tuple[str | None, str | None]":
+    """`reasoning_for_chat` for the subscription: the chat's level, if this
+    model takes it, and the line when it does not (the file is left alone)."""
+    level = session_reasoning(path)
+    if level is None:
+        return None, None
+    levels = claude_effort_menu(model)
+    if level in levels:
+        return level, None
+    return None, ("this chat is set to %s, which %s does not take%s -- sending "
+                  "no --effort until it is set again"
+                  % (level, model or "Claude Code's default model",
+                     " (%s)" % ", ".join(levels) if levels else ""))
+
+
+def claude_effort_command(argument: str, model: "str | None",
+                          current: "str | None", env: "dict | None" = None
+                          ) -> "tuple[str, str | None, bool]":
+    """`/reasoning` on the subscription: (what to say, level, changed).
+
+    "(default)" IS NO LEVEL. It sends no `--effort`, so the model's own default
+    applies -- and what that is, is the table's `default`, named on the chip.
+    `off` and `default` both mean it, because `off` is the word the chip's
+    default row has always sent (#117).
+    """
+    lock = claude_effort_lock(env)
+    if lock:
+        return ("reasoning: %s -- Crow does not change the variable" % lock,
+                current, False)
+    row = claude_model(model or "")
+    levels = claude_effort_menu(model)
+    if row is None or not levels:
+        return ("reasoning: %s takes no --effort from Crow"
+                % (model or "Claude Code's default model"), current, False)
+    default = "%s (default)" % row["default"]
+    wanted = (argument or "").strip().lower()
+    if not wanted:
+        return ("reasoning: %s" % (current or default + ", no --effort sent"),
+                current, False)
+    if wanted in ("off", "default", "none"):
+        return ("reasoning: %s -- no --effort is sent, the model's own default "
+                "applies" % default, None, current is not None)
+    if wanted in levels:
+        return ("reasoning: %s -- sent as --effort %s from the next turn"
+                % (wanted, wanted), wanted, wanted != current)
+    return ("no level %s on %s -- %s, or default"
+            % (wanted, row["label"], ", ".join(levels)), current, False)
+
+
+def claude_model_command(argument: str, current: str, version: str
+                         ) -> "tuple[str, str, bool]":
+    """`/model` on the subscription: (what to say, model, changed).
+
+    A FULL ID MAY BE TYPED and is sent as `--model <id>`, as the typed-slug
+    field does for a catalogue. A model the installed Claude Code is too old
+    for is refused with the update command: the turn would fail anyway.
+    THE CHAT IS KEPT: Claude Code resumes the same session with another model,
+    so nothing of the context goes -- unlike a local switch, whose cache dies
+    with the server process.
+    """
+    wanted = (argument or "").strip()
+    if not wanted:
+        return ("model: %s on Claude Code%s"
+                % (current or "Claude Code's default model",
+                   " %s" % version if version else ""), current, False)
+    if not claude_cli_word(wanted):
+        return ("not a model name Claude Code takes: %s" % wanted[:80],
+                current, False)
+    row = claude_model(wanted)
+    if row is not None and not claude_model_ready(row, version):
+        return ("%s %s (installed: %s)" % (row["label"], claude_model_needs(row),
+                                           version), current, False)
+    if wanted == current:
+        return ("model: %s, already picked" % wanted, current, False)
+    return ("model: %s from the next turn -- this chat's Claude Code session "
+            "continues" % (row["label"] if row else wanted), wanted, True)
+
+
+def claude_cli_version_cached(refresh: bool = False) -> str:
+    """`claude --version` at most once per CLAUDE_CLI_VERSION_TTL. "" unknown."""
+    with _CLAUDE_SEEN_LOCK:
+        version, at = _CLAUDE_SEEN["version"], _CLAUDE_SEEN["at"]
+    if not refresh and at is not None \
+            and time.monotonic() - at < CLAUDE_CLI_VERSION_TTL:
+        return version
+    version, _problem = claude_cli_version()
+    with _CLAUDE_SEEN_LOCK:
+        _CLAUDE_SEEN["version"], _CLAUDE_SEEN["at"] = version, time.monotonic()
+    return version
+
+
+def _claude_seen(picked: str, model: str = "", version: str = "",
+                 window: int = 0) -> None:
+    """Remember what a child said about the CLI: version, resolved id, window."""
+    with _CLAUDE_SEEN_LOCK:
+        if version and parse_version(version) is not None:
+            _CLAUDE_SEEN["version"], _CLAUDE_SEEN["at"] = version, time.monotonic()
+        if model:
+            _CLAUDE_SEEN["models"][picked or ""] = model
+        if window > 0:
+            for key in {picked or "", model} - {""}:
+                _CLAUDE_SEEN["windows"][key] = window
+
+
+def claude_model_shown(picked: "str | None") -> str:
+    """What the chip names: the id Claude Code reported once a turn ran
+    (init.model), before that the table's label or what was typed."""
+    with _CLAUDE_SEEN_LOCK:
+        seen = _CLAUDE_SEEN["models"].get(picked or "")
+    if seen:
+        return seen
+    row = claude_model(picked or "")
+    return row["label"] if row else (picked or "Claude Code's default model")
+
+
+def claude_context_window(model: "str | None") -> int:
+    """The window for this pick: what result.modelUsage reported, else the
+    table's declared one, else 0 -- a bare count, never a guessed bar."""
+    with _CLAUDE_SEEN_LOCK:
+        resolved = _CLAUDE_SEEN["models"].get(model or "", "")
+        window = (_CLAUDE_SEEN["windows"].get(model or "")
+                  or _CLAUDE_SEEN["windows"].get(resolved) or 0)
+    if window:
+        return int(window)
+    row = claude_model(model or "") or claude_model(resolved)
+    return int(row["window"]) if row else 0
+
+
+def claude_model_rows(version: str, env: "dict | None" = None) -> list:
+    """The chip's model list on the subscription: [alias, label, facts].
+
+    THE THIRD ELEMENT IS WHAT A LOCAL ROW DOES NOT HAVE, and the page reads it
+    there because the `up` handler keeps `models` and nothing new: `ready` and
+    `why` grey out a model the installed Claude Code is too old for, `default`
+    names the "(default)" level, `lock` disables the levels while
+    CLAUDE_CODE_EFFORT_LEVEL decides them.
+    """
+    lock = claude_effort_lock(env)
+    value = (claude_cli_env(env).get(CLAUDE_CLI_EFFORT_ENV) or "").strip()
+    rows = []
+    for row in CLAUDE_MODELS:
+        ready = claude_model_ready(row, version)
+        rows.append([row["alias"], row["label"],
+                     {"ready": ready, "why": "" if ready else claude_model_needs(row),
+                      "default": row["default"], "lock": lock,
+                      "lock_level": value if lock else ""}])
+    return rows
+
+
+def claude_context_used(usage: dict) -> int:
+    """The context in use after one request: its input, cached and new.
+
+    THE LAST ASSISTANT MESSAGE'S USAGE, NOT THE RESULT'S. Measured 2026-10-15:
+    `result.usage` is summed over the turn's requests (99,555 cache reads for a
+    turn whose last request read 41,633), so it says what the turn cost, not
+    what the window holds.
+    """
+    return sum(int(usage.get(key) or 0) for key in
+               ("input_tokens", "cache_creation_input_tokens",
+                "cache_read_input_tokens"))
+
+
+def _claude_tool_text(content) -> str:
+    """A tool_result's content as text: a string, or its text blocks."""
+    if isinstance(content, str):
+        return content
+    parts = []
+    for block in content if isinstance(content, list) else []:
+        if isinstance(block, dict):
+            if block.get("type") == "text":
+                parts.append(str(block.get("text") or ""))
+            elif block.get("type") == "image":
+                parts.append("[image]")
+    return "\n".join(parts)
+
+
+def _claude_prompt(content) -> str:
+    """The typed line as text. Pictures stay with Crow: the stdin is text."""
+    if isinstance(content, list):
+        return "\n".join(str(part.get("text") or "") for part in content
+                         if isinstance(part, dict) and part.get("type") == "text")
+    return str(content or "")
+
+
+class ClaudeStream:
+    """One `claude -p` turn's NDJSON, said as the events `run_turn` says them.
+
+    PER API MESSAGE ONE ROUND, the shape `run_turn` has: `message_start` opens
+    the reply (`reply_started`, a fresh `ReasoningBlocks`), the deltas stream
+    through it, `message_stop` closes it, appends the assistant turn with its
+    calls and reports `round_finished`; then each call is `tool_started`, and
+    its `tool_result` -- which arrives in a `user` message, because Claude Code
+    ran it -- is `tool_finished`, `tool_result`, `tool_failed` when it failed,
+    and the `tool` message. The conversation thereby carries the same
+    transcript a local turn would, so the chat replays and archives as any.
+
+    WHAT IS LEFT OUT: anything with a `parent_tool_use_id` -- a subagent's own
+    conversation inside Claude Code's Task tool, whose result reaches the main
+    thread as that tool's answer (not measured: both fixtures carry none);
+    `signature_delta`; the hook's synthetic user text. Thinking text arrives
+    empty under Claude Code's "updates" display (measured, both fixtures), so
+    a block may open and say nothing -- which is what was sent.
+    """
+
+    def __init__(self, conversation: "Conversation", events: "TurnEvents",
+                 cost: "TurnCost", picked: str = "") -> None:
+        self.conversation = conversation
+        self.events = events
+        self.cost = cost
+        self.picked = picked
+        self.session = ""
+        self.model = ""
+        self.used = 0
+        self.window = 0
+        self.result: "dict | None" = None
+        self.started = False
+        self.incidents: list = []
+        self._msg: "dict | None" = None
+        self._pending: dict = {}
+        self._round: set = set()
+        self._inputs: dict = {}
+        self._said: set = set()
+
+    def feed(self, event: dict) -> None:
+        if event.get("parent_tool_use_id"):
+            return
+        kind = event.get("type")
+        if kind == "system" and event.get("subtype") == "init":
+            self._init(event)
+        elif kind == "stream_event":
+            self._stream(event.get("event") or {})
+        elif kind == "assistant":
+            self._assistant(event.get("message") or {})
+        elif kind == "user":
+            self._user(event.get("message") or {})
+        elif kind == "result":
+            self._result(event)
+        elif kind == "rate_limit_event":
+            self._rate(event.get("rate_limit_info") or {})
+
+    def _note(self, line: str) -> None:
+        if line in self._said:
+            return
+        self._said.add(line)
+        self.incidents.append(line)
+        getattr(self.events, "turn_note", lambda _t: None)(line)
+
+    def _init(self, event: dict) -> None:
+        self.started = True
+        session = str(event.get("session_id") or "")
+        if claude_cli_word(session):
+            self.session = session
+            self.conversation.claude_session = session
+        self.model = str(event.get("model") or "")
+        _claude_seen(self.picked, model=self.model,
+                     version=str(event.get("claude_code_version") or ""))
+
+    def _stream(self, e: dict) -> None:
+        kind = e.get("type")
+        if kind == "message_start":
+            self._open()
+            return
+        m = self._msg
+        if m is None:
+            return
+        if kind == "content_block_start":
+            block = e.get("content_block") or {}
+            if block.get("type") == "tool_use":
+                m["blocks"][e.get("index")] = {
+                    "slot": len(m["blocks"]), "id": str(block.get("id") or ""),
+                    "name": str(block.get("name") or ""), "args": ""}
+        elif kind == "content_block_delta":
+            delta = e.get("delta") or {}
+            what = delta.get("type")
+            if what == "text_delta":
+                piece = delta.get("text") or ""
+                if piece:
+                    # BEFORE `answer_started`, the order `stream_reply` keeps.
+                    m["thoughts"].content_delta(piece)
+                    if not m["answered"]:
+                        m["answered"] = True
+                        m["rev"].answer_started()
+                    m["text"].append(piece)
+                    m["rev"].answer_text(piece)
+            elif what == "thinking_delta":
+                piece = delta.get("thinking") or ""
+                if piece:
+                    m["thoughts"].reasoning_delta(piece)
+            elif what == "input_json_delta":
+                block = m["blocks"].get(e.get("index"))
+                piece = delta.get("partial_json") or ""
+                if block is not None and piece:
+                    block["args"] += piece
+                    m["rev"].tool_arguments(block["slot"], block["name"], piece)
+        elif kind == "message_delta":
+            m["stop"] = (e.get("delta") or {}).get("stop_reason")
+            out = (e.get("usage") or {}).get("output_tokens")
+            if isinstance(out, int):
+                m["out"] = out
+        elif kind == "message_stop":
+            self._close()
+
+    def _open(self) -> None:
+        if self._msg is not None:
+            self._close()
+        rev = self.events.reply_events() or ReplyEvents()
+        rev.reply_started()
+        self._msg = {"rev": rev, "thoughts": ReasoningBlocks(rev), "text": [],
+                     "blocks": {}, "answered": False, "stop": None, "out": 0,
+                     "usage": None, "started": time.monotonic()}
+
+    def _close(self) -> None:
+        m, self._msg = self._msg, None
+        m["thoughts"].finish()
+        m["rev"].reply_finished()
+        text = "".join(m["text"])
+        reasoning = m["thoughts"].text
+        calls = []
+        for block in sorted(m["blocks"].values(), key=lambda b: b["slot"]):
+            whole = self._inputs.pop(block["id"], None)
+            # THE ASSISTANT EVENT'S `input` OVER THE DELTAS: the same object,
+            # but whole, and the deltas of a cut stream are not.
+            arguments = (json.dumps(whole, ensure_ascii=False)
+                         if isinstance(whole, dict) else block["args"] or "{}")
+            calls.append({"id": block["id"], "name": block["name"],
+                          "arguments": arguments})
+        if text or calls:
+            self.conversation.append("assistant", text, reasoning or None,
+                                     tool_calls=calls or None)
+        timings: dict = {"_client_total_s": round(time.monotonic() - m["started"], 2),
+                         "_reasoning_chars": m["thoughts"].reasoning_chars,
+                         "_content_chars": m["thoughts"].content_chars,
+                         "_context_tokens": self.used}
+        usage = m["usage"] or {}
+        if usage:
+            # WHAT WAS READ NEW AND WHAT CAME OUT OF THE CACHE, in the two
+            # fields the cost line already prints as `prefill` and `cached`.
+            timings["prompt_n"] = (int(usage.get("input_tokens") or 0)
+                                   + int(usage.get("cache_creation_input_tokens") or 0))
+            timings["_cached_tokens"] = int(usage.get("cache_read_input_tokens") or 0)
+        if m["out"]:
+            timings["predicted_n"] = m["out"]
+        finish = _CLAUDE_FINISH.get(m["stop"], m["stop"])
+        if finish:
+            timings["_finish_reason"] = finish
+        if calls:
+            timings["_tool_calls"] = calls
+        self.cost.add_round(timings)
+        self.events.round_finished(timings)
+        now = time.monotonic()
+        for call in calls:
+            self.events.tool_started(call["name"], call["arguments"])
+            self._pending[call["id"]] = (call["name"], now)
+        self._round = {call["id"] for call in calls}
+
+    def _assistant(self, message: dict) -> None:
+        usage = message.get("usage")
+        if isinstance(usage, dict):
+            if self._msg is not None:
+                self._msg["usage"] = usage
+            used = claude_context_used(usage)
+            if used and used != self.used:
+                self.used = used
+                getattr(self.events, "context_measured", lambda *_a: None)(
+                    used, self.window or claude_context_window(self.model or self.picked))
+        for block in message.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "tool_use" \
+                    and block.get("id"):
+                self._inputs[str(block["id"])] = block.get("input")
+
+    def _user(self, message: dict) -> None:
+        content = message.get("content")
+        if not isinstance(content, list):
+            return
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            call_id = str(block.get("tool_use_id") or "")
+            held = self._pending.pop(call_id, None)
+            if held is not None:
+                self._answer(call_id, held, _claude_tool_text(block.get("content")),
+                             failed=bool(block.get("is_error")))
+
+    def _answer(self, call_id: str, held: tuple, text: str, failed: bool,
+                declined: bool = False) -> None:
+        name, started = held
+        took = max(0.0, time.monotonic() - started)
+        result = text or "(no output)"
+        if failed and not result.startswith("error: "):
+            result = "error: " + result
+        self.cost.add_tool(took, failed and not declined, declined)
+        self.events.tool_finished(name, took, False)
+        self.events.tool_result(name, result)
+        if failed:
+            self.events.tool_failed(name, result)
+        self.conversation.append("tool", result, tool_call_id=call_id)
+        if call_id in self._round:
+            self._round.discard(call_id)
+            if not self._round:
+                self.events.tools_finished()
+
+    def _result(self, event: dict) -> None:
+        self.result = event
+        session = str(event.get("session_id") or "")
+        if claude_cli_word(session):
+            self.session = session
+            self.conversation.claude_session = session
+        by_model = event.get("modelUsage")
+        row = by_model.get(self.model) if isinstance(by_model, dict) else None
+        try:
+            window = int((row or {}).get("contextWindow") or 0)
+        except (TypeError, ValueError):
+            window = 0
+        if window > 0:
+            self.window = window
+            _claude_seen(self.picked, model=self.model, window=window)
+        denied = [d for d in (event.get("permission_denials") or [])
+                  if isinstance(d, dict)]
+        if denied:
+            names = sorted({str(d.get("tool_name") or "?") for d in denied})
+            self._note("Claude Code refused %d call%s its permission mode does not "
+                       "release (%s) -- the mode chip beside send sets it"
+                       % (len(denied), "" if len(denied) == 1 else "s",
+                          ", ".join(names)))
+
+    def _rate(self, info: dict) -> None:
+        status = str(info.get("status") or "")
+        if status and status != "allowed":
+            self._note("Claude usage: the %s limit says %s"
+                       % (info.get("rateLimitType") or "plan", status))
+
+    def _end(self, why: str, declined: bool) -> None:
+        if self._msg is not None:
+            # A REPLY THE STREAM STOPPED INSIDE IS NOT KEPT, as in `run_turn`:
+            # half an assistant turn would stand in the transcript as an answer.
+            m, self._msg = self._msg, None
+            m["thoughts"].finish()
+            m["rev"].reply_finished()
+        for call_id, held in list(self._pending.items()):
+            del self._pending[call_id]
+            self._answer(call_id, held, why, failed=True, declined=declined)
+
+    def finish(self) -> None:
+        """The stream ended by itself. A call it never answered says so."""
+        self._end("error: Claude Code reported no result for this call", False)
+
+    def abandon(self) -> None:
+        """Stop. A call Claude Code had started is booked as the user's stop."""
+        self._end(STOPPED, True)
+
+    def problem(self, code: "int | None", stderr: str) -> "str | None":
+        """Why the turn failed, in one line, or None when it did not."""
+        result = self.result
+        if result is not None and result.get("is_error"):
+            said = (result.get("result") or result.get("subtype")
+                    or result.get("api_error_status") or "an error")
+            return "Claude Code: %s" % strip_tag_characters(str(said))[:500]
+        if result is None:
+            return ("claude ended without an answer (exit code %s): %s"
+                    % (code, strip_tag_characters(stderr[-500:]) or "no output"))
+        return None
+
+
+class ClaudeTurnResult(TurnResult):
+    """`TurnResult` plus what only the subscription reports: the window, the
+    resolved model and the session the next turn resumes."""
+
+    def __init__(self, *, n_ctx: int = 0, model: str = "", session: str = "",
+                 **kw) -> None:
+        super().__init__(**kw)
+        self.n_ctx = n_ctx
+        self.model = model
+        self.session = session
+
+
+def _claude_cli_kill(proc) -> None:
+    """The child AND what it started: Claude Code runs shells and node."""
+    if proc.poll() is not None:
+        return
+    if crow_platform.IS_WINDOWS:
+        # #310's tree kill, `taskkill /T /F` -- a `claude.cmd` is cmd.exe,
+        # and killing that handle alone leaves node running.
+        if not crow_platform.kill_tree(proc.pid):
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        return
+    # spawn_kwargs put it in a session of its own: the group goes, SIGTERM
+    # then SIGKILL (terminate_tree).
+    crow_platform.terminate_tree(proc, grace=2.0)
+
+
+def claude_cli_stop() -> bool:
+    """Stop, from the window: the running child dies now, not at the next
+    poll of the turn's loop. True when one was running."""
+    with _CLAUDE_SEEN_LOCK:
+        held = list(_CLAUDE_CHILD)
+    for proc in held:
+        _claude_cli_kill(proc)
+    return bool(held)
+
+
+def run_claude_turn(conversation: "Conversation", prompt, *, model: str = "",
+                    effort: "str | None" = None, mode: str = DEFAULT_MODE,
+                    cwd: "str | None" = None, context_tokens: int = 0,
+                    env: "dict | None" = None,
+                    events: "TurnEvents | None" = None) -> ClaudeTurnResult:
+    """Run one user turn on the subscription: one `claude -p` child, to its end.
+
+    THE CALLER HAS APPENDED THE USER LINE, as for `run_turn`; `prompt` is that
+    line, sent on stdin. `cwd` is the chat's working area -- Claude Code edits
+    there. `--resume` comes from `conversation.claude_session`, which the init
+    and result events set, so the next turn of the same chat continues the same
+    Claude Code session and a new chat (no id) starts one.
+
+    WHAT DOES NOT RUN: Crow's rollover and tool-result clearing (`should_roll`,
+    `clear_before_roll`) and the background review. Claude Code compacts its
+    own session, and the next usage shows the drop.
+
+    STOP KILLS THE CHILD: the loop polls INTERRUPT between lines, as
+    `_post_stream` does and for the same Windows reason, and `claude_cli_stop`
+    kills it from the window without waiting for the poll.
+    """
+    import queue
+
+    if events is None:
+        events = TurnEvents()
+    cost = TurnCost()
+
+    def ended(stopped: bool, stream: "ClaudeStream | None" = None,
+              incidents: "list | None" = None) -> ClaudeTurnResult:
+        used = (stream.used if stream is not None else 0) or context_tokens
+        seen = stream.model if stream is not None else ""
+        window = (stream.window if stream is not None else 0) \
+            or claude_context_window(seen or model)
+        return ClaudeTurnResult(
+            cost=cost, context_tokens=used, promised_warm=False, rolled=False,
+            stopped=stopped, reported=[],
+            incidents=(stream.incidents if stream is not None else incidents or []),
+            n_ctx=window, model=seen,
+            session=stream.session if stream is not None else "")
+
+    refused = claude_cli_refusal(env, cwd)
+    if refused is None and model and not claude_cli_word(model):
+        refused = "not a model name Claude Code takes: %s" % model[:80]
+    if refused:
+        events.turn_failed(refused)
+        return ended(True, incidents=[refused])
+    session = conversation.claude_session
+    if session and not claude_cli_word(session):
+        session = None
+    # THE VARIABLE DECIDES while it is set ("Takes precedence over --effort"),
+    # so sending the chip's level beside it would be a flag that does nothing.
+    if claude_effort_lock(env) or effort not in claude_effort_menu(model):
+        effort = None
+    argv = claude_cli_argv(claude_cli_path(), model=model, effort=effort,
+                           mode=mode, session=session)
+    try:
+        proc = subprocess.Popen(
+            argv, cwd=cwd, env=claude_cli_env(env), stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            encoding="utf-8", errors="replace",
+            **crow_platform.spawn_kwargs(detached=True))
+    except OSError as exc:
+        why = "claude could not be started: %s" % exc
+        events.turn_failed(why)
+        return ended(True, incidents=[why])
+    with _CLAUDE_SEEN_LOCK:
+        _CLAUDE_CHILD.append(proc)
+    lines: "queue.Queue" = queue.Queue()
+    eof = object()
+    errs: list = []
+
+    def _feed() -> None:
+        # THE BYTES OF THE LINE, through the wrapper's buffer: a text-mode pipe
+        # writes "\n" as "\r\n" on Windows, and the line is the person's.
+        try:
+            proc.stdin.buffer.write(_claude_prompt(prompt).encode("utf-8"))
+            proc.stdin.close()
+        except (OSError, ValueError):
+            pass                            # it died first; stderr says why
+
+    def _read() -> None:
+        try:
+            for raw in proc.stdout:
+                lines.put(raw)
+        except (OSError, ValueError):
+            pass
+        finally:
+            lines.put(eof)
+
+    def _drain() -> None:
+        # ITS OWN THREAD: a full stderr pipe would block the child, and the
+        # child blocked is a turn that never ends (the deadlock the subprocess
+        # docs warn about).
+        try:
+            for raw in proc.stderr:
+                errs.append(raw)
+                del errs[:-40]
+        except (OSError, ValueError):
+            pass
+
+    drain = threading.Thread(target=_drain, daemon=True)
+    reader = threading.Thread(target=_read, daemon=True)
+    for worker in (threading.Thread(target=_feed, daemon=True), reader, drain):
+        worker.start()
+    stream = ClaudeStream(conversation, events, cost, picked=model)
+    interrupted = finished = False
+    try:
+        while True:
+            if INTERRUPT.is_set():
+                interrupted = True
+                break
+            try:
+                item = lines.get_nowait()
+            except queue.Empty:
+                time.sleep(0.05)            # interruptible, see _post_stream
+                continue
+            if item is eof:
+                finished = True
+                break
+            line = item.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict):
+                stream.feed(event)
+    finally:
+        if not finished:
+            _claude_cli_kill(proc)
+        try:
+            proc.wait(timeout=10.0)
+        except subprocess.TimeoutExpired:
+            _claude_cli_kill(proc)
+        with _CLAUDE_SEEN_LOCK:
+            if proc in _CLAUDE_CHILD:
+                _CLAUDE_CHILD.remove(proc)
+        # The pipes close once their readers are done; a dead child ends both.
+        for thread, pipe in ((reader, proc.stdout), (drain, proc.stderr)):
+            thread.join(timeout=1.0)
+            if not thread.is_alive():
+                try:
+                    pipe.close()
+                except (OSError, ValueError):
+                    pass
+    # THE FLAG IS ASKED AGAIN: `claude_cli_stop` kills the child before the
+    # loop's next poll, so the stream can end at EOF on a stopped turn.
+    if interrupted or INTERRUPT.is_set():
+        stream.abandon()
+        INTERRUPT.clear()
+        events.turn_interrupted()
+        return ended(True, stream)
+    stream.finish()
+    problem = stream.problem(proc.returncode, "".join(errs).strip())
+    if problem:
+        if session and not stream.started:
+            problem += (" -- this chat resumes Claude Code session %s; a new chat "
+                        "starts a fresh one" % session)
+        stream.incidents.append(problem)
+        events.turn_failed(problem)
+        return ended(True, stream)
+    return ended(False, stream)
 
 
 def health_url(base_url: str) -> str:
