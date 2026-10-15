@@ -1239,7 +1239,7 @@ class StartingATextVariantTests(BootCase):
         self.assertEqual(code, crow_boot.EXIT_OK, text)
         env = popen.calls[0][1]["env"]
         self.assertEqual(env["CROW_VIT"], "0")
-        self.assertNotIn("CROW_VIT_MMPROJ", env, "the shell's projector leaked in")
+        self.assertIsNone(env.get("CROW_VIT_MMPROJ"), "the shell's projector leaked in")
         doc = self.contract()
         self.assertEqual((doc["point"], doc["variant"]), ("flash-next", "text"))
         self.assertIn("Starting Qwen3.8-Flash-Next · text only -- 200k context — text only", text)
@@ -1256,11 +1256,30 @@ class StartingATextVariantTests(BootCase):
             env = popen.calls[0][1]["env"]
             want = crow_boot.plan_point(old, point_id, self.install, self.models)["serve"]["env"]
             self.assertEqual({k: env.get(k) for k in want}, want, point_id)
-            self.assertNotIn("CROW_VIT", env, point_id)
+            self.assertIsNone(env.get("CROW_VIT"), point_id)
             doc = self.contract()
             self.assertEqual(sorted(doc), ["base_url", "pids", "point", "started_at"], point_id)
             self.assertEqual(doc["pids"], {"serve": popen.procs[0].pid, "image": None})
             os.remove(os.path.join(self.config, "active-point.json"))
+
+    def test_a_shell_s_crow_vit_reaches_neither_a_base_start_nor_the_variant(self):
+        # a variant's env keys are the stack's too: an inherited CROW_VIT=0 must
+        # not boot the base point blind while its contract file says base
+        self.layout("flash-next")
+        envs = {}
+        for variant in (None, "text"):
+            probes = iter([NOTHING, OK_HEALTH])
+            popen = FakePopen()
+            with mock.patch.dict(os.environ, {"CROW_VIT": "0"}):
+                self.assertEqual(self.boot(popen=popen, get=lambda url, timeout: next(probes)
+                                           ).start("flash-next", variant=variant),
+                                 crow_boot.EXIT_OK, self.out.getvalue())
+            envs[variant] = popen.calls[0][1]["env"]
+            os.remove(os.path.join(self.config, "active-point.json"))
+        self.assertIsNone(envs[None].get("CROW_VIT"), "the shell's CROW_VIT reached a base start")
+        self.assertIsNotNone(envs[None].get("CROW_VIT_MMPROJ"))
+        self.assertEqual(envs["text"]["CROW_VIT"], "0")
+        self.assertIn("CROW_VIT", crow_boot.engine_env_keys(STACK))
 
     def test_an_unknown_variant_is_exit_2_and_nothing_starts(self):
         popen = FakePopen()

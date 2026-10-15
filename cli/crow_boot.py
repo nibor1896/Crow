@@ -37,8 +37,9 @@ THE DECISIONS, and why each is this way:
   `8099`) is passed as written. stack.json is looked up beside cli/ at
   `../manifests/stack.json` (`--stack` overrides).
 * THE ENGINE ENV IS THE STACK'S, NOT THE SHELL'S: every key any point declares
-  is dropped from the inherited environment before the chosen point's own are
-  set, so a `CROW_HOTSETS` left over from Flash-Next cannot reach the 27B.
+  (its variants' included, #397) is dropped from the inherited environment
+  before the chosen point's own are set, so a `CROW_HOTSETS` left over from
+  Flash-Next cannot reach the 27B, nor a shell's `CROW_VIT=0` a base start.
 * A VARIANT IS THE SAME POINT WITH ANOTHER ENV (#397): stack.json `variants`,
   today `text` on Flash-Next and the 27B (`CROW_VIT=0`, no `CROW_VIT_MMPROJ`;
   the 27B at 200k). `plan_point(..., variant=)` takes the base env minus the
@@ -386,10 +387,19 @@ def with_lib_path(env: dict, lib_path) -> dict:
 
 
 def engine_env_keys(stack: dict) -> set:
-    """Every env key any point's engine declares."""
+    """Every env key any point's engine declares, its variants' included.
+
+    #397: a variant's `env` keys are the stack's too, so a `CROW_VIT=0` left in
+    the shell cannot boot a base point blind while its contract file says base.
+    `env_unset` names base keys, which are here already.
+    """
     keys = set()
     for point in stack["points"]:
         keys.update((point.get("engine") or {}).get("env") or {})
+        for variant in point.get("variants") or []:
+            if isinstance(variant, dict):
+                keys.update(variant.get("env") or {})
+                keys.update(variant.get("env_unset") or [])
     return keys
 
 
