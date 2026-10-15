@@ -1330,6 +1330,142 @@ class Boot:
                  % (self.style.icon("crow"), proc.pid, what, url))
         return EXIT_OK
 
+    # -- start crow on the Claude subscription (#398) ------------------------
+    def claude_state(self, again: bool = False) -> dict:
+        """Whether Crow can open on the Claude subscription: {state, detail, action}.
+
+        crow_core's own facts, the first that holds wins: `guarded` (a guard
+        variable would move the bill, crow_core.claude_cli_env_conflicts),
+        `missing` (no Claude Code on PATH), `signed_out`, `billed` (signed in,
+        but not on the subscription), `ready`. `action` is what may be offered:
+        "sign_in" when signed out, "start" when ready, else None.
+
+        THE PROBE SPAWNS TWO PROCESSES (`claude --version`, `claude auth
+        status`) the first time and is then kept; `again` asks anew. The window
+        asks off its UI thread. A guard variable needs no probe: it refuses
+        whatever the probe would say.
+        """
+        names = crow_core.claude_cli_env_conflicts()
+        if names:
+            return {"state": "guarded", "detail": crow_core.claude_cli_guard_line(names),
+                    "action": None}
+        probe = crow_core.claude_probe(again)
+        if not probe.get("found"):
+            return {"state": "missing", "detail": crow_core.CLAUDE_CLI_MISSING, "action": None}
+        if not probe.get("logged_in"):
+            return {"state": "signed_out",
+                    "detail": "Sign in once with your Claude subscription. Claude Code "
+                              "opens Anthropic's sign-in in a terminal.",
+                    "action": "sign_in"}
+        method = probe.get("method") or ""
+        if method not in ("claude.ai", "oauth_token"):
+            return {"state": "billed",
+                    "detail": crow_core.CLAUDE_SUB_SAYS.get(method)
+                    or "Claude Code is signed in, but not with your subscription (%s)"
+                    % (method or "no method"),
+                    "action": None}
+        return {"state": "ready",
+                "detail": "Your Claude plan through Claude Code. No local model needed.",
+                "action": "start"}
+
+    def claude_sign_in(self, which=shutil.which) -> int:
+        """Open a terminal the user types into, running `claude auth login`.
+
+        ANTHROPIC'S OWN FLOW, UNMODIFIED: its terms ("Authentication and
+        credential use", code.claude.com/docs/en/legal-and-compliance, read
+        2026-10-15) allow the user to sign in to the unmodified Claude Code and
+        forbid Crow to offer, collect or intermediate that sign-in. So Crow
+        starts a terminal and nothing else: no argument of its own to claude,
+        none of its output read, and the outcome learnt only from the next
+        `claude auth status`. The sign-in may ask for a pasted code, so it needs
+        a real terminal, not a hidden child.
+
+        Windows: Windows Terminal (`wt.exe`) when it is on PATH, as the
+        shortcut does, else a console of its own (CREATE_NEW_CONSOLE). Either
+        runs `cmd.exe /k`: cmd finds `claude.cmd` (npm) as well as
+        `claude.exe`, and keeps the window open on "Login successful". Linux:
+        $TERMINAL, x-terminal-emulator, gnome-terminal, konsole, xterm, the
+        first one found. EXIT_FAILED names the command to run by hand.
+        """
+        login = crow_core.CLAUDE_CLI_LOGIN.split()
+        kw = {}
+        argv = None
+        if crow_platform.IS_WINDOWS:
+            shell = ["cmd.exe", "/k"] + login
+            terminal = which("wt") or which("wt.exe")
+            if terminal:
+                argv = [terminal] + shell
+            else:
+                argv = shell
+                kw["creationflags"] = 0x00000010            # CREATE_NEW_CONSOLE
+        else:
+            for name in (os.environ.get("TERMINAL"), "x-terminal-emulator",
+                         "gnome-terminal", "konsole", "xterm"):
+                path = which(name) if name else None
+                if path:
+                    # gnome-terminal takes the command after `--`; the others after -e
+                    run = ["--"] if os.path.basename(path) == "gnome-terminal" else ["-e"]
+                    argv = [path] + run + login
+                    break
+        by_hand = "   Run it in a terminal yourself: %s" % crow_core.CLAUDE_CLI_LOGIN
+        if argv is None:
+            self.say("%s No terminal was found to sign in to Claude Code." % self.style.icon("fail"))
+            self.say(by_hand)
+            return EXIT_FAILED
+        try:
+            proc = self.popen(argv, **kw)
+        except OSError as exc:
+            self.say("%s The terminal could not be opened: %s" % (self.style.icon("fail"), exc))
+            self.say(by_hand)
+            return EXIT_FAILED
+        self.say("%s Claude Code's sign-in is open in a terminal (pid %s). Finish it there."
+                 % (self.style.icon("crow"), proc.pid))
+        return EXIT_OK
+
+    def start_claude(self) -> int:
+        """Open the window on the Claude subscription; no local model needed.
+
+        Only in `ready` (claude_state, the kept probe); in any other state it
+        says that state's sentence and changes nothing. Then providers.json's
+        `active` is `claude` (crow_core.provider_pick; the window reads it at
+        start) and the window opens like Start Crow, with `--base-url` of the
+        model server that runs, else crow-nest's port: a point booted later
+        from here is the local endpoint when the user switches back
+        (Settings -> Model or `/model`; turns stay on Claude until then).
+        """
+        state = self.claude_state()
+        if state["state"] != "ready":
+            self.say("%s %s" % (self.style.icon("fail"), state["detail"]))
+            return EXIT_FAILED
+        running = self.detect()
+        env = dict(os.environ)
+        if running and running.get("base_url") and running["kind"] in (
+                crow_platform.KIND_CROW_NEST, crow_platform.KIND_LLAMA):
+            url = running["base_url"]
+            if running["kind"] == crow_platform.KIND_CROW_NEST and running.get("point"):
+                try:
+                    env.update(plan_point(self.stack, running["point"], self.install,
+                                          self.models)["crow_env"])
+                except SetupError:
+                    pass
+        else:
+            url = base_url_for(crow_core.CROW_NEST_PORT)
+        problem = crow_core.provider_pick(crow_core.CLAUDE_PROVIDER)
+        if problem:
+            self.say("%s %s" % (self.style.icon("fail"), problem))
+            return EXIT_FAILED
+        try:
+            proc = self._spawn(self.gui_command(url), cwd=os.getcwd(), env=env,
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL)
+        except OSError as exc:
+            self.say("%s The window could not be started: %s" % (self.style.icon("fail"), exc))
+            return EXIT_FAILED
+        self.say("%s Crow is opening (pid %s) on %s; the local model is looked for at %s."
+                 % (self.style.icon("crow"), proc.pid,
+                    crow_core.PROVIDERS[crow_core.CLAUDE_PROVIDER]["label"], url))
+        return EXIT_OK
+
     # -- status ------------------------------------------------------------
     def status(self) -> int:
         running = self.detect()
