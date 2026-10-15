@@ -603,6 +603,7 @@ class ThePickerPageTests(unittest.TestCase):
         self.assertEqual(sorted(n for n in set(names) if names.count(n) > 1), [])
 
 
+
 # ------------------------------------------------------ the Claude entry (#398) ---
 
 SAID = {"found": True, "version": "2.1.300", "logged_in": True, "method": "claude.ai",
@@ -734,9 +735,11 @@ class BootStartClaudeTests(ClaudeCase):
     def test_it_refuses_in_every_state_but_ready_and_writes_nothing(self):
         for env, said, sentence in (({"ANTHROPIC_BASE_URL": "http://proxy"}, {}, "ANTHROPIC_BASE_URL is set"),
                                     ({}, {"found": False, "logged_in": False}, MISSING),
-                                    ({}, {"logged_in": False}, SIGN_IN),
+                                    # signed out, the terminal names the command and opens nothing
+                                    ({}, {"logged_in": False}, "     claude auth login"),
                                     ({}, {"method": "api_key"}, "bills an API key")):
             self.said = dict(SAID, **said)
+            self.out.seek(0)
             self.out.truncate(0)
             popen = FakePopen()
             with mock.patch.dict(os.environ, env):

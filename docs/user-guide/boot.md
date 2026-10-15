@@ -58,26 +58,28 @@ python cli\crow_boot.py
   ----------------------------------------------------
   ⚪ No operating point is running.
 
-   1  🚀 Start Crow                      open the window on the running point
-   2  🧠 Qwen3.8-Flash-Next              200k context — great for coding & vision
-   3  🧠 Qwen3.8-Flash-Next · text only  200k context — text only, the vision tower's VRAM goes to experts
-   4  ⚡ Qwen3.8-27B                     128k context — great speed, awesome for coding & vision
-   5  ⚡ Qwen3.8-27B · text only         200k context — text only, the vision tower's VRAM goes to the context
-   6  🐋 GLM-5.3-Flash                   200k context — the big MoE, experts streamed from NVMe
-   7  🎨 Image Stack                     27B + Qwen-Image 2.1 — create AWESOME pictures
-   8  🎬 Media Stack                     9B + Qwen-Image 2.1 + LTX-2.5 — pictures and short videos
+   1  🚀 Start Crow                             open the window on the running point
+   2  🚀 Start Crow with Claude (subscription)  open the window on your Claude plan, no local model needed
+   3  🧠 Qwen3.8-Flash-Next                     200k context — great for coding & vision
+   4  🧠 Qwen3.8-Flash-Next · text only         200k context — text only, the vision tower's VRAM goes to experts
+   5  ⚡ Qwen3.8-27B                            128k context — great speed, awesome for coding & vision
+   6  ⚡ Qwen3.8-27B · text only                200k context — text only, the vision tower's VRAM goes to the context
+   7  🐋 GLM-5.3-Flash                          200k context — the big MoE, experts streamed from NVMe
+   8  🎨 Image Stack                            27B + Qwen-Image 2.1 — create AWESOME pictures
+   9  🎬 Media Stack                            9B + Qwen-Image 2.1 + LTX-2.5 — pictures and short videos
 
   Optional (llama.cpp)
-   9  🦙 Qwen3.8-27B (optional)          llama.cpp, port 8082
-  10  🦙 Qwen3.8-Flash-Next (optional)   llama.cpp, port 8083
+  10  🦙 Qwen3.8-27B (optional)                 llama.cpp, port 8082
+  11  🦙 Qwen3.8-Flash-Next (optional)          llama.cpp, port 8083
 
-  11  🛑 Stop the running point
+  12  🛑 Stop the running point
    0  👋 Quit
 ```
 
 | Menu entry | What it does |
 |---|---|
 | Start Crow | opens the window with `--base-url` of what runs: a baseline point, or a llama-server (its port), and says which. Only when no model server runs it says so and starts nothing |
+| Start Crow with Claude (subscription) | opens the window on your Claude plan through Claude Code, no local model needed, whether or not a point runs (#398): sets Claude (subscription) as the active provider and passes `--base-url` of what runs, else `http://127.0.0.1:8099/v1`. Claude Code is asked when you choose the line. Not signed in, it names `claude auth login` to run in a terminal and opens nothing; with a guard variable set, without Claude Code, or signed in with an API key or a cloud platform it says so and starts nothing ([operating-point window](#operating-point-window)) |
 | Qwen3.8-Flash-Next | starts crow-nest's `serve` with the Flash-Next container (200k context) |
 | Qwen3.8-Flash-Next · text only | the same point without the vision tower (#397): `CROW_VIT=0`, no `CROW_VIT_MMPROJ`, so the projector's and the image reserve's VRAM stay with the expert hot set (at most N 160). No images: `/props` says vision false, and Crow answers a pasted image with its no-vision sentence. **Not measured** |
 | Qwen3.8-27B | starts `serve` with the 27B container at 131,072 context (`CROW_CONTEXT`; 200k waits for an 8-bit KV cache in crow-nest) |
@@ -111,6 +113,7 @@ python cli\crow_boot.py
 | `--variant <key>` | with `--start`: one of the point's variants from `stack.json`, today `text` for `flash-next` and `27b` (#397, not measured): `--start flash-next --variant text`. A key the point does not have is exit 2 |
 | `--stop` | stop the running point |
 | `--start-crow` | open the window on the running point |
+| `--start-claude` | open the window on the Claude subscription, as the menu's Start Crow with Claude (subscription). Exit 1 when Claude Code is not ready, with the reason (signed out: `claude auth login`) |
 | `--gui` | the operating-point window instead of the terminal menu |
 | `--create-shortcut <folder>` | write `<folder>\Crow.lnk` (Windows) to the operating-point window |
 | `--terminal` | with `--create-shortcut`: the shortcut opens the terminal menu instead |

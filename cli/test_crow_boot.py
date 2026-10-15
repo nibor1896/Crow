@@ -486,10 +486,11 @@ class TheOptionalLlamaLinesTests(BootCase):
 
     def test_the_menu_numbers_them_after_the_baseline_and_starts_them(self):
         # #340: the Media Stack is a baseline row on Windows only; #397: each
-        # variant is a numbered row of its own under its base
+        # variant is a numbered row of its own under its base; #398: Start Crow
+        # and Start Crow with Claude come first
         here = sum(1 + len(p.get("variants") or []) for p in STACK["points"]
                    if crow_boot.runs_here(p))
-        answers = iter([str(2 + here), "0"])
+        answers = iter([str(3 + here), "0"])
         popen = FakePopen()
         code = self.boot(read=lambda prompt="": next(answers), popen=popen,
                          get=lambda url, timeout: (200, b"{}"),
@@ -497,7 +498,7 @@ class TheOptionalLlamaLinesTests(BootCase):
         self.assertEqual(code, crow_boot.EXIT_OK)
         self.assertEqual(popen.calls[0][0][-1], "8082")
         rows = self.boot(llama=FakeLlama([LLAMA_27B])).entries()
-        self.assertEqual([r[0] for r in rows if r[4] and r[4][0] == "stop"], [str(3 + here)])
+        self.assertEqual([r[0] for r in rows if r[4] and r[4][0] == "stop"], [str(4 + here)])
 
 
 class TheLandedScreenReturnsToTheMenuTests(BootCase):
@@ -1397,6 +1398,74 @@ class TheMenuListsTheVariantsTests(BootCase):
             calls.append((point_id, interactive, variant)) or crow_boot.EXIT_OK)
         self.assertEqual(boot.menu(), crow_boot.EXIT_OK)
         self.assertEqual(calls, [("27b", True, "text")])
+
+
+class TheMenuStartsCrowOnTheClaudeSubscriptionTests(BootCase):
+    """#398: "Start Crow with Claude (subscription)" right after Start Crow, and
+    `--start-claude`; both are Boot.start_claude. No real `claude` runs: the
+    probe is a fake, and providers.json goes to this test's own folder."""
+
+    SAID = {"found": True, "version": "2.1.300", "logged_in": True, "method": "claude.ai",
+            "plan": "max", "problem": ""}
+
+    def setUp(self):
+        super().setUp()
+        self.said = dict(self.SAID)
+        self.probes = []
+        self.providers = os.path.join(self.config, "providers.json")
+        env = {k: v for k, v in os.environ.items() if k not in crow_core.CLAUDE_CLI_ENV_GUARD}
+        for p in (mock.patch.object(crow_core, "claude_probe",
+                                    lambda again=False: self.probes.append(again) or dict(self.said)),
+                  mock.patch.object(crow_core, "PROVIDERS_FILE", self.providers),
+                  mock.patch.dict(os.environ, env, clear=True)):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_the_line_comes_right_after_start_crow(self):
+        rows = self.boot().entries()
+        self.assertEqual(rows[1], ("2", "start", "Start Crow with Claude (subscription)",
+                                   "open the window on your Claude plan, no local model needed",
+                                   ("claude", None), False))
+        self.assertEqual(rows[2][0], "3", "the points follow it")
+
+    def test_choosing_it_asks_claude_code_anew_and_opens_the_window(self):
+        answers = iter(["2", "0"])
+        popen = FakePopen()
+        code = self.boot(read=lambda prompt="": next(answers), popen=popen).menu()
+        self.assertEqual(code, crow_boot.EXIT_OK, self.out.getvalue())
+        self.assertEqual(self.probes, [True], "a sign-in since the last ask counts")
+        (argv, _kw), = popen.calls
+        self.assertEqual(argv[2:], ["--base-url", "http://127.0.0.1:8099/v1"])
+        self.assertEqual(crow_core.provider_doc(self.providers).get("active"), "claude")
+
+    def test_signed_out_it_says_to_run_claude_auth_login_and_opens_nothing(self):
+        self.said.update(logged_in=False, method="none")
+        answers = iter(["2", "", "0"])               # the line, Enter after the message, Quit
+        popen = FakePopen()
+        code = self.boot(read=lambda prompt="": next(answers), popen=popen).menu()
+        text = self.out.getvalue()
+        self.assertEqual(code, crow_boot.EXIT_OK)
+        self.assertIn("Claude Code is not signed in.", text)
+        self.assertIn("     claude auth login", text)
+        self.assertEqual(popen.calls, [], "no terminal and no window from the menu")
+        self.assertFalse(os.path.exists(self.providers))
+
+    def test_the_flag_starts_crow_on_claude(self):
+        out = io.StringIO()
+        with mock.patch.object(crow_boot.Boot, "start_claude",
+                               lambda boot: boot.say("start_claude") or crow_boot.EXIT_OK), \
+                mock.patch.object(sys, "stdout", out):
+            code = crow_boot.main(["--start-claude"])
+        self.assertEqual((code, out.getvalue()), (crow_boot.EXIT_OK, "start_claude\n"))
+
+    def test_the_flag_signed_out_says_to_run_claude_auth_login(self):
+        self.said.update(logged_in=False, method="none")
+        out = io.StringIO()
+        with mock.patch.object(sys, "stdout", out):
+            code = crow_boot.main(["--start-claude"])
+        self.assertEqual(code, crow_boot.EXIT_FAILED)
+        self.assertIn("     claude auth login", out.getvalue())
+        self.assertFalse(os.path.exists(self.providers))
 
 
 if __name__ == "__main__":

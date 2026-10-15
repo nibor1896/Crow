@@ -14,7 +14,8 @@ a menu, for a script or a test.
                                                   the same point without its vision tower (#397)
     python cli/crow_boot.py --stop                stop the running point
     python cli/crow_boot.py --start-crow          open the window against the running point
-    python cli/crow_boot.py --gui                 the operating-point window (crow_boot_gui.py)
+    python cli/crow_boot.py --start-claude        open the window on the Claude subscription (#398)
+    python cli/crow_boot.py --gui               the operating-point window (crow_boot_gui.py)
     python cli/crow_boot.py --create-shortcut DIR a Windows shortcut to that window in DIR
                                                   (add --terminal for one to this menu)
     python cli/crow_boot.py --plan 27b --json     what --start 27b would use, as JSON (the
@@ -123,12 +124,17 @@ THE DECISIONS, and why each is this way:
   environment; with a llama-server running, on `http://127.0.0.1:<its
   --port>/v1`, naming the server. Only when no model server with an address
   runs (nothing, or an sd-server alone) it says so and starts nothing.
+* START CROW WITH CLAUDE (SUBSCRIPTION) (#398, `--start-claude`) needs no
+  model server: Boot.start_claude, the same as the window's Claude entry. Its
+  state is asked when it is chosen, never on a draw. Signed out it names
+  `claude auth login` and opens nothing: a terminal that pops up from a
+  terminal would be a second one for no reason.
 * THE TERMINAL: stdout is forced to UTF-8; on Windows VT processing is
   switched on (SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_PROCESSING). If that
   fails, or stdout is not a terminal, the output is plain: ASCII markers, no
   colour, no animation. NO_COLOR drops only the colour.
-* ONE MENU, NOT TWO: Start Crow, the three points (each variant under its
-  base), the optional lines, Stop, Quit. "Landed" shows
+* ONE MENU, NOT TWO: Start Crow, Start Crow with Claude (subscription), the
+  three points (each variant under its base), the optional lines, Stop, Quit. "Landed" shows
   for 5 seconds and returns to this menu by itself; errors and refusals wait
   for Enter so they can be read.
 * THE SHORTCUT (`--create-shortcut DIR`, Windows): `DIR\Crow.lnk`, written by
@@ -1422,18 +1428,28 @@ class Boot:
                  % (self.style.icon("crow"), proc.pid))
         return EXIT_OK
 
-    def start_claude(self) -> int:
+    def start_claude(self, again: bool = False) -> int:
         """Open the window on the Claude subscription; no local model needed.
 
-        Only in `ready` (claude_state, the kept probe); in any other state it
-        says that state's sentence and changes nothing. Then providers.json's
-        `active` is `claude` (crow_core.provider_pick; the window reads it at
-        start) and the window opens like Start Crow, with `--base-url` of the
-        model server that runs, else crow-nest's port: a point booted later
-        from here is the local endpoint when the user switches back
-        (Settings -> Model or `/model`; turns stay on Claude until then).
+        Only in `ready` (claude_state; `again` asks Claude Code anew, as the
+        menu does, else the kept probe); in any other state it says that
+        state's sentence and changes nothing. Signed out, the sentence is the
+        command to run: neither the menu nor `--start-claude` opens a terminal
+        by itself (the window's Sign in does, claude_sign_in). Then
+        providers.json's `active` is `claude` (crow_core.provider_pick; the
+        window reads it at start) and the window opens like Start Crow, with
+        `--base-url` of the model server that runs, else crow-nest's port: a
+        point booted later from here is the local endpoint when the user
+        switches back (Settings -> Model or `/model`; turns stay on Claude
+        until then).
         """
-        state = self.claude_state()
+        state = self.claude_state(again)
+        if state["state"] == "signed_out":
+            self.say("%s Claude Code is not signed in. Sign in once with your Claude subscription:"
+                     % self.style.icon("fail"))
+            self.say("     %s" % crow_core.CLAUDE_CLI_LOGIN)
+            self.say("   then start Crow with Claude again.")
+            return EXIT_FAILED
         if state["state"] != "ready":
             self.say("%s %s" % (self.style.icon("fail"), state["detail"]))
             return EXIT_FAILED
@@ -1493,14 +1509,19 @@ class Boot:
     def entries(self) -> list:
         """(key, icon, title, line, action, optional) in menu order.
 
-        The three baseline points from stack.json first, each variant (#397)
+        Start Crow, then Start Crow with Claude (subscription) (#398; its state
+        is asked when it is chosen, not on every draw: the probe spawns two
+        processes). The three baseline points from stack.json next, each variant (#397)
         on its own numbered line right under its base (action ("variant",
         (point, key))); below them, under a heading row (key "", action None),
         the installed optional llama.cpp lines, each tagged "(optional)" and
         drawn dimmed.
         """
         rows = [("1", "start", "Start Crow", "open the window on the running point",
-                 ("crow", None), False)]
+                 ("crow", None), False),
+                ("2", "start", "Start Crow with Claude (subscription)",
+                 "open the window on your Claude plan, no local model needed",
+                 ("claude", None), False)]
         for p in self.stack["points"]:
             if not runs_here(p):
                 continue
@@ -1580,6 +1601,12 @@ class Boot:
                 return EXIT_OK
             if what == "crow":
                 if self.start_crow() == EXIT_OK:
+                    self.countdown(OPENED_S, "Back to the menu")
+                else:
+                    self.pause()
+            elif what == "claude":
+                # asked anew: a sign-in in another terminal since the last ask counts
+                if self.start_claude(again=True) == EXIT_OK:
                     self.countdown(OPENED_S, "Back to the menu")
                 else:
                     self.pause()
@@ -1673,6 +1700,8 @@ def main(argv=None) -> int:
     group.add_argument("--start", metavar="POINT", help="start one operating point")
     group.add_argument("--stop", action="store_true", help="stop the running operating point")
     group.add_argument("--start-crow", action="store_true", help="open the window on the running point")
+    group.add_argument("--start-claude", action="store_true",
+                       help="open the window on your Claude subscription (Claude Code), no local model needed")
     group.add_argument("--gui", action="store_true", help="the operating-point window instead of this menu")
     group.add_argument("--create-shortcut", metavar="DIR",
                        help="write a Windows shortcut to the operating-point window")
@@ -1728,6 +1757,8 @@ def main(argv=None) -> int:
         return boot.stop()
     if args.start_crow:
         return boot.start_crow()
+    if args.start_claude:
+        return boot.start_claude()
     if args.create_shortcut:
         return boot.create_shortcut(args.create_shortcut, terminal=args.terminal)
     if args.gui:
