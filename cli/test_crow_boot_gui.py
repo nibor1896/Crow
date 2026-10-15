@@ -603,6 +603,33 @@ class ThePickerPageTests(unittest.TestCase):
         self.assertEqual(sorted(n for n in set(names) if names.count(n) > 1), [])
 
 
+class ThePickerOnTheShippedStackTests(GuiCase):
+    """#396 over #397's manifests/stack.json as it ships, not a fixture: the
+    window reads the variants the menu and Boot.start read."""
+
+    def test_the_vision_switch_follows_the_shipped_variants(self):
+        ctl = self.controller()
+        self.assertIs(ctl.boot.stack, STACK)
+        ctl.refresh()
+        shown = {}
+        for entry in [p["id"] for p in STACK["points"] if crow_boot.runs_here(p)]:
+            ctl.select(entry)
+            shown[entry] = ctl.view()["picker"]["vision"]["shown"]
+        self.assertEqual(shown, dict({"flash-next": True, "27b": True, "glm53-flash": False,
+                                      "image-stack": False}, **({"media-stack": False} if MEDIA else {})))
+
+    def test_vision_off_starts_the_shipped_text_variant(self):
+        calls = []
+        ctl = self.controller()
+        ctl.boot.start = lambda point_id, **kw: calls.append((point_id, kw)) or crow_boot.EXIT_OK
+        ctl.refresh()
+        ctl.set_vision(False)
+        for entry in ("flash-next", "27b", "glm53-flash"):
+            ctl.select(entry)
+            ctl.start()
+        self.assertEqual(calls, [("flash-next", {"variant": "text"}), ("27b", {"variant": "text"}),
+                                 ("glm53-flash", {})])
+
 
 # ------------------------------------------------------ the Claude entry (#398) ---
 
