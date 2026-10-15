@@ -11,6 +11,12 @@
   It draws Controller.view() and sends button presses back; it decides
   nothing. crow_boot_gui.py inlines the crow; opened as a file, the page draws
   whatever window.crowBoot.render(view) is handed.
+  #396: the entries are one select-only combobox (WAI-ARIA APG), drawn here
+  rather than a native <select> so it looks the same in WebView2 and
+  WebKitGTK and carries each entry's second line. DOM focus stays on the
+  field; the option the keys stand on is named by aria-activedescendant. The
+  page keeps only whether the list is open and that option; a choice goes to
+  the controller (select), and the next view draws it.
 -->
 <style>
 :root{
@@ -51,19 +57,39 @@ button:disabled{cursor:default}
 .mark img{position:absolute;inset:0;width:100%;height:100%;-webkit-user-drag:none}
 .mark .ghost{opacity:.10}
 .say{color:var(--soft);font-size:16px;margin:22px 0 12px;text-align:center;font-variant-numeric:tabular-nums}
-.list{width:100%;max-width:var(--col)}
-.row{display:flex;align-items:center;gap:14px;padding:8px 0;border-top:1px solid var(--line-soft)}
-.row .tx{flex:1;min-width:0}
-.row b{font-weight:600}
-.row .d{color:var(--dim)}
-.row.off b,.row.off .d{color:var(--dimmer)}
-.row.opt b{color:var(--dim);font-weight:500}
-.row.opt .d{color:var(--dimmer)}
-.sec{width:100%;max-width:var(--col);color:var(--dimmer);font-size:11.5px;padding:10px 0 3px}
-.go{border:1px solid var(--line);border-radius:6px;padding:3px 11px;color:var(--soft);font-size:12px;white-space:nowrap;flex:none}
+.go{border:1px solid var(--line);border-radius:6px;padding:5px 18px;color:var(--soft);font-size:12.5px;white-space:nowrap;flex:none}
 .go:hover{border-color:#4a4a4e;color:var(--text)}
-.go.dis{opacity:.35}
-.go.dis:hover{border-color:var(--line);color:var(--soft)}
+.go:disabled{opacity:.35}
+.go:disabled:hover{border-color:var(--line);color:var(--soft)}
+
+.pick{width:100%;max-width:var(--col);margin-top:4px}
+.field{display:flex;align-items:center;gap:10px;height:38px;padding:0 12px 0 14px;border:1px solid var(--line);
+  border-radius:8px;background:var(--composer);cursor:pointer}
+.field:hover{border-color:#4a4a4e}
+.field[aria-expanded="true"]{border-color:var(--acc-line)}
+.field[aria-disabled="true"]{cursor:default;opacity:.55}
+.field[aria-disabled="true"]:hover{border-color:var(--line)}
+.field .v{flex:1;min-width:0;font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.field svg{width:12px;height:12px;stroke:var(--dim);stroke-width:1.5;fill:none;flex:none}
+.pd{color:var(--dim);padding:7px 2px 0;min-height:26px;overflow-wrap:anywhere}
+.pf{display:flex;align-items:center;gap:12px;margin-top:12px;min-height:30px}
+.pf .sp{flex:1}
+.sw{display:flex;align-items:center;gap:9px;color:var(--soft);cursor:pointer}
+.sw input{-webkit-appearance:none;appearance:none;position:relative;width:30px;height:17px;margin:0;flex:none;
+  border:1px solid #3a3a3d;border-radius:9px;background:var(--line);cursor:pointer;transition:background .12s}
+.sw input::before{content:"";position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;
+  background:var(--dim);transition:transform .12s,background .12s}
+.sw input:checked{background:var(--acc);border-color:var(--acc)}
+.sw input:checked::before{transform:translateX(13px);background:#fff}
+.sw input:disabled,.sw input:disabled+span{opacity:.45;cursor:default}
+.pop{position:fixed;z-index:5;padding:4px;border:1px solid var(--line);border-radius:8px;background:var(--composer);
+  box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.pop .lbl{color:var(--dimmer);font-size:11px;padding:5px 10px 2px}
+.opt{padding:4px 10px 5px;border-radius:6px;cursor:pointer}
+.opt b{display:block;font-weight:600;line-height:1.35}
+.opt .d{display:block;color:var(--dim);font-size:12px;line-height:1.35;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.opt.on{background:var(--raised)}
+.opt.cur b{color:var(--acc)}
 .run{width:100%;max-width:var(--col);display:flex;align-items:center;gap:12px;padding:9px 12px;
   border:1px solid var(--run-line);border-radius:8px;background:var(--run-bg);margin-bottom:6px}
 .run .tx{flex:1;min-width:0}
@@ -105,7 +131,13 @@ button:disabled{cursor:default}
   'use strict';
   var LOGO = 'mark-on-dark.svg';
   var POLL_MS = 250;
+  var TYPE_MS = 500;        // type-ahead: keys this close together are one word
+  var TOP_MIN = 40;         // the list never covers the title bar
   var last = '';
+  var pick = null;          // the last view's picker
+  var opts = [];            // its entries in the list's order
+  var pk = { open: false, at: -1, typed: '', typedAt: 0 };
+  var drawing = false;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -117,11 +149,129 @@ button:disabled{cursor:default}
     return '<div class="mark"><img class="ghost" src="' + LOGO + '" alt="">' +
       '<img src="' + LOGO + '" alt="Crow" style="clip-path:inset(0 ' + (100 - fill) + '% 0 0)"></div>';
   }
-  function row(r) {
-    return '<div class="row' + (r.cls ? ' ' + r.cls : '') + '"><div class="tx"><b>' + esc(r.title) + '</b>' +
-      '<div class="d">' + esc(r.detail) + '</div></div>' +
-      '<button class="go' + (r.dim ? ' dis' : '') + '" data-act="start" data-id="' + esc(r.id) + '"' +
-      (r.enabled ? '' : ' disabled') + ' aria-label="Start ' + esc(r.title) + '">Start</button></div>';
+  function picker(p) {
+    var cur = null;
+    opts = [];
+    var list = p.groups.map(function (g, gi) {
+      return '<div role="group" aria-labelledby="pk-g' + gi + '"><div class="lbl" id="pk-g' + gi +
+        '" role="presentation">' + esc(g.label) + '</div>' + g.items.map(function (it) {
+          var i = opts.length;
+          opts.push(it);
+          if (it.id === p.selected) cur = it;
+          return '<div class="opt' + (it.id === p.selected ? ' cur' : '') + '" role="option" id="pk-o' + i +
+            '" data-pick="' + i + '" aria-selected="false" title="' + esc(it.detail) + '"><b>' + esc(it.title) +
+            '</b><span class="d">' + esc(it.detail) + '</span></div>';
+        }).join('') + '</div>';
+    }).join('');
+    var off = p.enabled ? '' : ' disabled';
+    var h = '<div class="pick"><div id="pk" class="field" role="combobox" tabindex="' + (p.enabled ? '0' : '-1') +
+      '" aria-label="Model" aria-haspopup="listbox" aria-expanded="false" aria-controls="pk-list"' +
+      (p.enabled ? '' : ' aria-disabled="true"') + '><span class="v">' + esc(cur ? cur.title : '') + '</span>' +
+      '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5l3.5 3.5 3.5-3.5"/></svg></div>' +
+      '<div id="pk-pop" class="pop" hidden><div id="pk-list" role="listbox" aria-label="Models">' + list +
+      '</div></div><div class="pd">' + esc(p.detail) + '</div><div class="pf">';
+    if (p.vision.shown) {
+      h += '<label class="sw"><input type="checkbox" role="switch" id="pk-vision"' + (p.vision.on ? ' checked' : '') +
+        off + '><span>Vision</span></label>';
+    }
+    h += '<span class="sp"></span>';
+    if (p.start) {
+      h += '<button class="go" id="pk-start" data-act="' + esc(p.start.act) + '"' + (p.start.enabled ? '' : ' disabled') +
+        '>' + esc(p.start.label) + '</button>';
+    }
+    return h + '</div></div>';
+  }
+
+  // -- the list: WAI-ARIA APG select-only combobox -------------------------
+  function field() { return document.getElementById('pk'); }
+  function chosenAt() {
+    for (var k = 0; k < opts.length; k++) if (pick && opts[k].id === pick.selected) return k;
+    return 0;
+  }
+  function place(f, pop) {
+    // Below the field; where it does not fit, over the field the way a native
+    // select opens, else as high as it has to. The list never scrolls.
+    var r = f.getBoundingClientRect(), h = pop.offsetHeight, room = window.innerHeight - 8;
+    var top = r.bottom + 4;
+    if (top + h > room) top = r.top;
+    if (top + h > room) top = room - h;
+    pop.style.left = r.left + 'px';
+    pop.style.width = r.width + 'px';
+    pop.style.top = Math.max(TOP_MIN, top) + 'px';
+  }
+  function stand(i) {          // the option the keys stand on
+    if (!opts.length) return;
+    i = Math.max(0, Math.min(opts.length - 1, i));
+    pk.at = i;
+    for (var k = 0; k < opts.length; k++) {
+      var n = document.getElementById('pk-o' + k);
+      if (!n) continue;
+      n.classList.toggle('on', k === i);
+      n.setAttribute('aria-selected', k === i ? 'true' : 'false');
+    }
+    field().setAttribute('aria-activedescendant', 'pk-o' + i);
+  }
+  function openList(at) {
+    var f = field(), pop = document.getElementById('pk-pop');
+    if (!f || !pop || !pick || !pick.enabled || !opts.length) return;
+    pk.open = true;
+    pop.hidden = false;
+    f.setAttribute('aria-expanded', 'true');
+    place(f, pop);
+    stand(at);
+  }
+  function closeList() {
+    pk.open = false;
+    pk.at = -1;
+    var f = field(), pop = document.getElementById('pk-pop');
+    if (pop) pop.hidden = true;
+    if (f) {
+      f.setAttribute('aria-expanded', 'false');
+      f.removeAttribute('aria-activedescendant');
+    }
+  }
+  function choose(i) {
+    var it = opts[i];
+    closeList();
+    if (it && pick && it.id !== pick.selected) act('select', it.id);
+  }
+  function typeAhead(ch) {
+    // One letter again and again steps through the entries it starts; more
+    // letters find the first entry they start, from the current one on.
+    var now = Date.now();
+    pk.typed = (now - pk.typedAt > TYPE_MS ? '' : pk.typed) + ch.toLowerCase();
+    pk.typedAt = now;
+    var same = pk.typed.split('').every(function (c) { return c === pk.typed[0]; });
+    var want = same ? pk.typed[0] : pk.typed;
+    var from = (pk.open ? pk.at : chosenAt()) + (same ? 1 : 0);
+    for (var k = 0; k < opts.length; k++) {
+      var i = (from + k) % opts.length;
+      if (String(opts[i].title).toLowerCase().indexOf(want) === 0) return i;
+    }
+    return -1;
+  }
+  function onKey(e) {
+    if (!pick || !pick.enabled || !opts.length) return;
+    var k = e.key, end = opts.length - 1;
+    var printable = k.length === 1 && k !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey;
+    if (!pk.open) {
+      if (k === 'ArrowDown' || k === 'Enter' || k === ' ') { e.preventDefault(); openList(chosenAt()); }
+      else if (k === 'ArrowUp' || k === 'Home') { e.preventDefault(); openList(0); }
+      else if (k === 'End') { e.preventDefault(); openList(end); }
+      else if (printable) { e.preventDefault(); var t = typeAhead(k); openList(t >= 0 ? t : chosenAt()); }
+      return;
+    }
+    if (k === 'ArrowUp' && e.altKey) { e.preventDefault(); choose(pk.at); return; }
+    if (k === 'ArrowDown') { e.preventDefault(); stand(pk.at + 1); }
+    else if (k === 'ArrowUp') { e.preventDefault(); stand(pk.at - 1); }
+    else if (k === 'Home') { e.preventDefault(); stand(0); }
+    else if (k === 'End') { e.preventDefault(); stand(end); }
+    else if (k === 'PageDown') { e.preventDefault(); stand(pk.at + 10); }
+    else if (k === 'PageUp') { e.preventDefault(); stand(pk.at - 10); }
+    else if (k === 'Enter' || k === ' ') { e.preventDefault(); choose(pk.at); }
+    else if (k === 'Tab') { choose(pk.at); }                  // and the focus moves on
+    else if (k === 'Escape') { e.preventDefault(); closeList(); }
+    else if (printable) { e.preventDefault(); var i = typeAhead(k); if (i >= 0) stand(i); }
   }
   function msg(m, cls) {
     return '<div class="msg' + (cls ? ' ' + cls : '') + '">' + esc(m.title) +
@@ -137,15 +287,21 @@ button:disabled{cursor:default}
     }
     if (v.warn) h += msg(v.warn, '');
     if (v.note) h += msg(v.note, 'bad');
-    if (v.rows.length) h += '<div class="list">' + v.rows.map(row).join('') + '</div>';
-    if (v.optional.length) {
-      h += '<div class="sec">Optional (llama.cpp)</div><div class="list">' + v.optional.map(row).join('') + '</div>';
-    }
+    if (v.picker) h += picker(v.picker);
     var b = v.bar.button;
     var tail = '<button class="' + b.kind + '" data-act="' + esc(b.act) + '"' + (b.enabled ? '' : ' disabled') +
       '>' + esc(b.label) + '</button>';
+    // A new view replaces the page: the focus and an open list are carried over.
+    var had = document.activeElement && document.activeElement.id, open = pk.open, at = pk.at;
+    drawing = true;
     document.getElementById('center').innerHTML = '<div class="scroll">' + h + '</div>' +
       '<div class="bar"><span class="path" title="' + esc(v.bar.text) + '">' + esc(v.bar.text) + '</span>' + tail + '</div>';
+    drawing = false;
+    pick = v.picker;
+    pk.open = false;
+    var n = had && document.getElementById(had);
+    if (n && !n.disabled && n.getAttribute('aria-disabled') !== 'true') n.focus();
+    if (open && n && n.id === 'pk') openList(at);
   }
   function draw(v) {
     var s = JSON.stringify(v);
@@ -167,8 +323,31 @@ button:disabled{cursor:default}
     if (done && done.then) done.then(poll, poll);
   }
   document.addEventListener('click', function (e) {
+    var o = e.target.closest('[data-pick]');
+    if (o) { choose(Number(o.dataset.pick)); return; }
+    if (e.target.closest('#pk')) {
+      if (pk.open) closeList(); else openList(chosenAt());
+      return;
+    }
     var t = e.target.closest('button[data-act]');
     if (t && !t.disabled) act(t.dataset.act, t.dataset.id == null ? null : t.dataset.id);
+  });
+  // A press on an option must not take the focus from the field (its blur closes the list).
+  document.addEventListener('mousedown', function (e) {
+    if (e.target.closest('#pk-pop')) e.preventDefault();
+  });
+  document.addEventListener('mousemove', function (e) {
+    var o = pk.open && e.target.closest('[data-pick]');
+    if (o && Number(o.dataset.pick) !== pk.at) stand(Number(o.dataset.pick));
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.target && e.target.id === 'pk') onKey(e);
+  });
+  document.addEventListener('focusout', function (e) {
+    if (!drawing && e.target && e.target.id === 'pk') closeList();
+  });
+  document.addEventListener('change', function (e) {
+    if (e.target && e.target.id === 'pk-vision') act('set_vision', e.target.checked);
   });
   document.addEventListener('dblclick', function (e) {
     if (e.target.closest('[data-dbl]')) act('maximise', null);

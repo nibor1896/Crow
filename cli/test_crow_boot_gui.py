@@ -10,7 +10,9 @@ view while a start is under way.
 
 from __future__ import annotations
 
+import copy
 import os
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -22,6 +24,7 @@ sys.path.insert(0, str(HERE))
 import crow_boot  # noqa: E402
 import crow_boot_gui  # noqa: E402
 import crow_core  # noqa: E402
+import crow_platform  # noqa: E402
 from test_crow_boot import (LLAMA_27B, NOTHING, OK_HEALTH, STACK, BootCase,  # noqa: E402
                             FakeLlama, FakePopen)
 
@@ -36,6 +39,11 @@ def run_now(fn, *args):
 MEDIA = any(p["id"] == "media-stack" and crow_boot.runs_here(p) for p in STACK["points"])
 
 
+def group(view, label):
+    """The picker's entries under one group heading (#396)."""
+    return next((g["items"] for g in view["picker"]["groups"] if g["label"] == label), [])
+
+
 class GuiCase(BootCase):
     def controller(self, **kw):
         boot = self.boot(**kw)
@@ -46,10 +54,10 @@ class GuiCase(BootCase):
 
 
 class TheWindowShowsTheStacksGuiLineTests(GuiCase):
-    def test_the_rows_carry_menu_gui_and_the_terminal_keeps_menu_line(self):
+    def test_the_entries_carry_menu_gui_and_the_terminal_keeps_menu_line(self):
         ctl = self.controller()
         ctl.refresh()
-        shown = {r["id"]: r["detail"] for r in ctl.view()["rows"]}
+        shown = {r["id"]: r["detail"] for r in group(ctl.view(), "Operating points")}
         # #340: a point for another platform is not offered here (runs_here).
         self.assertEqual(shown, {p["id"]: p["menu"]["gui"] for p in STACK["points"]
                                  if crow_boot.runs_here(p)})
@@ -68,19 +76,27 @@ class TheWindowShowsTheStacksGuiLineTests(GuiCase):
 
 
 class State1NothingRunsTests(GuiCase):
-    def test_four_points_then_the_optional_lines_and_a_greyed_open_button(self):
+    def test_one_picker_with_three_groups_and_a_greyed_open_button(self):
+        # #396: one field instead of a row and a Start button per point.
         ctl = self.controller(llama=FakeLlama([LLAMA_27B]))
         ctl.refresh()
         v = ctl.view()
         self.assertEqual(v["phase"], crow_boot_gui.IDLE)
         self.assertEqual(v["say"], "Which model should Crow fly with?")
         self.assertIsNone(v["fill"])
-        self.assertEqual([r["title"] for r in v["rows"]],
+        self.assertNotIn("rows", v)
+        self.assertNotIn("optional", v)
+        p = v["picker"]
+        self.assertEqual([g["label"] for g in p["groups"]],
+                         ["Operating points", "Optional (llama.cpp)"])
+        self.assertEqual([r["title"] for r in group(v, "Operating points")],
                          ["Qwen3.8-Flash-Next", "Qwen3.8-27B", "GLM-5.3-Flash", "Image Stack"]
                          + ["Media Stack"] * MEDIA)
-        self.assertTrue(all(r["enabled"] and not r["dim"] for r in v["rows"]))
-        self.assertEqual([(r["title"], r["detail"], r["cls"]) for r in v["optional"]],
-                         [("Qwen3.8-27B-UD-Q4_K_XL (optional)", "llama.cpp, port 8082", "opt")])
+        self.assertEqual([(r["title"], r["detail"]) for r in group(v, "Optional (llama.cpp)")],
+                         [("Qwen3.8-27B-UD-Q4_K_XL (optional)", "llama.cpp, port 8082")])
+        self.assertEqual((p["selected"], p["detail"], p["enabled"]),
+                         ("flash-next", "200k context. Great for coding and vision.", True))
+        self.assertEqual(p["start"], {"label": "Start", "act": "start", "enabled": True})
         self.assertEqual(v["bar"]["text"], "Start a model, then open the Crow window.")
         self.assertEqual(v["bar"]["button"]["label"], "Open Crow window")
         self.assertFalse(v["bar"]["button"]["enabled"])
@@ -101,14 +117,9 @@ class State2StartingTests(GuiCase):
         self.assertEqual(at7["phase"], crow_boot_gui.STARTING)
         usual = crow_boot_gui.USUAL_START_S["27b"]
         self.assertTrue(int(100 * 7 / usual) <= at7["fill"] <= int(100 * 8 / usual), at7["fill"])
-        first = at7["rows"][0]
-        self.assertEqual((first["title"], first["detail"], first["enabled"]),
-                         ("Qwen3.8-27B", "Loading the model. Usually ready in under 20 s.", False))
-        self.assertEqual([(r["title"], r["cls"], r["enabled"]) for r in at7["rows"][1:]],
-                         [("Qwen3.8-Flash-Next", "off", False), ("GLM-5.3-Flash", "off", False),
-                          ("Image Stack", "off", False)]
-                         + [("Media Stack", "off", False)] * MEDIA)
-        self.assertEqual(at7["optional"], [])
+        p = at7["picker"]
+        self.assertEqual((p["selected"], p["detail"], p["enabled"], p["start"]["enabled"]),
+                         ("27b", "Loading the model. Usually ready in under 20 s.", False, False))
         self.assertEqual(at7["bar"]["text"], "You can close this window. The model keeps loading.")
         self.assertEqual(at7["bar"]["button"]["label"], "Cancel")
         self.assertTrue(all(v["fill"] <= crow_boot_gui.FILL_CAP for v in seen),
@@ -145,8 +156,8 @@ class State2StartingTests(GuiCase):
             return OK_HEALTH if url.endswith("/health") else (200, b"{}")
         ctl = self.controller(get=get)
         ctl.start("image-stack")
-        self.assertEqual(seen[0]["rows"][0]["detail"], "Loading the model. Usually ready in under 20 s.")
-        self.assertEqual(seen[-1]["rows"][0]["detail"], "Fetching the paint brushes (Qwen-Image).")
+        self.assertEqual(seen[0]["picker"]["detail"], "Loading the model. Usually ready in under 20 s.")
+        self.assertEqual(seen[-1]["picker"]["detail"], "Fetching the paint brushes (Qwen-Image).")
 
     def test_a_failed_start_says_why_and_offers_every_point_again(self):
         self.layout("27b")
@@ -156,7 +167,7 @@ class State2StartingTests(GuiCase):
         self.assertEqual(v["phase"], crow_boot_gui.IDLE)
         self.assertIn("did not land: serve exited with code 1", v["note"]["title"])
         self.assertIn("serve-8099.log", v["note"]["detail"])
-        self.assertTrue(all(r["enabled"] for r in v["rows"]))
+        self.assertTrue(v["picker"]["enabled"] and v["picker"]["start"]["enabled"])
 
 
 class State3LandedTests(GuiCase):
@@ -168,10 +179,9 @@ class State3LandedTests(GuiCase):
         self.assertEqual(v["say"], "Landed.")
         self.assertEqual(v["running"], {"title": "Qwen3.8-27B", "stop": True,
                                         "detail": "Running on port 8099. 128k context, vision on."})
-        self.assertEqual([(r["title"], r["cls"], r["dim"]) for r in v["rows"]],
-                         [("Qwen3.8-Flash-Next", "off", True), ("GLM-5.3-Flash", "off", True),
-                          ("Image Stack", "off", True)]
-                         + [("Media Stack", "off", True)] * MEDIA)
+        # #396: the picker below the card, on what runs; Start is for another entry.
+        p = v["picker"]
+        self.assertEqual((p["selected"], p["enabled"], p["start"]["enabled"]), ("27b", True, False))
         self.assertEqual(v["bar"]["text"], "The Crow window opens on Qwen3.8-27B.")
         self.assertTrue(v["bar"]["button"]["enabled"])
 
@@ -215,7 +225,9 @@ class State3LandedTests(GuiCase):
         v = ctl.view()
         self.assertEqual(v["running"]["title"], "Qwen3.8-27B-UD-Q4_K_XL (optional)")
         self.assertEqual(v["running"]["detail"], "Running on port 8082. llama.cpp.")
-        self.assertEqual(len(v["rows"]), 4 + MEDIA, "every baseline point is offered (and refused)")
+        self.assertEqual(len(group(v, "Operating points")), 4 + MEDIA,
+                         "every baseline point is offered (and refused)")
+        self.assertEqual(v["picker"]["selected"], "qwen35-q4-k-xl")
 
 
 class TheWindowOnLinuxTests(GuiCase):
@@ -252,7 +264,7 @@ class State4OneModelAtATimeTests(GuiCase):
         self.assertEqual(v["warn"], {"title": "Flash-Next needs the card for itself.",
                                      "detail": "Stop Qwen3.8-27B first, then start Flash-Next."})
         self.assertEqual(v["running"]["title"], "Qwen3.8-27B")
-        self.assertEqual([r["title"] for r in v["rows"]], ["Qwen3.8-Flash-Next"])
+        self.assertEqual(v["picker"]["selected"], "flash-next")
         self.assertTrue(v["bar"]["button"]["enabled"])
 
     def test_boots_own_refusal_lands_in_the_same_state(self):
@@ -425,7 +437,7 @@ class APointForOnePlatformIsOfferedThereOnlyTests(GuiCase):
     def titles(self):
         ctl = self.controller()
         ctl.refresh()
-        return [r["title"] for r in ctl.view()["rows"]]
+        return [r["title"] for r in group(ctl.view(), "Operating points")]
 
     def test_linux_does_not_offer_the_media_stack(self):
         with mock.patch.object(crow_boot, "PLATFORM_KEY", "linux"):
@@ -434,6 +446,160 @@ class APointForOnePlatformIsOfferedThereOnlyTests(GuiCase):
     def test_windows_offers_it(self):
         with mock.patch.object(crow_boot, "PLATFORM_KEY", "windows"):
             self.assertIn("Media Stack", self.titles())
+
+
+# ---------------------------------------------------------- the picker (#396) ---
+
+# The no-vision variant #397 adds to stack.json, shaped as its interface says:
+# Flash-Next and the 27B one `text` variant each, the other points none.
+VARIANT_GUI = {"flash-next": "200k context. Great for coding.",
+               "27b": "128k context. Great speed and coding."}
+
+
+def variant_stack():
+    doc = copy.deepcopy(STACK)
+    for p in doc["points"]:
+        if p["id"] in VARIANT_GUI:
+            p["variants"] = [{"key": "text", "vision": False,
+                              "menu": {"line": "text only", "gui": VARIANT_GUI[p["id"]]},
+                              "env": {}, "env_unset": ["CROW_VIT_MMPROJ"]}]
+    return doc
+
+
+class ThePickerTests(GuiCase):
+    """#396: one select-only combobox, a Vision switch and one Start."""
+
+    def controller(self, **kw):
+        ctl = super().controller(**kw)
+        ctl.boot.stack = variant_stack()
+        return ctl
+
+    def test_select_changes_the_line_under_the_field(self):
+        ctl = self.controller()
+        ctl.refresh()
+        ctl.select("27b")
+        p = ctl.view()["picker"]
+        self.assertEqual((p["selected"], p["detail"]),
+                         ("27b", "128k context. Great speed, coding and vision."))
+        ctl.select("glm53-flash")
+        self.assertEqual(ctl.view()["picker"]["detail"],
+                         "200k context. The big MoE, experts streamed from NVMe.")
+        ctl.select("no-such-entry")
+        self.assertEqual(ctl.view()["picker"]["selected"], "glm53-flash", "an unknown id is not taken")
+
+    def test_the_vision_switch_shows_only_for_a_point_with_a_no_vision_variant(self):
+        ctl = self.controller()
+        ctl.refresh()
+        shown = {}
+        for entry in ("flash-next", "27b", "glm53-flash", "image-stack"):
+            ctl.select(entry)
+            shown[entry] = ctl.view()["picker"]["vision"]["shown"]
+        self.assertEqual(shown, {"flash-next": True, "27b": True, "glm53-flash": False,
+                                 "image-stack": False})
+
+    def test_vision_off_shows_the_variants_line(self):
+        ctl = self.controller()
+        ctl.refresh()
+        ctl.set_vision(False)
+        p = ctl.view()["picker"]
+        self.assertEqual((p["vision"], p["detail"]),
+                         ({"shown": True, "on": False}, "200k context. Great for coding."))
+
+    def test_start_with_vision_off_starts_the_text_variant(self):
+        calls = []
+        ctl = self.controller()
+        ctl.boot.start = lambda point_id, **kw: calls.append((point_id, kw)) or crow_boot.EXIT_OK
+        ctl.refresh()
+        api = crow_boot_gui.Api(ctl)
+        api.set_vision(False)
+        api.start()                           # the page's Start: the picker's entry
+        ctl.set_vision(True)
+        ctl.start()
+        ctl.select("glm53-flash")
+        ctl.set_vision(False)
+        ctl.start()
+        # `variant=` only when one is chosen, so today's Boot.start takes the call too
+        self.assertEqual(calls, [("flash-next", {"variant": "text"}), ("flash-next", {}),
+                                 ("glm53-flash", {})])
+
+    def test_starting_disables_the_picker(self):
+        self.layout("27b")
+        seen = []
+
+        def get(url, timeout):
+            if not seen:
+                ctl.select("glm53-flash")     # the field is disabled: no new choice
+                ctl.set_vision(False)
+            seen.append(ctl.view())
+            return OK_HEALTH
+        ctl = self.controller(get=get)
+        ctl.select("27b")
+        ctl.start()
+        v = seen[0]
+        p = v["picker"]
+        self.assertEqual(v["phase"], crow_boot_gui.STARTING)
+        self.assertEqual((p["enabled"], p["selected"], p["start"]["enabled"], p["vision"]["on"]),
+                         (False, "27b", False, True))
+        self.assertEqual(p["detail"], "Loading the model. Usually ready in under 20 s.")
+        self.assertEqual(ctl.view()["picker"]["selected"], "27b")
+
+    def test_landed_with_another_selection_gives_the_refusal_on_start(self):
+        self.running_27b()
+        popen = FakePopen()
+        ctl = self.controller(popen=popen)
+        ctl.refresh()
+        p = ctl.view()["picker"]
+        self.assertEqual((p["selected"], p["start"]["enabled"]), ("27b", False),
+                         "what runs is the default, and it is not started twice")
+        ctl.select("flash-next")
+        ctl.start()
+        v = ctl.view()
+        self.assertEqual(popen.calls, [], "nothing starts beside a running point")
+        self.assertEqual(v["phase"], crow_boot_gui.REFUSED)
+        self.assertEqual(v["warn"], {"title": "Flash-Next needs the card for itself.",
+                                     "detail": "Stop Qwen3.8-27B first, then start Flash-Next."})
+        ctl.select("glm53-flash")
+        v = ctl.view()
+        self.assertEqual((v["phase"], v["warn"]), (crow_boot_gui.LANDED, None),
+                         "a new choice clears the refusal that named the old one")
+
+    def test_a_selection_the_stack_no_longer_offers_falls_back_to_the_first_entry(self):
+        ctl = self.controller()
+        ctl.refresh()
+        ctl.select("27b")
+        ctl.boot.stack = {"points": [p for p in ctl.boot.stack["points"] if p["id"] != "27b"]}
+        self.assertEqual(ctl.view()["picker"]["selected"], "flash-next")
+
+    def test_the_running_card_says_vision_off_for_the_text_variant(self):
+        ctl = self.controller()
+        running = {"kind": crow_platform.KIND_CROW_NEST, "point": "27b",
+                   "base_url": "http://127.0.0.1:8099/v1"}
+        self.assertEqual(ctl.running_card(dict(running, variant="text"))["detail"],
+                         "Running on port 8099. 128k context, vision off.")
+        self.assertEqual(ctl.running_card(dict(running, variant=None))["detail"],
+                         "Running on port 8099. 128k context, vision on.")
+
+
+class ThePickerPageTests(unittest.TestCase):
+    """#396: the page draws the picker as the APG select-only combobox."""
+
+    def test_the_page_has_the_combobox_roles_keys_and_the_switch(self):
+        with open(crow_boot_gui.PAGE_FILE, encoding="utf-8") as fh:
+            raw = fh.read()
+        for marker in ('role="combobox"', 'role="listbox"', 'role="option"', 'role="group"',
+                       "aria-activedescendant", "aria-expanded", "aria-controls",
+                       'type="checkbox" role="switch"', "'PageDown'", "'Escape'", "e.altKey",
+                       "typeAhead", "act('select'", "act('set_vision'"):
+            self.assertIn(marker, raw)
+        self.assertNotIn("v.rows", raw)
+
+    def test_no_function_of_the_page_is_declared_twice(self):
+        # The later declaration replaces the first in the whole script: a list
+        # helper named mark() once drew "undefined" where the crow sits.
+        with open(crow_boot_gui.PAGE_FILE, encoding="utf-8") as fh:
+            names = re.findall(r"\bfunction\s+(\w+)\s*\(", fh.read())
+        self.assertEqual(sorted(n for n in set(names) if names.count(n) > 1), [])
+
 
 if __name__ == "__main__":
     unittest.main()

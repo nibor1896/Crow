@@ -12,12 +12,22 @@ python cli\crow_boot.py --gui
 
 Header **CROW · Operating points**. The shortcut runs it with `pythonw.exe`, so no console opens. On Windows it has its own taskbar button with the crow (AppUserModelID `Crow.OperatingPoints`), apart from Crow's chat window. Each point's line is `menu.gui` from `manifests/stack.json`; the terminal menu shows `menu.line`.
 
+Everything to start is in one field (#396), in two groups: **Operating points** (this platform's; the Media Stack on Windows only) and **Optional (llama.cpp)** (the installed lines). The chosen entry's line is under the field, with one **Start**. A point with a no-vision variant in `stack.json` also has a **Vision** switch: off starts that variant, and the line under the field is the variant's. The field starts on what runs, else on the first entry.
+
+| Key on the field | |
+|---|---|
+| Down, Enter, Space | open the list on the chosen entry (Up and Home on the first, End on the last) |
+| Up, Down, Home, End, PageUp, PageDown | move in the open list (PageUp and PageDown by 10) |
+| Enter, Space, Tab, Alt+Up | take the entry and close |
+| Escape | close without a change |
+| a letter or a name | jump to the entry it starts |
+
 | State | What it shows |
 |---|---|
-| Nothing runs | "Which model should Crow fly with?": the points of this platform with a Start button each (the Media Stack on Windows only), the optional llama.cpp lines dimmed below them. **Open Crow window** is greyed |
-| Starting | "Flying to the nest. N s": the crow fills against the point's usual start time (the 27B and the Image Stack about 15 s, Flash-Next about 80 s, measured; GLM-5.3-Flash 60 s and the Media Stack 15 s, not measured) and is full when the server answers. The other points are disabled. **Cancel** stops what was started. Closing the window hides it; the start finishes and the contract file is written |
-| Landed | the running point on top, blue, with its port, context and vision, and **Stop**. **Open Crow window** opens Crow's window on it (like **Start Crow** in the terminal menu) |
-| A second start | "One model at a time.": the point needs the card for itself; stop the running one first |
+| Nothing runs | "Which model should Crow fly with?": the field, its line and **Start**. **Open Crow window** is greyed |
+| Starting | "Flying to the nest. N s": the crow fills against the point's usual start time (the 27B and the Image Stack about 15 s, Flash-Next about 80 s, measured; GLM-5.3-Flash 60 s and the Media Stack 15 s, not measured) and is full when the server answers. The field shows the starting point and is disabled. **Cancel** stops what was started. Closing the window hides it; the start finishes and the contract file is written |
+| Landed | the running point on top, blue, with its port, context and vision (`vision off` for a no-vision variant), and **Stop**; the field below it, on the running point. **Open Crow window** opens Crow's window on it (like **Start Crow** in the terminal menu) |
+| A second start | **Start** on another point while one runs: "One model at a time.", the point needs the card for itself; stop the running one first |
 
 A point that already runs when the window opens (started from the terminal, or by an earlier window) is shown as landed at once. A failed start shows its reason and the server log's path. If the window cannot open at all, the reason goes to `runs\crow-boot-gui.log`.
 

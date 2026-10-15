@@ -17,7 +17,16 @@ THE DECISIONS, and why each is this way:
 * THE CONTROLLER HOLDS THE STATE, THE PAGE ONLY DRAWS IT. `Controller.view()`
   is a plain dict with every word on the screen; cli/crow_boot_gui.html renders
   it and sends button presses back. So the four approved states (idle,
-  starting, landed, a second start refused) are tested without a window.
+  starting, landed, a second start refused) are tested without a window. The
+  selection and the vision switch are the controller's too; the page keeps
+  only whether the list is open and which option the keys stand on.
+* ONE PICKER, NOT A ROW PER POINT (#396): a select-only combobox (WAI-ARIA
+  APG) with two groups -- the points of this platform, the installed
+  llama.cpp lines -- the chosen entry's line under it, a Vision switch
+  for a point with a no-vision variant (stack.json `variants`, #397), and one
+  Start. It is drawn by the page, not a native <select>: WebView2 and
+  WebKitGTK draw that popup each their own way and without the second line.
+  The selection defaults to what runs, else the first entry.
 * WHAT RUNS IS DETECTED ON OPEN AND EVERY REFRESH_S: Boot.detect (the contract
   file, the process scan with point_for_server, port 8099). A point started
   from the terminal or a window opened while one runs shows "Landed." at once.
@@ -76,6 +85,9 @@ OPENED_S = 5.0
 
 IDLE, STARTING, LANDED, REFUSED, STOPPING = "idle", "starting", "landed", "refused", "stopping"
 
+# The picker's groups (#396).
+POINTS_GROUP, OPTIONAL_GROUP = "Operating points", "Optional (llama.cpp)"
+
 # THE TASKBAR IDENTITY. Without one a pythonw.exe window is Python's button
 # with Python's icon (crow_gui.taskbar_identity says why). Its own id and not
 # crow_gui's "Crow.Window": the chat window and this one are two windows the
@@ -130,6 +142,10 @@ class Controller:
         self.note = None
         self.busy = False
         self.opened_at = None
+        # #396: the picker's choice (None: what runs, else the first entry)
+        # and the Vision switch, off = the point's no-vision variant.
+        self.selected = None
+        self.vision = True
 
     # -- what is on offer ---------------------------------------------------
     def points(self) -> list:
@@ -154,6 +170,21 @@ class Controller:
     def _point(self, point_id):
         return next((p for p in self.points() if p["id"] == point_id), None)
 
+    def _no_vision(self, point_id):
+        """The point's no-vision variant from stack.json (#397), or None."""
+        point = next((p for p in self.boot.stack["points"] if p.get("id") == point_id), None)
+        return next((v for v in (point or {}).get("variants") or []
+                     if v.get("vision") is False and v.get("key")), None)
+
+    def _running_id(self, running) -> "str | None":
+        """The entry that runs: a baseline point, or the llama.cpp line on its port."""
+        if not running:
+            return None
+        if running.get("kind") == crow_platform.KIND_LLAMA:
+            line = next((p for p in self.points() if p.get("port") == running.get("port")), None)
+            return line["id"] if line else None
+        return running.get("point")
+
     # -- the actions --------------------------------------------------------
     def refresh(self) -> None:
         """Ask Boot what runs. Not while a start or a stop is under way."""
@@ -169,11 +200,38 @@ class Controller:
             elif self.phase != REFUSED:
                 self.phase = LANDED
 
-    def start(self, point_id: str) -> None:
+    def select(self, entry_id: str) -> None:
+        """The picker's choice (#396). Not while a start or a stop is under way.
+
+        A refusal names the entry it refused, so a new choice clears it.
+        """
+        if entry_id not in [e["id"] for e in self.entries()]:
+            return
+        with self._lock:
+            if self.busy:
+                return
+            self.selected = entry_id
+            if self.phase == REFUSED:
+                self.phase, self.refused = LANDED if self.running else IDLE, None
+
+    def set_vision(self, on) -> None:
+        with self._lock:
+            if not self.busy:
+                self.vision = bool(on)
+
+    def start(self, point_id: "str | None" = None) -> None:
+        """Start a point, or without one the picker's entry (#396).
+
+        Vision off starts the point's no-vision variant where it has one.
+        """
+        if point_id is None:
+            point_id = self._chosen(self.entries(), self.running)
         with self._lock:
             if self.busy or self._point(point_id) is None:
                 return
             self.busy = True
+            self.selected = point_id
+            variant = None if self.vision else (self._no_vision(point_id) or {}).get("key")
         running = self.boot.detect()
         with self._lock:
             if running:
@@ -183,18 +241,21 @@ class Controller:
             self._cancel.clear()
             self.note, self.refused = None, None
             self.phase = STARTING
-            self.starting = {"id": point_id, "began": self.clock(), "stage": None}
-        self.run(self._start, point_id)
+            self.starting = {"id": point_id, "variant": variant, "began": self.clock(),
+                             "stage": None}
+        self.run(self._start, point_id, variant)
 
     def _stage(self, stage: str) -> None:
         with self._lock:
             if self.starting is not None:
                 self.starting["stage"] = stage
 
-    def _start(self, point_id: str) -> None:
+    def _start(self, point_id: str, variant: "str | None" = None) -> None:
         self.boot.out = io.StringIO()
         try:
-            code = self.boot.start(point_id)
+            # `variant=` only when one is chosen: a Boot before #397 has no such keyword
+            code = (self.boot.start(point_id, variant=variant) if variant
+                    else self.boot.start(point_id))
         except Exception as exc:              # noqa: BLE001 - the window says it
             code = crow_boot.EXIT_FAILED
             self.boot.say("x %s could not be started: %s" % (point_id, exc))
@@ -291,15 +352,26 @@ class Controller:
             plan = crow_boot.plan_point(self.boot.stack, point, self.boot.install, self.boot.models)
         except crow_boot.SetupError:
             plan = None
+        # #396: a variant runs ("text", #397's detect says so): vision off, and
+        # its env and menu line over the point's own.
+        off = bool(running.get("variant"))
+        variant = self._no_vision(point) if off else None
         if plan:
-            ctx = plan["serve"]["env"].get("CROW_CONTEXT")
+            env = dict(plan["serve"]["env"])
+            env.update((variant or {}).get("env") or {})
+            for key in (variant or {}).get("env_unset") or []:
+                env.pop(key, None)
+            ctx = env.get("CROW_CONTEXT")
             if ctx and str(ctx).isdigit():
                 bits.append("%dk context" % (int(ctx) // 1024))
             else:
-                m = re.search(r"(\d+)k context", plan["line"])
+                m = re.search(r"(\d+)k context", ((variant or {}).get("menu") or {}).get("line")
+                              or plan["line"])
                 if m:
                     bits.append("%sk context" % m.group(1))
-            if plan["serve"]["env"].get("CROW_VIT_MMPROJ"):
+            if off:
+                bits.append("vision off")
+            elif env.get("CROW_VIT_MMPROJ"):
                 bits.append("vision on")
             if plan["image"]:
                 bits.append("Qwen-Image on port %d" % plan["image"]["port"])
@@ -309,20 +381,54 @@ class Controller:
             detail += " %s%s." % (rest[0].upper(), rest[1:])
         return {"title": self.boot.titles.get(point, point), "detail": detail, "stop": stop}
 
-    def _row(self, p: dict, cls: str = "", detail=None, enabled: bool = True, dim: bool = False) -> dict:
-        return {"id": p["id"], "title": p["title"], "detail": p["detail"] if detail is None else detail,
-                "cls": cls, "enabled": enabled, "dim": dim}
+    def entries(self) -> list:
+        """Everything the picker offers, in its order (#396): the points, then
+        the installed llama.cpp lines."""
+        return self.points()
+
+    def _chosen(self, entries: list, running) -> "str | None":
+        """The selection. None, or one the stack no longer offers, is what
+        runs, else the first entry."""
+        ids = [e["id"] for e in entries]
+        for want in (self.selected, self._running_id(running)):
+            if want in ids:
+                return want
+        return ids[0] if ids else None
+
+    def _picker(self, entries: list, chosen, enabled: bool = True, detail=None,
+                start: bool = True) -> dict:
+        """The picker with `chosen` selected (#396).
+
+        `detail` replaces the chosen entry's line (a start under way says how
+        long it usually takes); `start` False greys Start (the entry runs). The
+        Vision switch is shown for a point with a no-vision variant, and the
+        line under the field is that variant's while it is off.
+        """
+        def item(e):
+            return {"id": e["id"], "title": e["title"], "detail": e["detail"]}
+        groups = [(POINTS_GROUP, [item(e) for e in entries if not e["optional"]]),
+                  (OPTIONAL_GROUP, [item(e) for e in entries if e["optional"]])]
+        with self._lock:
+            vision = self.vision
+        me = next((e for e in entries if e["id"] == chosen), None)
+        variant = self._no_vision(chosen)
+        line = me["detail"] if me else ""
+        if variant and not vision:
+            line = gui_line(variant.get("menu") or {}) or line
+        button = {"label": "Start", "act": "start", "enabled": enabled and start}
+        return {"groups": [{"label": label, "items": items} for label, items in groups if items],
+                "selected": chosen, "detail": line if detail is None else detail,
+                "vision": {"shown": variant is not None, "on": vision},
+                "enabled": enabled, "start": button}
 
     def view(self) -> dict:
         with self._lock:
             phase, running, starting = self.phase, self.running, dict(self.starting or {})
             refused, note = self.refused, self.note
             opened = self.opened_at is not None and self.clock() - self.opened_at < OPENED_S
-        points = self.points()
-        base = [p for p in points if not p["optional"]]
-        optional = [p for p in points if p["optional"]]
+        entries = self.entries()
         view = {"phase": phase, "fill": None, "running": None, "warn": None, "note": note,
-                "rows": [], "optional": [], "bar": None}
+                "picker": None, "bar": None}
         open_btn = {"label": "Open Crow window", "act": "open_crow", "kind": "btn", "enabled": False}
 
         if phase == STARTING:
@@ -331,18 +437,15 @@ class Controller:
             usual = USUAL_START_S.get(starting.get("id"), DEFAULT_USUAL_START_S)
             view["fill"] = int(min(FILL_CAP, 100.0 * elapsed / usual))
             view["say"] = "Flying to the nest. %d s" % int(elapsed)
-            me = next((p for p in points if p["id"] == starting.get("id")), None)
             detail = usual_text(starting.get("id"))
             if starting.get("stage") == "sd-server":
                 detail = "Fetching the paint brushes (Qwen-Image)."
-            if me:
-                view["rows"].append(self._row(me, detail=detail, enabled=False, dim=True))
-            view["rows"] += [self._row(p, "off", enabled=False, dim=True)
-                             for p in base if p["id"] != starting.get("id")]
+            view["picker"] = self._picker(entries, starting.get("id"), enabled=False, detail=detail)
             view["bar"] = {"text": "You can close this window. The model keeps loading.",
                            "button": {"label": "Cancel", "act": "cancel", "kind": "chip", "enabled": True}}
             return view
 
+        chosen = self._chosen(entries, running)
         if phase in (LANDED, REFUSED, STOPPING) and running:
             card = self.running_card(running, stop=phase != STOPPING)
             view["running"] = card
@@ -357,24 +460,20 @@ class Controller:
             else:
                 text = "The Crow window opens on %s." % card["title"]
             view["bar"] = {"text": text, "button": dict(open_btn, enabled=can_open)}
-            here = running.get("point")
-            others = [p for p in base if p["id"] != here]
             if phase == REFUSED:
                 view["say"] = "One model at a time."
-                want = next((p for p in points if p["id"] == refused), None)
+                want = next((e for e in entries if e["id"] == refused), None)
                 name = short_title(want["title"]) if want else refused
                 view["warn"] = {"title": "%s needs the card for itself." % name,
                                 "detail": "Stop %s first, then start %s." % (card["title"], name)}
-                if want:
-                    view["rows"] = [self._row(want, "off", dim=True)]
             else:
                 view["say"] = "Stopping." if phase == STOPPING else "Landed."
-                view["rows"] = [self._row(p, "off", enabled=phase != STOPPING, dim=True) for p in others]
+            view["picker"] = self._picker(entries, chosen, enabled=phase != STOPPING,
+                                          start=chosen != self._running_id(running))
             return view
 
         view["say"] = "Which model should Crow fly with?"
-        view["rows"] = [self._row(p) for p in base]
-        view["optional"] = [self._row(p, "opt") for p in optional]
+        view["picker"] = self._picker(entries, chosen)
         view["bar"] = {"text": "Start a model, then open the Crow window.", "button": open_btn}
         return view
 
@@ -406,8 +505,14 @@ class Api:
     def view(self) -> dict:
         return self._ctl.view()
 
-    def start(self, point_id: str) -> None:
-        self._ctl.start(str(point_id))
+    def start(self, point_id=None) -> None:
+        self._ctl.start(None if point_id is None else str(point_id))
+
+    def select(self, entry_id) -> None:
+        self._ctl.select(str(entry_id))
+
+    def set_vision(self, on) -> None:
+        self._ctl.set_vision(bool(on))
 
     def cancel(self) -> None:
         self._ctl.cancel()
