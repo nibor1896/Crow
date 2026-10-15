@@ -77,7 +77,7 @@ Screenshots: [window](window.md) · [goals and subagents](goals-and-subagents.md
 | [**Vision**](../reference/tools.md) | `read_image` — the model looks at a screenshot, a render or a diagram |
 | [**Session search**](session-search.md) | SQLite FTS5 over every archived conversation; the real messages, not a summary |
 | [**MCP**](mcp.md) | stdio and [Streamable HTTP](mcp-http.md), with OAuth, elicitation and per-tool classes |
-| [**Remote models**](remote-models.md) | OpenRouter, Anthropic, OpenAI — key or sign-in. The default is always this machine |
+| [**Remote models**](remote-models.md) | OpenRouter, Anthropic and OpenAI with a key; your Claude subscription through Claude Code. The default is always this machine |
 | [**Phone**](remote.md) | `/remote`: the window on a paired phone — LAN, or HTTPS from anywhere [via Tailscale](remote-tailscale.md), phone 🎤 included. Tailscale: [download](https://tailscale.com/download) · [iPhone](https://apps.apple.com/app/tailscale/id1470499037) · [Android](https://play.google.com/store/apps/details?id=com.tailscale.ipn) · setup steps: `install.sh --tailscale` / `install.ps1 -Tailscale` |
 | [**Voice**](window.md) | dictation into the composer, `faster-whisper` locally, nothing written to disk |
 | [**Secrets**](../reference/settings.md) | a file with an ACL instead of an environment variable every child process inherits |

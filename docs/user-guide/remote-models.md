@@ -31,78 +31,87 @@ Three files, in `%LOCALAPPDATA%\Crow\` on Windows and `~/.config/crow/` on Linux
 |---|---|
 | `providers.json` | active provider, model per provider, catalogue, favourites, the broker switch |
 | `provider_keys.json` | keys, `0600`, read by no view |
-| `provider_tokens.json` | logins, `0600`, read by no view |
 
 | provider | endpoint | credential |
 |---|---|---|
 | This machine | `--base-url`, default `http://127.0.0.1:8083/v1` since 2.0.0 | none |
 | OpenRouter | `https://openrouter.ai/api/v1` | `sk-or-...` |
-| Anthropic | `https://api.anthropic.com/v1` (Messages) | `sk-ant-...` or a sign-in |
-| OpenAI | `https://api.openai.com/v1` | `sk-...` or a sign-in |
+| Anthropic | `https://api.anthropic.com/v1` (Messages) | `sk-ant-...` |
+| OpenAI | `https://api.openai.com/v1` | `sk-...` |
+| Claude (subscription) | Claude Code, one `claude -p` per turn | none in Crow: `claude auth login` |
 
 | | |
 |---|---|
-| Typed slug | field beside `ask for the list`, sent exactly as entered. Measured 2026-08-23: Anthropic's `/v1/models` answers a borrowed sign-in `401` |
+| Typed slug | field beside `ask for the list`, sent exactly as entered |
 | Variant suffix | `:free`, `:extended`, `:nitro`, `:floor` are part of the slug. `z-ai/glm-5.2` and `z-ai/glm-5.2:free` are two entries with two bills |
 
-## Subscriptions
+## Claude subscription
 
-`Settings → Subscriptions`, one tile per provider. PKCE, `state`, refresh: the flow `/mcp` uses.
-A sign-in outranks a pasted key; `sign out` drops the login and leaves the key.
-
-Measured 2026-08-22, neither provider registers a client:
-
-| | discovery | registration |
-|---|---|---|
-| `claude.ai`, `api.anthropic.com`, `console.anthropic.com` | 404 | none |
-| `auth.openai.com` | `openid-configuration`, authorize + token | none |
-
-Each needs a `client_id`. Until one is set the tile says so instead of opening a login that returns
-`400`. Crow ships no other product's `client_id`.
-
-```json
-{"oauth": {"anthropic": {"client_id": "...", "authorize": "https://...", "token": "https://..."}}}
-```
-
-`issuer` replaces `authorize`/`token` where the provider publishes discovery. `auth.openai.com` does.
-
-**Anthropic, documented way in:**
+Anthropic's terms ([Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance),
+"Authentication and credential use", read 2026-10-15) do not let a third-party program route
+requests through Free, Pro or Max credentials, or collect, store or intermediate them. What they
+allow is signing in to the unmodified Claude Code program with your own subscription. So Crow
+starts Claude Code and reads what it prints; it never sees, keeps or refreshes a token (#390).
+The setup-token paste, the borrowed `~/.claude/.credentials.json` sign-in and Crow's own browser
+sign-in are gone, and so is the OpenAI sign-in for now. A `provider_tokens.json` left from them is
+deleted on the next start, with one log line.
 
 ```bash
-claude setup-token
+claude auth login
 ```
 
-Paste what it prints. `CLAUDE_CODE_OAUTH_TOKEN` in the environment is read under the same name.
-
-**Borrowed sign-in, second choice.** Measured 2026-08-23: a borrowed Claude Code session token
-authenticated at `/v1/messages` and returned `429` naming no limit, with the account's five-hour
-window at 7 %.
-
-| provider | store | read |
-|---|---|---|
-| Anthropic | `~/.claude/.credentials.json` | `claudeAiOauth.accessToken` |
-
-| borrowed token | |
+| | |
 |---|---|
-| Read | at the moment a request needs it |
-| Never | copied, written, refreshed. The refresh token belongs to the program that owns the file |
-| Expired | reported; open that program once and it refreshes itself |
-| Grant | requests carry **that program's** grant, so nothing switches on by finding a file |
-| Order | Crow's own sign-in, then borrowed, then pasted key |
+| Sign in | in a terminal, the command above (Anthropic's own flow); `Settings → Subscriptions` → `ask again`. Sign out: `claude auth logout` |
+| Tile | the Claude Code version, what `claude auth status` says (`signed in with your subscription`, a token from the environment, or `Claude Code bills an API key, not your subscription`), the guard variables that are set. Asked when the page opens and on `ask again`, not at window start |
+| Pick | `Settings → Model` → Claude (subscription), then the model on the composer's chip |
+| Needs | Claude Code on `PATH` (`npm install -g @anthropic-ai/claude-code` otherwise) and a chat with a folder: Claude Code works in it. A chat under No folder is refused with a sentence |
+| A turn | `claude -p --output-format stream-json --verbose --include-partial-messages --model <m> [--effort <e>] --permission-mode <p> [--resume <id>]`, the line on stdin, the chat's folder as working directory, Crow's environment unchanged |
+| Session | the `session_id` Claude Code reports is kept in the chat's session file; the next line of that chat runs with `--resume`, a new chat starts a new session |
+| Stop | kills the child |
 
-**Not Codex.** `~/.codex/auth.json` holds a token; `GET https://api.openai.com/v1/models` answers it
-`403`: authenticated, resource refused. It belongs to the ChatGPT backend; the platform API wants
-an `sk-...` key. Two providers, not one.
+**Refused, nothing started**, while any of these is set in Crow's environment:
+`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_BEDROCK`,
+`CLAUDE_CODE_USE_VERTEX`. Under `claude -p` an API key "is always used when present"
+([troubleshooting](https://code.claude.com/docs/en/troubleshoot-install)), so the bill would move to
+the key without a word. The sentence names the variable; Crow does not unset it for you.
+
+| release level | `--permission-mode` |
+|---|---|
+| `manual` | `default` — with nobody to answer a prompt under `-p`, a tool that needs one is denied |
+| `allowedit` | `acceptEdits` |
+| `auto` | `auto` |
+| `yolo` | `bypassPermissions` |
+
+| composer chip | |
+|---|---|
+| Models | Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5 (`--model fable/opus/sonnet/haiku`); `/model <id>` sends a full id. A model the installed Claude Code is too old for is greyed out with `claude update` (the docs: Opus 5.5 ≥ 2.1.280, Sonnet 5.5 ≥ 2.1.284, Haiku 5.5 ≥ 2.1.293). The chip names the model Claude Code reports, not the alias |
+| Levels | `low` … `max` per model ([model config](https://code.claude.com/docs/en/model-config)); `(default)` sends no `--effort`, so the model's own default applies (`medium` on the 5.5 models). While `CLAUDE_CODE_EFFORT_LEVEL` is set the menu is off and names it: that variable outranks `--effort` |
+| Context | the last request's input, cache-read and cache-write tokens over the window Claude Code reports (`modelUsage.contextWindow`) |
+
+**What changes against the other providers.** Claude Code runs its own tools (Bash, Read, Edit,
+Write, Grep, web, subagents) and loads your own Claude Code setup: `CLAUDE.md`, hooks, skills, MCP
+servers. Crow's tools are not offered: no image generation or editing, no goals (an open goal is not
+nudged on this provider, since nothing could close a step), no `session_search`, `judge` or
+`render_page`. For those, use the local model. Crow's rollover, tool-result clearing and background
+review do not run; Claude Code compacts its own session.
+
+| measured 2026-10-15, Windows 11, Claude Code 2.1.300, Max plan, `--model haiku`, owner's Claude Code setup | |
+|---|---|
+| first turn, one Bash call | 10.9 and 12.4 s (two runs) |
+| second turn, `--resume`, same session id | 4.8 and 5.6 s; it named the first turn's command |
+| context after the first turn | 42,058 and 42,073 tokens of 1,000,000 — most of it Claude Code's prompt and the owner's setup |
+| not measured | quota per turn (Hermes' docs say about 1.7× the interactive TUI), Stop mid-turn, `--effort` against the real CLI, the window live |
 
 ## Two dialects
 
 | transport | endpoint | who |
 |---|---|---|
 | `chat_completions` | `<base>/chat/completions` | the local server, OpenRouter, OpenAI |
-| `anthropic_messages` | `<base>/messages` | Anthropic, key **and** sign-in |
+| `anthropic_messages` | `<base>/messages` | Anthropic, with a key |
+| `claude_cli` | none: a `claude -p` child | Claude (subscription) |
 
-The dialect belongs to the provider, not to the credential. Measured 2026-08-23, a Codex token got
-`403` from the OpenAI-shaped endpoint.
+The dialect belongs to the provider, not to the credential.
 
 What `anthropic_messages` translates, each mandatory:
 
@@ -116,12 +125,7 @@ What `anthropic_messages` translates, each mandatory:
 | `temperature`, `top_p`, `top_k` | removed on current models, not sent |
 | Stream back | `text_delta` → content, `thinking_delta` → reasoning, `input_json_delta` → tool arguments. One loop, not two |
 
-| credential | header |
-|---|---|
-| key | `x-api-key` |
-| sign-in | `Authorization: Bearer` plus `anthropic-beta: oauth-2025-04-20` |
-
-Never both.
+An Anthropic key travels as `x-api-key`, nothing else.
 
 ## One answer's ceiling
 
@@ -188,7 +192,7 @@ Against a provider none of them exists, and the window says so once, where the e
 | no window reported | bare token count, no bar | bare token count, no bar |
 | KV save and restore | `/slots/0` | not attempted; the session file says `kv: false` |
 | `/health`, `/props` | asked | not asked |
-| reasoning levels | per `manifests/` | none offered |
+| reasoning levels | per `manifests/` | none offered; the Claude subscription offers Claude Code's effort levels |
 | prompt cache | llama-server's, held by `prefix_fingerprint` | the upstream's. Crow marks nothing for caching; `session_id` keeps the turns of one chat on the same one |
 
 No price display. Whoever brings a key knows their costs.

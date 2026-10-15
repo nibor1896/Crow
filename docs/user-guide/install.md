@@ -460,5 +460,5 @@ they are.
 | [Window](window.md) | the client, panel by panel |
 | [Operating points](../operating-points.md) | the four measured lines, and the by-hand server commands |
 | [Linux](linux.md) | paths, the engine build, the window on Wayland, troubleshooting |
-| [Remote models](remote-models.md) | keys, sign-ins, dialects |
+| [Remote models](remote-models.md) | keys, the Claude subscription, dialects |
 | [Phone over Tailscale](remote-tailscale.md) | the phone from anywhere over HTTPS; `--tailscale` / `-Tailscale` print the steps |
