@@ -6382,6 +6382,9 @@ class Conversation:
 # divergence #90 exists to prevent, one layer down.
 TRANSPORT_CHAT = "chat_completions"
 TRANSPORT_MESSAGES = "anthropic_messages"
+# #390: the subscription. Not a wire Crow speaks -- a `claude -p` child per
+# turn, and Claude Code's own tools. See "the claude CLI" further down.
+TRANSPORT_CLAUDE_CLI = "claude_cli"
 
 # WHAT ONE ANSWER MAY COST, and since 2026-09-18 it is ONE number for every
 # endpoint. The Messages API REQUIRES it, and this is the value every Claude
@@ -27388,6 +27391,19 @@ PROVIDERS = {
         # NO registration_endpoint, so the client_id still has to be named.
         "oauth": {"issuer": "https://auth.openai.com"},
     },
+    # #390. THE SUBSCRIPTION, as its own provider and not a credential kind of
+    # `anthropic`: no base URL, no key, no catalogue -- Claude Code is the
+    # endpoint and it signs in by itself. The models come from CLAUDE_MODELS.
+    "claude": {
+        "label": "Claude (subscription)",
+        "base_url": "",
+        "needs_key": False,
+        "key_hint": "",
+        "catalog": "",
+        "transport": TRANSPORT_CLAUDE_CLI,
+        "context_keys": (),
+        "blurb": "Your Claude subscription, through Claude Code.",
+    },
 }
 
 # Said once, where the endpoint is chosen, in the form MEMORY_COST_NOTE has.
@@ -28516,6 +28532,160 @@ def provider_subscriptions() -> list:
                      "missing": "" if block.get("client_id")
                                 else PROVIDER_NO_CLIENT % (spec["label"], name)})
     return rows
+
+
+# ------------------------------------------------------- the claude CLI (#390)
+
+# THE SUBSCRIPTION RUNS THROUGH CLAUDE CODE, NOT THROUGH CROW. Anthropic's terms
+# (code.claude.com/docs/en/legal-and-compliance, "Authentication and credential
+# use", read 2026-10-15) forbid a third-party program to route requests through
+# Free/Pro/Max credentials or to "collect, store, or intermediate" them, and
+# allow exactly one thing: the user signing in to the UNMODIFIED Claude Code
+# binary. So Crow starts `claude` and reads what it prints; it never reads,
+# stores, passes or refreshes a token. Sign-in is `claude auth login`, run by
+# the person, in Anthropic's own flow.
+#
+# WHAT THIS SECTION IS: the facts both halves of #390 read -- the transport
+# that spawns a turn and the Subscriptions tile that reports the state. One
+# place, so the tile and the turn can never disagree about whether a turn
+# would be refused.
+
+CLAUDE_CLI = "claude"
+CLAUDE_PROVIDER = "claude"            # the PROVIDERS key
+
+# EVERY VARIABLE THAT MOVES THE BILL OR THE ENDPOINT AWAY FROM THE SUBSCRIPTION.
+# "In non-interactive mode with the `-p` flag, the key is always used when
+# present" (code.claude.com/docs/en/troubleshoot-install): an ANTHROPIC_API_KEY
+# left in a shell profile would silently bill a key on every turn. A turn is
+# REFUSED while one is set, and the variable is named -- never stripped, because
+# a child that quietly ran without the person's own setting would be a second
+# configuration nobody wrote down. Measured 2026-10-15: a shell inside the
+# Claude desktop app carries ANTHROPIC_BASE_URL, which is exactly the case.
+CLAUDE_CLI_ENV_GUARD = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+                        "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK",
+                        "CLAUDE_CODE_USE_VERTEX")
+
+# THE EFFORT VARIABLE OVERRIDES --effort ("Takes precedence over `--effort`",
+# code.claude.com/docs/en/env-vars). Not a refusal: the chip says who decides.
+CLAUDE_CLI_EFFORT_ENV = "CLAUDE_CODE_EFFORT_LEVEL"
+
+CLAUDE_CLI_INSTALL = "npm install -g @anthropic-ai/claude-code"
+CLAUDE_CLI_LOGIN = "claude auth login"
+CLAUDE_CLI_TIMEOUT = 15.0
+
+# THE MODELS THE CHIP OFFERS, and there is no catalogue to ask instead: the
+# subscription has no key, and /v1/models answered a sign-in 401 (2026-08-23).
+# From code.claude.com/docs/en/model-config, read 2026-10-15:
+#   * `alias` is what `--model` takes; Claude Code resolves it. Measured
+#     2026-10-15, `--model haiku` -> init.model "claude-haiku-5-5".
+#   * `min` is the Claude Code version the docs require ("Sonnet 5.5 requires
+#     v2.1.284 or later, and Opus 5.5 requires v2.1.280 ... v2.1.293 or later
+#     with Haiku 5.5"); "" where the page names none.
+#   * `efforts` is the docs' per-model table; the first is not a default --
+#     "(default)" sends no --effort and the model's own default applies.
+#   * `window` is a FALLBACK only. The real one arrives with every turn as
+#     result.modelUsage[<id>].contextWindow (measured 2026-10-15: 1000000 for
+#     claude-haiku-5-5). 0 = not measured, and 0 means "no bar", never a guess.
+CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+CLAUDE_MODELS = (
+    {"alias": "fable", "id": "claude-fable-5-1", "label": "Fable 5.1",
+     "min": "", "efforts": CLAUDE_EFFORTS, "default": "high", "window": 0},
+    {"alias": "opus", "id": "claude-opus-5-5", "label": "Opus 5.5",
+     "min": "2.1.280", "efforts": CLAUDE_EFFORTS, "default": "medium", "window": 0},
+    {"alias": "sonnet", "id": "claude-sonnet-5-5", "label": "Sonnet 5.5",
+     "min": "2.1.284", "efforts": CLAUDE_EFFORTS, "default": "medium", "window": 0},
+    {"alias": "haiku", "id": "claude-haiku-5-5", "label": "Haiku 5.5",
+     "min": "2.1.293", "efforts": CLAUDE_EFFORTS, "default": "medium",
+     "window": 1000000},
+)
+
+
+def claude_cli_env(env: "dict | None" = None) -> dict:
+    """The environment a `claude` child gets: Crow's own, unchanged."""
+    return dict(os.environ if env is None else env)
+
+
+def claude_cli_env_conflicts(env: "dict | None" = None) -> list:
+    """The guard variables that are set (non-empty), in the guard's order."""
+    env = claude_cli_env(env)
+    return [name for name in CLAUDE_CLI_ENV_GUARD if (env.get(name) or "").strip()]
+
+
+def claude_cli_path() -> str:
+    """Where `claude` is on PATH, or "". `claude.exe`/`.cmd` on Windows alike."""
+    return shutil.which(CLAUDE_CLI) or ""
+
+
+def _claude_cli_run(args: list, timeout: float = CLAUDE_CLI_TIMEOUT
+                    ) -> "tuple[subprocess.CompletedProcess | None, str | None]":
+    exe = claude_cli_path()
+    if not exe:
+        return None, "Claude Code is not installed: %s" % CLAUDE_CLI_INSTALL
+    try:
+        done = subprocess.run([exe] + list(args), capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=timeout,
+                              env=claude_cli_env(), stdin=subprocess.DEVNULL,
+                              **crow_platform.spawn_kwargs(detached=True))
+    except subprocess.TimeoutExpired:
+        return None, "claude %s did not answer in %.0f s" % (" ".join(args), timeout)
+    except OSError as exc:
+        return None, "claude could not be started: %s" % exc
+    return done, None
+
+
+def claude_cli_version() -> "tuple[str, str | None]":
+    """("2.1.300", None), or ("", problem). From `claude --version`."""
+    done, problem = _claude_cli_run(["--version"])
+    if problem:
+        return "", problem
+    word = (done.stdout or "").strip().split(" ")[0]
+    if done.returncode != 0 or parse_version(word) is None:
+        return "", "claude --version printed nothing readable"
+    return word, None
+
+
+def claude_cli_auth() -> dict:
+    """What `claude auth status` says, reduced to what a surface may show.
+
+    Measured 2026-10-15 (Claude Code 2.1.300): JSON with `loggedIn`,
+    `authMethod` (none / claude.ai / oauth_token / api_key / api_key_helper /
+    third_party per the CLI reference), `subscriptionType`, and also `email`,
+    `orgId`, `orgName` -- which stay HERE: a view gets the method and the plan,
+    never who the account is. Exit 0 = logged in, 1 = not.
+    """
+    done, problem = _claude_cli_run(["auth", "status"])
+    if problem:
+        return {"logged_in": False, "method": "", "plan": "", "problem": problem}
+    try:
+        said = json.loads(done.stdout or "{}")
+    except ValueError:
+        said = {}
+    if not isinstance(said, dict):
+        said = {}
+    return {"logged_in": done.returncode == 0 and bool(said.get("loggedIn")),
+            "method": str(said.get("authMethod") or ("none" if done.returncode else "")),
+            "plan": str(said.get("subscriptionType") or ""),
+            "problem": None}
+
+
+def claude_model(name: str) -> "dict | None":
+    """The CLAUDE_MODELS row for an alias or a full id, or None (typed by hand)."""
+    for row in CLAUDE_MODELS:
+        if name in (row["alias"], row["id"]):
+            return row
+    return None
+
+
+def claude_model_ready(row: dict, version: str) -> bool:
+    """Does the installed Claude Code serve this model? Unknown version -> True.
+
+    True on an unreadable version because the CLI itself will say so on the
+    turn; greying out every model because one probe failed would be worse.
+    """
+    need = row.get("min") or ""
+    if not need or not version:
+        return True
+    return not is_newer(need, version)
 
 
 def health_url(base_url: str) -> str:

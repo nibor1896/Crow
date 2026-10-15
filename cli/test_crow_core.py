@@ -28326,6 +28326,66 @@ class TheWindowRendersWithoutTheGpuTests(unittest.TestCase):
                              os.environ.get("PATH"))
 
 
+class TheClaudeCliFactsTests(unittest.TestCase):
+    """#390: what the transport and the Subscriptions tile both read."""
+
+    FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
+
+    def test_a_set_guard_variable_is_named_and_an_empty_one_is_not(self):
+        env = {"ANTHROPIC_API_KEY": "x", "ANTHROPIC_BASE_URL": "  ", "PATH": "p"}
+        self.assertEqual(crow_core.claude_cli_env_conflicts(env), ["ANTHROPIC_API_KEY"])
+        self.assertEqual(crow_core.claude_cli_env_conflicts({"PATH": "p"}), [])
+
+    def test_the_childs_env_is_crows_own_unchanged(self):
+        env = {"ANTHROPIC_API_KEY": "x", "CLAUDE_CODE_OAUTH_TOKEN": "t"}
+        self.assertEqual(crow_core.claude_cli_env(env), env)
+
+    def test_a_model_newer_than_the_installed_cli_is_not_ready(self):
+        sonnet = crow_core.claude_model("sonnet")
+        self.assertFalse(crow_core.claude_model_ready(sonnet, "2.1.283"))
+        self.assertTrue(crow_core.claude_model_ready(sonnet, "2.1.284"))
+        self.assertTrue(crow_core.claude_model_ready(sonnet, ""))
+        self.assertIs(crow_core.claude_model("claude-sonnet-5-5"), sonnet)
+        self.assertIsNone(crow_core.claude_model("typed-by-hand"))
+
+    def test_auth_status_reaches_a_view_without_the_account(self):
+        said = json.dumps({"loggedIn": True, "authMethod": "claude.ai",
+                           "subscriptionType": "max", "email": "someone@example.org",
+                           "orgId": "o", "orgName": "n"})
+        done = subprocess.CompletedProcess(["claude"], 0, said, "")
+        with mock.patch.object(crow_core, "_claude_cli_run", return_value=(done, None)):
+            auth = crow_core.claude_cli_auth()
+        self.assertEqual(auth, {"logged_in": True, "method": "claude.ai",
+                                "plan": "max", "problem": None})
+        out = subprocess.CompletedProcess(["claude"], 1, '{"loggedIn": false}', "")
+        with mock.patch.object(crow_core, "_claude_cli_run", return_value=(out, None)):
+            self.assertEqual(crow_core.claude_cli_auth()["method"], "none")
+
+    def test_no_cli_is_a_sentence_with_the_install_command(self):
+        with mock.patch.object(crow_core, "claude_cli_path", return_value=""):
+            version, problem = crow_core.claude_cli_version()
+            auth = crow_core.claude_cli_auth()
+        self.assertEqual(version, "")
+        self.assertIn(crow_core.CLAUDE_CLI_INSTALL, problem)
+        self.assertFalse(auth["logged_in"])
+        self.assertIn(crow_core.CLAUDE_CLI_INSTALL, auth["problem"])
+
+    def test_the_recorded_turns_carry_what_the_transport_reads(self):
+        """Measured 2026-10-15, Claude Code 2.1.300, `--model haiku`, two turns,
+        the second with --resume. Sanitised: hook events, paths, ids, account."""
+        for name in ("claude_stream_turn1.ndjson", "claude_stream_turn2.ndjson"):
+            with open(os.path.join(self.FIXTURES, name), encoding="utf-8") as fh:
+                text = fh.read()
+            events = [json.loads(line) for line in text.splitlines() if line.strip()]
+            init = [e for e in events if e.get("subtype") == "init"][0]
+            result = [e for e in events if e.get("type") == "result"][0]
+            self.assertEqual(init["model"], "claude-haiku-5-5")
+            self.assertEqual(result["modelUsage"]["claude-haiku-5-5"]["contextWindow"],
+                             1000000)
+            for private in ("@", "robin", "Users", "C:\\"):
+                self.assertNotIn(private, text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 
