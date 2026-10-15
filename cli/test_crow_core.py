@@ -20155,7 +20155,11 @@ class ThePlatformSeamAnswersForOneSystemAtATimeTests(unittest.TestCase):
             fh.write(b"")
         self._proc(os.getpid(), ["/usr/bin/llama-server", "-m", "self.gguf"])
         os.makedirs(os.path.join(root, "acpi"), exist_ok=True)
-        self.assertEqual(crow_platform.find_servers(proc_root=root), [])
+        # #393: the fake /proc and nothing else. find_servers asks CIM on
+        # Windows, and robin's serve.exe answered it there.
+        with mock.patch.object(crow_platform, "_run_query",
+                               return_value="35260\tC:\\Crow\\bin\\serve.exe --port 8099\n"):
+            self.assertEqual(crow_platform._proc_servers(root), [])
 
     def test_an_unreadable_proc_falls_back_and_never_raises(self):
         """Das hier laeuft auf dem Weg, der einen Server STARTET. Ein Boot, der
@@ -30219,9 +30223,13 @@ class TheVideoStillsTests(unittest.TestCase):
         subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
                         "testsrc=duration=2:size=320x180:rate=24", "-pix_fmt", "yuv420p", clip],
                        check=True, stdin=subprocess.DEVNULL)
-        stills = crow_core._video_stills(clip)
+        # #394: never the real install's state dir -- every gate run with
+        # ffmpeg on PATH overwrote robin's video-stills.
+        with mock.patch.object(crow_platform, "state_dir", lambda: folder):
+            stills = crow_core._video_stills(clip)
         self.assertEqual(len(stills), 3)
         for path in stills:
+            self.assertEqual(os.path.dirname(path), os.path.join(folder, "video-stills"))
             self.assertEqual(crow_core.image_dimensions(path), (320, 180))
 
 

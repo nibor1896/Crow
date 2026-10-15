@@ -27,11 +27,17 @@ one directory on Windows (`%LOCALAPPDATA%\Crow`), four on Linux (config, data,
 state, cache). A guard that only knew the Windows spelling would not be strict
 there — it would be empty.
 
-The guard sees constants only. `crow_core.active_point_path()` is resolved per
-call, so a case that reaches the image gate (`image_tools_unavailable`) patches
-`crow_platform.config_dir` and `crow_core.server_model_path` itself, as
-`_ImageServerCase` does: otherwise a running operating point's
-`active-point.json` and its serve on 8099 answer for it (#392).
+The guard sees constants only. A path resolved per call, or a process list, is
+the case's own to redirect:
+
+- `crow_core.active_point_path()`: a case that reaches the image gate
+  (`image_tools_unavailable`) patches `crow_platform.config_dir` and
+  `crow_core.server_model_path`, as `_ImageServerCase` does; otherwise a running
+  operating point's `active-point.json` and its serve on 8099 answer for it (#392).
+- `crow_platform.find_servers` asks CIM on Windows whatever `proc_root` says; a
+  case about the `/proc` reader calls `crow_platform._proc_servers` (#393).
+- `crow_core._video_stills` writes into `crow_platform.state_dir()`; its case
+  patches `state_dir` to its temp folder (#394).
 
 Run them under the runtime venv (`~/.local/share/crow/venv/bin/python` on Linux), not the
 system Python: that venv is made with `--system-site-packages`, which puts pip's `webview` and
