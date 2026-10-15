@@ -6431,7 +6431,7 @@ class TheComposerOfTheMockupTests(unittest.TestCase):
     def run_ctx(self) -> dict:
         js = (_FAKE_PAGE_DOM + "const crow = {\n"
               + _crow_methods(self.source, "tokK", "ctx") + "\n"
-              "  showEngine(){} };\n"
+              "};\n"
               "const el = $('#ctx'), out = {};\n"
               "const look = () => ({html: el.innerHTML, text: el.lastChild.textContent,\n"
               "  fill: el.firstChild.firstChild.style.width || ''});\n"
@@ -16615,44 +16615,47 @@ class ThePhoneMirrorOfTheRedesignTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout.strip().splitlines()[-1])
 
-    def test_the_header_is_rail_search_model_and_inspector(self):
+    def test_the_header_is_rail_search_and_inspector(self):
         """The desktop's zones stay zones, in the mockup's order: the rail
-        toggle and CROW, the magnifier and the model chip, the inspector
-        toggle. Git is a tab and a phone has no live browser pane, so those
-        two toggles stay off with the window buttons."""
+        toggle and CROW, the magnifier, the inspector toggle. #391: the model
+        chip left the header with the desktop's engine chip -- the composer's
+        chip says it. Git is a tab and a phone has no live browser pane, so
+        those two toggles stay off with the window buttons."""
         css = self.rules()
         self.assertNotIn("display:contents", css)
         self.assertIn("#gittoggle,#browsertoggle,#barr>.vsep{display:none!important}", css)
-        for keep in ("railtoggle", "searchbox", "search", "engine", "codetoggle"):
+        for keep in ("railtoggle", "searchbox", "search", "codetoggle"):
             self.assertNotRegex(css, r"(?m)(^|\})\s*#%s\{[^}]*display:none" % keep, keep)
         bar = crow_gui.PAGE[crow_gui.PAGE.index('<div id="bar"'):
                             crow_gui.PAGE.index('<div id="remotedlg"')]
         order = [bar.index(m) for m in ('id="railtoggle"', 'id="mark"', 'id="searchbox"',
-                                        'id="engine"', 'id="codetoggle"')]
+                                        'id="codetoggle"')]
         self.assertEqual(order, sorted(order))
         self.assertIn("#bar #barm{flex:1 1 auto}", css)
-        self.assertIn("margin-left:auto", self.rule("#engine{"))
 
     def test_every_header_target_is_44_px(self):
-        """WCAG 2.2 SC 2.5.5: 44 x 44 for the two toggles, the magnifier and
-        the model chip, whose 32 px pill is drawn inside its 44 px box."""
+        """WCAG 2.2 SC 2.5.5: 44 x 44 for the two toggles and the magnifier."""
         self.assertIn("--tap:44px;", self.rules())
         self.assertIn("width:var(--tap);height:var(--tap)", self.rule("#railtoggle,#codetoggle{"))
         self.assertIn("width:var(--tap);height:var(--tap)", self.rule("#search{"))
         self.assertIn("width:var(--tap);height:var(--tap)", self.rule("#search .s-ico{"))
-        chip = self.rule("#engine{")
-        self.assertIn("height:var(--tap)", chip)
-        self.assertIn("border:6px solid transparent;background-clip:padding-box", chip)
-        self.assertIn("#engine .elvl{display:none!important}", self.rules())
 
-    def test_the_model_chip_wears_the_family_name(self):
-        """`shortModel`, as on the composer's chip; the full name in its title."""
+    def test_the_composer_chip_wears_the_family_name_unless_the_server_is_down(self):
+        """`shortModel` on the composer's chip, the full name in its title. #391:
+        while the server is down the chip says "no server", which on the phone
+        (no dot) is the whole state, so the family name never replaces it."""
         out = self.run_hooks(
-            'crow.showEngine = function(){ el("ename").textContent = this.modelName; };\n',
-            'document.querySelector = s => s === "#engine .ename" ? el("ename") : null;\n'
-            'crow.modelName = "Qwen3.8-Flash-Next"; crow.showEngine();\n'
-            'console.log(JSON.stringify({name: el("ename").textContent, title: el("engine").title}));\n')
-        self.assertEqual(out, {"name": "Qwen", "title": "Qwen3.8-Flash-Next"})
+            "",
+            'const b = {textContent: ""}, chip = el("model");\n'
+            'document.querySelector = s => s === "#model b" ? b : null;\n'
+            'crow.modelName = "Qwen3.8-Flash-Next";\n'
+            'chip.dataset.state = "up"; b.textContent = crow.modelName; crow.showModel();\n'
+            'const up = [b.textContent, chip.title];\n'
+            'chip.title = ""; chip.dataset.state = "down"; b.textContent = "no server";\n'
+            'crow.showModel();\n'
+            'console.log(JSON.stringify({up, down: [b.textContent, chip.title]}));\n')
+        self.assertEqual(out, {"up": ["Qwen", "Qwen3.8-Flash-Next"],
+                               "down": ["no server", ""]})
 
     GOAL = r"""
 body.dataset.git = "shut";                           // the desktop's git toggle is off
@@ -19121,7 +19124,7 @@ class TheWindowShellTests(unittest.TestCase):
     """#382. The window's shell as in the mockup robin approved on 2026-10-14
     (vault Crow/02_docs/mockup-crow-gui-redesign-2026-10-14/Main.dc.html):
     the palette, the rounded chat panel, the three title-bar zones over the
-    three columns, the search field, the engine chip, the mono face."""
+    three columns, the search field, the mono face."""
 
     NEW_NAMES = ("--accent-soft", "--sub-soft", "--ok-soft", "--warn-soft", "--on-accent")
 
@@ -19216,7 +19219,7 @@ class TheWindowShellTests(unittest.TestCase):
     def test_the_bar_holds_the_mockups_controls_in_its_order(self):
         at = 0
         for mark in ('id="barl"', 'id="railtoggle"', 'id="mark"', 'id="barm"',
-                     'id="search"', 'id="engine"', 'id="barr"', 'id="codetoggle"',
+                     'id="search"', 'id="barr"', 'id="codetoggle"',
                      'id="gittoggle"', 'id="browsertoggle"', 'id="remotetoggle"',
                      '<span class="vsep"></span>', 'id="wbtns"'):
             self.assertIn(mark, self.bar[at:], "%s is out of the mockup's order" % mark)
@@ -19265,75 +19268,93 @@ class TheWindowShellTests(unittest.TestCase):
         self.assertIn('if(e.key!=="Escape") return;', key)
         self.assertIn("searchIn.blur();", key)
 
-    # -- the engine chip ------------------------------------------------------
+    # -- the model chip carries the server's state (#391) -----------------------
+    # robin removed the title bar's engine chip by decision on 2026-10-15: the
+    # cases that pinned it (a disclosure button, its slide-out, its dot rules)
+    # went with it. The server's state moved onto the composer's chip.
 
-    def test_the_engine_chip_is_a_disclosure_button(self):
-        chip = self.bar[self.bar.index('<button id="engine"'):]
-        chip = chip[:chip.index("</button>")]
-        self.assertIn('type="button"', chip)
-        self.assertIn('aria-expanded="false"', chip)
-        self.assertIn('onclick="crow.engineToggle()"', chip)
-        for part in ("edot", "ename", "elvl", "erate", "ectx"):
-            self.assertIn('class="%s"' % part, chip)
-        self.assertIn(".engine.open .more{max-width:280px;opacity:1;padding-left:10px}",
-                      self.css)
+    def test_the_title_bar_carries_no_engine_chip(self):
+        gone = re.compile(r'id="engine"|showEngine|engineToggle|\.engine\b')
+        self.assertEqual(gone.findall(self.source), [])
+        for part in (crow_gui.PAGE, crow_gui.REMOTE_CSS, crow_gui.REMOTE_JS):
+            self.assertNotIn("#engine", part)
+        middle = self.bar[self.bar.index('id="barm"'):self.bar.index('id="barr"')]
+        self.assertNotIn("<button", middle, "the middle zone holds the search alone")
+
+    ARMS_FROM = '      case "up": $("#dot")'
+    ARMS_TO = "      // #125. STRAIGHT TO ABOUT."
 
     def _chip_run(self) -> dict:
-        node = _node()
-        if not node:
-            self.skipTest("no node on this machine")
-        page = crow_gui.PAGE
-        def method(name: str, end: str) -> str:
-            start = page.index("\n  %s(" % name) + 1
-            return page[start:page.index(end, start) + len(end)]
-        methods = (method("tokK", "},") + "\n"
-                   + method("showEngine", '"connecting"); },') + "\n"
-                   + method("engineToggle", 'b.classList.toggle("open", open); },'))
-        js = r"""
-const parts = {}; for (const k of [".ename",".elvl",".erate",".ectx",".eword"])
-  parts[k] = {textContent: "", hidden: k !== ".ename"};
-const attrs = {"aria-expanded": "false"}, cls = new Set();
-const engine = {dataset: {state: "wait"}, querySelector: s => parts[s],
-  getAttribute: k => (k in attrs ? attrs[k] : null), setAttribute: (k, v) => { attrs[k] = String(v); },
-  classList: {toggle: (c, on) => { on ? cls.add(c) : cls.delete(c); }}};
-const $ = s => (s === "#engine" ? engine : null);
-const crow = {levelLabel(){ return " · high"; },
-""" + methods + r"""
-};
-const snap = () => ({expanded: attrs["aria-expanded"], open: cls.has("open"),
-  parts: Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, v.hidden ? null : v.textContent]))});
-const out = {};
-crow.showEngine(); out.wait = snap();
-engine.dataset.state = "up"; crow.modelName = "Qwen3.8-Flash-Next"; crow.showEngine(); out.ready = snap();
-crow.stats = {decode_rate: 35.85}; crow.ctxNow = [6100, 200000]; crow.showEngine(); out.ran = snap();
-crow.engineToggle(); out.click1 = snap(); crow.engineToggle(); out.click2 = snap();
+        """The page's own `showModel` and its `up` / `reasoning` / `down` arms,
+        run in node over the fake DOM: the chip is drawn from what the events
+        left on it. `levelLabel` is stubbed, the grouping is not what is tested."""
+        src = self.source
+        arms = src[src.index(self.ARMS_FROM):src.index(self.ARMS_TO)]
+        js = (_FAKE_PAGE_DOM + 'const RICON = {chevron: "<chevron/>"};\n'
+              "const crow = {\n"
+              + _crow_methods(src, "showModel", "showReason") + "\n"
+              '  levelLabel(){ return " \u00b7 high"; }, ctx(){},\n'
+              "  on(e){ switch(e.k){\n" + arms + "\n  } } };\n"
+              r"""
+const chip = $("#model"); chip.dataset.state = "wait";     // the markup's start value
+const snap = () => ({state: chip.dataset.state, hidden: chip.hidden,
+  name: chip.querySelector("b").textContent, level: chip.querySelector(".lvl").textContent,
+  drawn: chip.innerHTML.includes("<chevron/>"), sheetDot: $("#dot").className});
+const out = {}, up = {k: "up", model: "Qwen3.8-Flash-Next", tokens: 0, n_ctx: 200000};
+crow.showModel(); out.start = snap();
+crow.on({k: "down", why: "no server"}); out.downFirst = snap();
+crow.on(up); out.up = snap();
+crow.on({k: "down", why: "connection refused"}); out.downKnown = snap();
+crow.on(up); out.upAgain = snap();
 console.log(JSON.stringify(out));
-"""
-        done = subprocess.run([node, "-e", js], capture_output=True, text=True,
-                              encoding="utf-8", timeout=30)
-        self.assertEqual(done.returncode, 0, done.stderr)
-        return json.loads(done.stdout)
+""")
+        return _run_page(self, js)
 
-    def test_a_click_slides_out_level_rate_and_context(self):
+    def test_the_chip_starts_amber_and_says_connecting(self):
+        start = self._chip_run()["start"]
+        self.assertEqual((start["state"], start["hidden"], start["drawn"]), ("wait", False, True))
+        self.assertEqual(start["name"], "connecting")
+        chip = self.source[self.source.index('<span class="chip pick" id="model"'):]
+        chip = chip[:chip.index(">")]
+        self.assertIn('data-state="wait"', chip)
+        self.assertNotIn("hidden", chip)
+        self.assertRegex(self.source, r"(?m)^crow\.showModel\(\);",
+                         "the chip is drawn at boot, before the first answer")
+
+    def test_up_gives_the_chip_the_model_and_a_green_dot(self):
+        up = self._chip_run()["up"]
+        self.assertEqual((up["state"], up["hidden"], up["name"], up["level"]),
+                         ("up", False, "Qwen3.8-Flash-Next", "high"))
+        self.assertEqual(up["sheetDot"], "up", "the settings sheet's own dot stays")
+
+    def test_down_says_no_server_in_the_chip(self):
         out = self._chip_run()
-        self.assertEqual(out["wait"]["parts"][".ename"], "connecting")
-        self.assertEqual(out["ready"]["parts"][".ename"], "Qwen3.8-Flash-Next")
-        self.assertEqual(out["ready"]["parts"][".eword"], "ready")
-        ran = out["ran"]["parts"]
-        self.assertEqual(ran[".elvl"], "high")
-        self.assertEqual(ran[".erate"], "35.85 tok/s")
-        self.assertEqual(ran[".ectx"], "6.1k / 200k")
-        self.assertIsNone(ran[".eword"], "a measured chip still says 'ready'")
-        self.assertEqual((out["ran"]["expanded"], out["ran"]["open"]), ("false", False))
-        self.assertEqual((out["click1"]["expanded"], out["click1"]["open"]), ("true", True))
-        self.assertEqual((out["click2"]["expanded"], out["click2"]["open"]), ("false", False))
+        first = out["downFirst"]                       # no model known yet
+        self.assertEqual((first["state"], first["hidden"]), ("down", False))
+        self.assertIn("no server", first["name"])
+        self.assertEqual(first["level"], "", "a level beside a word names nothing")
+        self.assertEqual(first["sheetDot"], "down", "the settings sheet's own dot stays")
+        # the word wins over a name still on the page (the phone has no dot) ...
+        known = out["downKnown"]
+        self.assertEqual((known["state"], known["name"]), ("down", "no server"))
+        # ... and the name comes back with the server
+        again = out["upAgain"]
+        self.assertEqual((again["state"], again["name"], again["level"]),
+                         ("up", "Qwen3.8-Flash-Next", "high"))
 
-    def test_the_chip_hears_the_server_and_the_turn(self):
-        page = crow_gui.PAGE
-        self.assertIn('$("#engine").dataset.state="up";', page)
-        self.assertIn('$("#engine").dataset.state="down";', page)
-        self.assertIn("if(e.stats) this.stats=e.stats;", page)
-        self.assertIn('#engine[data-state="up"] .edot{background:var(--ok)', self.css)
+    def test_the_dot_follows_the_state(self):
+        for state, colour in (("wait", "--warn"), ("up", "--ok"), ("down", "--bad")):
+            self.assertIn('#model[data-state="%s"] .dot{background:var(%s)}'
+                          % (state, colour), self.css)
+        self.assertNotIn("#model .dot{background:var(--ok)}", self.css,
+                         "the dot is green whatever the server does")
+
+    def test_the_phone_says_the_state_in_a_word_not_a_dot(self):
+        """#387's rule stays (the sheet's chips: the word, not the desktop's
+        dot); the word is what carries the state there."""
+        self.assertIn("#model .dot,#model svg,#mtools #root svg,#ctx .ctxbar{display:none}",
+                      crow_gui.REMOTE_CSS)
+        self.assertIn("no server", self._chip_run()["downFirst"]["name"])
 
     # -- the rail's foot, motion ------------------------------------------------
 
@@ -19341,7 +19362,7 @@ console.log(JSON.stringify(out));
         start = self.css.index("@media (prefers-reduced-motion:reduce){\n  #rail")
         block = self.css[start:self.css.index("}}", start)]
         for sel in ("#rail", "#side", "#main", "#barl", ".search", ".search input",
-                    ".s-kbd", ".engine .more"):
+                    ".s-kbd"):
             self.assertIn(sel, block)
         self.assertIn("transition:none", block)
         # AFTER every rule that sets one of these transitions, or it loses.
@@ -19643,7 +19664,6 @@ const view = () => ({
         focus, and folds on blur even with a query in it (no Escape on a
         phone); the results drop under it, header-wide. 16 px, or iOS zooms."""
         css = crow_gui.REMOTE_CSS
-        self.assertNotIn("#searchbox,#search,#engine", css)
         self.assertIn("#search input{width:0;font-size:16px}", css)
         self.assertIn("#searchbox:focus-within #search{position:absolute;", css)
         self.assertIn("#searchbox:focus-within #search input{flex:1 1 auto;width:auto;", css)
