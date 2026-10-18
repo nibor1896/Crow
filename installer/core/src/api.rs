@@ -91,7 +91,7 @@ pub struct DerivedJob {
     pub dest: PathBuf,
     pub bytes: u64,
     pub points: Vec<PointId>,
-    /// File ids the step consumes and deletes (the image stack's `text_encoder/`).
+    /// File ids the convert step consumes and deletes.
     #[serde(default)]
     pub inputs: Vec<String>,
 }

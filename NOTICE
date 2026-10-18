@@ -154,12 +154,12 @@ stable-diffusion.cpp and what it compiles in -- bin/sd-server, bin/sd-cli
 `sd-server` ships in the Linux package (tools/pack-release.sh) and in the
 Windows package when it is packed with `pack-release.ps1 -SdBuildDir`, which
 also adds `sd-cli.exe` from the same build; what follows holds for both. It is
-built from stable-diffusion.cpp 2f886889e6e8b78738d6b87f7191f6018557c551
-(tag master-920-2f88688, tools/build-sd-server.sh) with these parts compiled
+built from stable-diffusion.cpp 2f016e8e30ab0d0051c268944ae96c0951dba4f0
+(tag master-970-2f016e8, tools/build-sd-server.sh) with these parts compiled
 in, each under its own terms, none of them modified:
 
     stable-diffusion.cpp   MIT            Copyright (c) 2023 leejet
-    ggml 4bf5f600          MIT            Copyright (c) 2023-2026 The ggml authors
+    ggml d25b121c          MIT            Copyright (c) 2023-2026 The ggml authors
     cpp-httplib            MIT            Copyright (c) 2025 Yuji Hirose
     nlohmann/json          MIT            Copyright (c) 2013-2022 Niels Lohmann
     kuba--/zip             MIT            "All Rights Reserved." (no holder named)

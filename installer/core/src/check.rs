@@ -7,8 +7,7 @@
 //! will use. Then:
 //!
 //! * every file of the point exists with its size. A file that is an INPUT of a
-//!   derived job (the Image Stack's `text_encoder/`, consumed and deleted by the
-//!   convert step) is not asked for; the derived outputs are, by size, and by
+//!   derived job (consumed and deleted by the convert step) is not asked for; the derived outputs are, by size, and by
 //!   sha256 where stack.json pins one.
 //! * sha256 is computed only for files the run's state (`<root>/setup/state.json`,
 //!   T1's `StateStore`) does not already mark `verified`. Those were hashed once

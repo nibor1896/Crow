@@ -16,9 +16,9 @@
 //! `--source` supplies it, and a download refuses it by name (fetch.rs).
 //!
 //! `disk_bytes` is what stays on disk: download + derived - the derived entries'
-//! inputs, which the convert step deletes (`text_encoder/` once
-//! `text_encoder_sdcli/` exists, #196 phase 2 design). The peak during the
-//! conversion is higher by those inputs; preflight checks each point's peak.
+//! inputs, which the convert step deletes (#196 phase 2 design; no shipped point
+//! derives a file since #403). The peak during the conversion is higher by those
+//! inputs; preflight checks each point's peak.
 
 use crate::api::{DerivedJob, FileJob, FileKind, Package, Packages, Plan, Selection};
 use crate::stack::{Stack, StackFile, Status, resolve_path};

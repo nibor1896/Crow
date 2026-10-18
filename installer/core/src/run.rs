@@ -5,8 +5,8 @@
 //! the two packages, install Crow, install the engine, ensure Python, the model
 //! files (whisper and the NVIDIA wheels included, in the plan's order), the
 //! NVIDIA libraries out of their wheels (`nvidia`), the video runtime, convert
-//! (when the plan carries derived files: the image stack), check every
-//! selected point, shortcuts, Done.
+//! (when the plan carries derived files; no shipped point has one since #403),
+//! check every selected point, shortcuts, Done.
 //!
 //! THE NVIDIA WHEELS (crate::nvidia): the plan of [`Steps::plan`] is the
 //! stack's; the run adds the wheels [`Steps::nvidia`] names for the selection
@@ -27,8 +27,8 @@
 //!
 //! RESUME: a file whose state says `verified` is not fetched again when its
 //! destination exists, or, once the convert step is done, when it is one of
-//! the convert's INPUTS (convert deletes the image stack's `text_encoder/`,
-//! which the state still lists as verified). Any other verified file that is
+//! the convert's INPUTS (convert deletes them, and the state still lists them
+//! as verified). Any other verified file that is
 //! gone is fetched again.
 //!
 //! THE PACKAGE ZIPS are deleted after Done (an update fetches the new ones);
@@ -44,9 +44,8 @@
 //! models root>` (a models tree such as `crow-stack/` or another install's
 //! `models/`). On Linux, files on the same file system are hard-linked (see
 //! fetch.rs) and cost no disk, which preflight and the disk check account for;
-//! a source that already holds a derived output in full (the Image Stack's
-//! `text_encoder_sdcli/`) is linked into place and the convert step counts as
-//! done, so its inputs are not fetched.
+//! a source that already holds a derived output in full is linked into place
+//! and the convert step counts as done, so its inputs are not fetched.
 //!
 //! COMMANDS: Pause and Quit set the cancel flag, so a download stops inside
 //! (the fetcher polls it) and the run stops between steps. Resume clears the
@@ -628,12 +627,12 @@ impl Runner<'_> {
 
         if !plan.derived.is_empty() {
             if self.done("convert") {
-                self.step_event("convert", StepStatus::Ok, "Text encoder ready.");
+                self.step_event("convert", StepStatus::Ok, "Derived files ready.");
             } else {
                 let (r2, m2, p2) = (root.clone(), models.clone(), py.clone());
                 self.step("convert", &mut |s| {
                     s.convert(&p2, &r2, &m2)?;
-                    Ok("Text encoder ready.".into())
+                    Ok("Derived files ready.".into())
                 })?;
                 self.mark("convert");
             }
@@ -676,9 +675,8 @@ impl Runner<'_> {
     }
 
     /// The PEAK need against the free space where the install goes: every
-    /// download plus the derived files, because the convert inputs
-    /// (`text_encoder/`) and its output exist side by side until convert
-    /// deletes the inputs. What is already on disk counts as had.
+    /// download plus the derived files, because the convert inputs and its
+    /// outputs exist side by side until convert deletes the inputs. What is already on disk counts as had.
     fn disk_check(&mut self, plan: &Plan, root: &Path) -> Result<(), Stop> {
         // #340: a runtime still to unpack lands beside its archive; so do the
         // NVIDIA libraries beside their wheel.
@@ -1162,8 +1160,15 @@ impl Steps for RealSteps {
     fn ensure_python(&mut self, install_root: &Path) -> Result<PythonInfo, String> {
         crate::python::ensure(install_root, self.python_zip, self.get_pip)
     }
-    fn convert(&mut self, py: &PythonInfo, install_root: &Path, models_root: &Path) -> Result<(), String> {
-        crate::convert::image_text_encoder(py, install_root, models_root)
+    /// #403: the one converter CrowSetup had, Qwen-Image 2.1's text-encoder
+    /// rename (convert.rs running tools/te_rename.py), went with Qwen-Image:
+    /// Ming-Image loads as published. No shipped point derives a file
+    /// (tests/plan_select.rs `no_shipped_point_derives_a_file`), so the run
+    /// never comes here; a derived entry added without its converter is refused
+    /// by name instead of running another model's converter.
+    fn convert(&mut self, _py: &PythonInfo, _install_root: &Path, _models_root: &Path) -> Result<(), String> {
+        let ids: Vec<&str> = self.stack().derived.iter().map(|d| d.id.as_str()).collect();
+        Err(format!("This CrowSetup has no converter for {}.", ids.join(", ")))
     }
     fn check_point(
         &mut self,
@@ -1270,7 +1275,9 @@ pub mod testing {
 
     /// The fake plan, shaped like `plan::plan`: two packages and whisper with
     /// empty `points`, one container per point; the image stack shares the 27B
-    /// container and carries a derived file.
+    /// container. It also carries one derived file, which the real image stack
+    /// has not since #403: it keeps the runner's generic convert path (order,
+    /// resume, consumed inputs, the disk peak, prefill) under test.
     pub fn plan(sel: &Selection) -> Plan {
         let root = &sel.install_root;
         let mut jobs = vec![
@@ -1284,10 +1291,10 @@ pub mod testing {
             jobs.push(job("27b-cnq", FileKind::Model, 1880, &pts, root));
         }
         if has("image-stack") {
-            jobs.push(job("qi-transformer", FileKind::Model, 1400, &["image-stack"], root));
-            // The convert input (upstream text_encoder/); size 0 keeps the
-            // tests' disk arithmetic as it was before the fake had one.
-            jobs.push(job("qi-text-encoder", FileKind::Model, 0, &["image-stack"], root));
+            jobs.push(job("mi-diffusion", FileKind::Model, 1400, &["image-stack"], root));
+            // The fake convert input; size 0 keeps the tests' disk arithmetic
+            // as it was before the fake had one.
+            jobs.push(job("fake-input", FileKind::Model, 0, &["image-stack"], root));
         }
         if has("flash-next") {
             jobs.push(job("fn-cnq", FileKind::Model, 10560, &["flash-next"], root));
@@ -1301,11 +1308,11 @@ pub mod testing {
         }
         let derived = if has("image-stack") {
             vec![crate::api::DerivedJob {
-                id: "qi-text-encoder-sdcli".into(),
-                dest: root.join("fake").join("sdcli"),
+                id: "fake-derived".into(),
+                dest: root.join("fake").join("derived"),
                 bytes: 1750,
                 points: vec!["image-stack".into()],
-                inputs: vec!["qi-text-encoder".into()],
+                inputs: vec!["fake-input".into()],
             }]
         } else {
             vec![]
@@ -1449,8 +1456,8 @@ pub mod testing {
         }
         fn convert(&mut self, _py: &PythonInfo, _root: &Path, _models: &Path) -> Result<(), String> {
             self.step("convert", "convert")?;
-            // like te_rename + the delete: the input is gone, its state stays verified
-            self.shared.lock().unwrap().present.remove("qi-text-encoder");
+            // a converter deletes its input; its state stays verified
+            self.shared.lock().unwrap().present.remove("fake-input");
             Ok(())
         }
         fn check_point(&mut self, _py: &PythonInfo, _root: &Path, _models: &Path, point: &str) -> Result<(), String> {
@@ -1611,7 +1618,7 @@ pub mod testing {
         };
         vec![
             ("run order, 27b", order(&["27b"])),
-            ("run order, image stack converts", order(&["27b", "image-stack"])),
+            ("run order, a derived file converts", order(&["27b", "image-stack"])),
             ("resume skips what is done", resume()),
             ("permanent failure without a retry ends fatal", permanent()),
         ]
