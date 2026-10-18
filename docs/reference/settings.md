@@ -6,6 +6,7 @@
 
 | pane | |
 |---|---|
+| **Dashboard** | the first page (#406): the activity grid of the last 12 months, the tokens of the last 30 days, the streak, the active days and the tokens per model, as on the first start of the day, plus the switch "Show the dashboard on the first start of each day". See [Dashboard](#dashboard-406) |
 | **Appearance** | theme: dark, light, crow |
 | **Skills** | one row per skill, name and description, a switch. Off takes it out of the prompt; the file stays. Switching re-pins the open chat and says what the prefill costs |
 | **Server** | connection state, the base URL as its title, and the tool-call switch |
@@ -50,6 +51,50 @@ Both are read every turn, like the budgets above. See [goals](../user-guide/goal
 The delegate favourites live in `providers.json` (`delegate_favorites`), not here — set them
 from the OpenRouter page of the settings sheet. So does the judge's pin (#266):
 `"judge": {"provider": "openrouter", "model": "<a vision model>"}`, or `{"provider": "local"}`.
+
+---
+
+## Dashboard (#406)
+
+The first page of the sheet, and the view the window opens on at the first start of each day. See
+[Window](../user-guide/window.md). A day starts at 04:00, so a turn at 01:30 belongs to the day before.
+
+| key | default | what |
+|---|---|---|
+| `dashboard_daily` | `true` | show the dashboard on the first start of each day. The Dashboard page's switch writes it; `false` starts the window as before |
+| `dashboard_seen` | unset | `"YYYY-MM-DD"`, the last day the dashboard was shown. Written when it is shown. It comes up at start when `dashboard_daily` is on and this is not today's day, so setting it to yesterday brings it back at the next start |
+
+Both live in `settings.json` (`%LOCALAPPDATA%\Crow\` on Windows, `~/.config/crow/` on Linux) and are read at start.
+
+### The ledger, `usage.jsonl`
+
+| | |
+|---|---|
+| path | `%LOCALAPPDATA%\Crow\usage.jsonl` on Windows, `~/.local/state/crow/usage.jsonl` on Linux (`$XDG_STATE_HOME/crow/`), beside `session/` |
+| written | one line per finished turn, appended when the turn ends, for local, OpenRouter and Claude (subscription) turns alike. A line that cannot be written is skipped and the turn does not notice |
+| one file | for all chats, so archiving, moving or deleting a chat does not change the history |
+| read | the dashboard reads the whole file; a damaged line is skipped and costs that one record |
+| from when | this build on. Older chats are not backfilled: their saved `timings` carry no date and no model per turn |
+| local | recorded on this machine only; nothing is sent anywhere |
+| size | estimated at about 250 bytes a turn, 5 MB for 20,000 turns; not measured |
+
+A line is one JSON object (shortened):
+
+```json
+{"v": 1, "ts": "2026-10-18T09:12:44+02:00", "day": "2026-10-18", "model": "Qwen3.8-27B", "input": 182340, "output": 1611, "rounds": 6}
+```
+
+| field | |
+|---|---|
+| `v` | `1`, the line format |
+| `ts` | when the turn ended: local time with its UTC offset |
+| `day` | the usage day, `YYYY-MM-DD`: the local date, with the day starting at 04:00. The grid and the streak count by it |
+| `model` | the model name the turn was served by; the dashboard's per-model table groups by it |
+| `input` | tokens the model read, summed over the turn's rounds: per round the prompt tokens plus the cached ones |
+| `output` | tokens the model wrote |
+| the turn's figures | those the chat file's `timings` keep (`clean_timings`): `rounds`, `decoded`, `prefilled`, `tool_calls`, `tool_errors`, `tool_declined`, `cached`, `cached_of`, `decode_s`, `prefill_s`, `model_s`, `tool_s`, `waited_s`, `decode_rate`, `prefill_rate`, `finish`, `seeds`, `leg_seeds`. A figure the turn did not have is absent |
+
+The dashboard's tokens are `input` + `output`.
 
 ---
 

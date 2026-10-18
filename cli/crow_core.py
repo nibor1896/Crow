@@ -67,6 +67,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import date, datetime, timedelta
 from html.parser import HTMLParser
 from typing import Callable
 
@@ -85,7 +86,7 @@ import crow_platform
 # column 0. Until #187 it stood in cli/crow.py, which handed it over on import;
 # an installation older than this change still carries it there, and that is
 # the only reason the installers look in crow.py at all.
-VERSION = "4.1.0"
+VERSION = "4.2.0"
 
 # The name every reader has used since the split: the session file's `version`
 # field, the User-Agents and the update notice. It used to be "" until the
@@ -2921,6 +2922,203 @@ def log_note(text: str, kind: str = "note") -> None:
 SESSION_TIMINGS_KEY = "timings"
 SESSION_TIMINGS_MAX = 2000
 
+# #406. A DATED LEDGER OF EVERY FINISHED TURN, for the dashboard: one JSON line
+# per turn with its day, its model and its tokens. The bills above carry
+# neither date nor model, keep at most 2000 turns per chat and are spread over
+# the session folder and every project's archive -- a deleted chat would take
+# its days with it. One file for all chats keeps the history when a chat is
+# archived, moved or deleted, and nothing ever rewrites it.
+#
+# JSON LINES (https://jsonlines.org/): appendable, read with `json.loads` alone,
+# and a damaged last line costs one record rather than the file.
+USAGE_FILE = os.path.join(crow_platform.state_dir(), "usage.jsonl")
+# A TURN AT 01:30 BELONGS TO THE DAY BEFORE. The grid answers "what did I do on
+# that day", and a session that runs past midnight is still that evening's work.
+USAGE_DAY_START_HOUR = 4
+# 53 WEEKS, Monday on top, the last column the week of today: a full year
+# always fits, wherever in its week today falls.
+_USAGE_GRID_DAYS = 53 * 7
+_USAGE_LOCK = threading.Lock()
+
+
+def usage_day(now: datetime | None = None) -> date:
+    """The ledger day of a moment: its local date, USAGE_DAY_START_HOUR late.
+
+    A NAIVE MOMENT IS ALREADY LOCAL TIME; an aware one is turned into it first,
+    so the day follows the clock on this machine's wall and never UTC's.
+    """
+    if now is None:
+        now = datetime.now()
+    elif now.tzinfo is not None:
+        now = now.astimezone()
+    return (now - timedelta(hours=USAGE_DAY_START_HOUR)).date()
+
+
+def _usage_count(value) -> int:
+    """A token count as the ledger keeps it: a non-negative int, else 0."""
+    return value if type(value) is int and value >= 0 else 0
+
+
+def usage_append(record: dict, model: str, *, path: str | None = None,
+                 now: datetime | None = None) -> bool:
+    """One finished turn into the ledger. NEVER RAISES; False when it could not write.
+
+    THE TURN HAS ALREADY HAPPENED when this runs, so a full disk or a
+    read-only state folder may cost the line, never the turn -- the same rule
+    as `log_note`. The line is the turn's bill as `clean_timings` keeps it,
+    plus what the bill lacks: when (`ts`, local with its offset, and the
+    ledger `day`), on what (`model`) and the two counts the dashboard adds up.
+
+    `output` IS `decoded` UNDER THE DASHBOARD'S NAME, and `input` is
+    `TurnCost.input`: every round's prompt, new and cached. A turn of six tool
+    rounds read its context six times, and that is what it consumed.
+    """
+    try:
+        if not isinstance(record, dict):
+            return False
+        stamp = (now or datetime.now()).astimezone()
+        line = {"v": 1, "ts": stamp.isoformat(timespec="seconds"),
+                "day": usage_day(stamp).isoformat(),
+                "model": str(model or "").strip() or "unknown",
+                "input": _usage_count(record.get("input")),
+                "output": _usage_count(record.get("decoded"))}
+        for kept in clean_timings([record]):
+            for key, value in kept.items():
+                line.setdefault(key, value)
+        data = (json.dumps(line, separators=(",", ":")) + "\n").encode("utf-8")
+        target = path or USAGE_FILE
+        with _USAGE_LOCK:
+            folder = os.path.dirname(target)
+            if folder:
+                os.makedirs(folder, exist_ok=True)
+            with open(target, "a+b") as fh:
+                # A LINE A CRASH CUT SHORT stays one damaged line: without the
+                # newline put back, this record would be glued onto it and the
+                # reader would lose both.
+                fh.seek(0, os.SEEK_END)
+                if fh.tell():
+                    fh.seek(-1, os.SEEK_END)
+                    if fh.read(1) != b"\n":
+                        data = b"\n" + data
+                fh.write(data)
+        return True
+    except Exception:                       # noqa: BLE001 - see docstring
+        return False
+
+
+def usage_summary(*, today: date | None = None, path: str | None = None) -> dict:
+    """Everything the dashboard draws, from the ledger, in one linear read.
+
+    A DAY'S TOKENS ARE input + output of its lines. Damaged or foreign lines
+    (not JSON, not a dict, another `v`, no valid day, counts that are not
+    non-negative ints, no model) are skipped, and a missing file is the
+    all-zero shape: the window draws an empty grid, never an error.
+
+    THE SHADES ARE THIS LEDGER'S OWN QUARTILES of the non-zero days in the grid
+    (today and before), so a light user and a heavy one both get four shades
+    that mean something to them. A fixed scale would paint one of them flat.
+    """
+    if today is None:
+        today = usage_day()
+    by_text: dict = {}       # "YYYY-MM-DD" -> tokens, every valid line
+    by_model: dict = {}      # (model, "YYYY-MM-DD") -> tokens
+    try:
+        with open(path or USAGE_FILE, encoding="utf-8", errors="replace") as fh:
+            for raw in fh:
+                try:
+                    row = json.loads(raw)
+                except ValueError:
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                v, day, model = row.get("v"), row.get("day"), row.get("model")
+                inp, out = row.get("input"), row.get("output")
+                if (type(v) is not int or v != 1 or type(day) is not str
+                        or len(day) != 10 or type(model) is not str or not model
+                        or type(inp) is not int or type(out) is not int
+                        or inp < 0 or out < 0):
+                    continue
+                tokens = inp + out
+                by_text[day] = by_text.get(day, 0) + tokens
+                key = (model, day)
+                by_model[key] = by_model.get(key, 0) + tokens
+    except OSError:
+        pass
+    # EACH DAY PARSED ONCE, not once per line: a year of turns has a few
+    # hundred distinct days and tens of thousands of lines.
+    days_of: dict = {}
+    totals: dict = {}
+    for text, tokens in by_text.items():
+        try:
+            when = date.fromisoformat(text)
+        except ValueError:
+            continue
+        days_of[text] = when
+        totals[when] = tokens
+    one = timedelta(days=1)
+    year_from = today - timedelta(days=364)
+    month_from = today - timedelta(days=29)
+
+    end = today + timedelta(days=6 - today.weekday())
+    start = end - timedelta(days=_USAGE_GRID_DAYS - 1)
+    grid = [start + timedelta(days=i) for i in range(_USAGE_GRID_DAYS)]
+    shaded = sorted(t for t in (totals.get(d, 0) for d in grid if d <= today) if t > 0)
+    q1 = q2 = q3 = 0
+    if shaded:
+        n = len(shaded)
+        q1, q2, q3 = (shaded[int(p * n)] for p in (0.25, 0.5, 0.75))
+
+    def level(tokens: int) -> int:
+        if tokens <= 0:
+            return 0
+        return 1 if tokens <= q1 else 2 if tokens <= q2 else 3 if tokens <= q3 else 4
+
+    days = []
+    for d in grid:
+        future = d > today
+        tokens = 0 if future else totals.get(d, 0)
+        days.append({"day": d.isoformat(), "tokens": tokens,
+                     "level": level(tokens), "future": future})
+
+    year_tokens = month_tokens = active_days = 0
+    for d, tokens in totals.items():
+        if year_from <= d <= today:
+            year_tokens += tokens
+            if tokens > 0:
+                active_days += 1
+            if d >= month_from:
+                month_tokens += tokens
+    # TODAY STILL EMPTY DOES NOT BREAK THE STREAK: in the morning it counts
+    # from yesterday, and only a day that ends with nothing ends it.
+    cursor = today if totals.get(today, 0) > 0 else today - one
+    streak = 0
+    while totals.get(cursor, 0) > 0:
+        streak += 1
+        cursor -= one
+    longest = run = 0
+    last = None
+    for d in sorted(d for d, tokens in totals.items() if tokens > 0):
+        run = run + 1 if last is not None and d - last == one else 1
+        longest = max(longest, run)
+        last = d
+
+    per: dict = {}
+    for (model, text), tokens in by_model.items():
+        d = days_of.get(text)
+        if d is None or tokens <= 0 or not month_from <= d <= today:
+            continue
+        held = per.setdefault(model, [0, 0])
+        held[0] += tokens
+        held[1] += 1
+    models = [{"model": model, "days": held[1], "tokens": held[0],
+               "share": held[0] / month_tokens if month_tokens else 0.0}
+              for model, held in sorted(per.items(), key=lambda kv: (-kv[1][0], kv[0]))]
+    return {"today": today.isoformat(), "days": days,
+            "year_tokens": year_tokens, "month_tokens": month_tokens,
+            "streak": streak, "longest": longest, "active_days": active_days,
+            "models": models,
+            "first": min(totals).isoformat() if totals else None}
+
 # #121. THE PINNED MEMORY HEAD, and it is the same kind of fact as the two
 # above: something about THIS CHAT rather than about this run. Absent means
 # "never pinned" -- every chat file on disk today is in that state, and it must
@@ -3520,7 +3718,7 @@ def clean_timings(timings: "list | None") -> list:
     einmal, und die ist genau das, was sich nicht auswerten laesst.
     """
     fields = ("rounds", "decoded", "prefilled", "tool_calls", "tool_errors",
-              "tool_declined", "cached", "cached_of", "at")
+              "tool_declined", "cached", "cached_of", "at", "input")
     reals = ("decode_s", "prefill_s", "model_s", "tool_s", "waited_s",
              "decode_rate", "prefill_rate")
     out = []
@@ -7753,6 +7951,10 @@ class TurnCost:
         # stands now, and adding those up would produce a number that means nothing.
         self.cached: int | None = None
         self.cached_of: int | None = None
+        # #406: EVERY ROUND'S WHOLE PROMPT, SUMMED -- read new plus served from the cache. Unlike
+        # `cached` this does add up: each round is a request the model read in full, and the
+        # usage ledger counts what a turn consumed, not what the prefix holds now.
+        self.input = 0
         self.finish: str | None = None
         # #217: THE SEED OF EVERY ROUND, in the order they ran -- a discarded
         # degenerate round included, because it is the one a replay wants.
@@ -7788,6 +7990,9 @@ class TurnCost:
                 setattr(self, attr, getattr(self, attr) + float(n) / float(rate))
         cached = timings.get("_cached_tokens")
         prompt_n = timings.get("prompt_n")
+        # Claude Code's rounds arrive in the same two fields (`ClaudeStream._close`): input plus
+        # cache creation as `prompt_n`, cache reads as `_cached_tokens`.
+        self.input += int(prompt_n or 0) + int(cached or 0)
         if cached is not None and prompt_n is not None:
             self.cached, self.cached_of = int(cached), int(cached) + int(prompt_n)
         self.finish = timings.get("_finish_reason")
@@ -7845,6 +8050,7 @@ class TurnCost:
         """
         out = {"rounds": self.rounds,
                "decoded": self.decoded, "prefilled": self.prefilled,
+               "input": self.input,
                "decode_s": round(self.decode_s, 3),
                "prefill_s": round(self.prefill_s, 3),
                # DER UNTERSCHIED IST DER PUNKT (siehe oben): `model_s` zaehlt,

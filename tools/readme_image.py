@@ -94,6 +94,7 @@ FEATURES = [
  ("Secrets", "a file with an ACL, not an inherited env variable", "gold"),
  ("Updates", "Crow and the crow-nest engine, from Settings → About", "sub"),
  ("Operating points", "Flash-Next, 27B, GLM-5.3-Flash, Image and Media Stack", "ok"),
+ ("Dashboard", "tokens per day and per model, counted locally", "gold"),
 ]
 
 MODES = [("manual", C["text"], "asks before writing|and before executing"),

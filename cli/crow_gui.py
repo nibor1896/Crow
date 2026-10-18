@@ -668,6 +668,18 @@ def browser_open() -> bool:
     return read_settings().get("browser_open") is True
 
 
+def dashboard_daily() -> bool:
+    """#406. Does the first start of each day open on the usage dashboard? True
+    for anything but an explicit false.
+
+    THE DEFAULT IS ON, because the owner asked for the dashboard as the main view
+    of the day's first start; the switch on its settings page is the way out.
+    Read at start (`Api._dashboard_day`) and stamped onto that switch, the two
+    readers `set_dashboard_daily` writes for.
+    """
+    return read_settings().get("dashboard_daily") is not False
+
+
 def open_projects() -> dict:
     """Which project rows are unfolded, by path. Absent means unfolded.
 
@@ -1153,6 +1165,13 @@ PAGE = r"""<!doctype html>
   --ok-soft:rgba(78,201,143,.13); --warn-soft:rgba(227,179,65,.12);
   --on-accent:__BG__;
   --ok:#4ec98f; --warn:#e3b341; --bad:#f0655a;
+  /* #406. THE DASHBOARD'S FIVE SHADES, empty to most, from the approved mockup
+     (vault Crow/02_docs/mockup-crow-dashboard-2026-10-18): blue from the accent's
+     family, so a day's amount reads without a second hue. --h0-sheet is the
+     empty cell on the settings sheet, whose panel is lighter than the chat's
+     ground and would swallow --h0. */
+  --h0:#232326; --h1:#1d3a63; --h2:#255da3; --h3:#3f86e0; --h4:#8cbcff;
+  --h0-sheet:#28282c;
   /* #296: SKIPPED IS NOT RUNNING. Both were --warn and the owner read one as the
      other (2026-09-25); skipped gets its own hue, plus shape and a label. */
   --skip:#b392f0;
@@ -1180,11 +1199,11 @@ PAGE = r"""<!doctype html>
      mockup sets it. */
   --ui:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
   --mono:"Google Sans Code",ui-monospace,"Cascadia Mono",Consolas,monospace;
-  /* The height of the title bar and of the heads beside it (rail, code, browser), ONCE: 46 px
-     since #382, the mockup's. Matching them by arithmetic works until a font changes; matching
+  /* The height of the title bar and of the heads beside it (rail, code, browser), ONCE: 36 px
+     (46 from #382 until 2026-10-18, when the owner found the bar too bulky). Matching them by arithmetic works until a font changes; matching
      them against one number cannot drift. The heads take it as min-height, the bar as its
      height, and the settings sheet and the phone dialog start below it. */
-  --barh:46px;
+  --barh:36px;
   /* #382. THE COLUMNS' WIDTHS, READ BY THE TITLE BAR TOO. The bar has three
      zones over the three columns: rail, chat panel, side column. Each zone and
      its column read the SAME name, so the search sits on the panel's left edge.
@@ -1241,6 +1260,9 @@ PAGE = r"""<!doctype html>
   --ok-soft:rgba(18,133,90,.10); --warn-soft:rgba(138,100,0,.09);
   --on-accent:#ffffff;
   --ok:#12855a; --warn:#8a6400; --bad:#c0362b;
+  /* #406: on white the scale runs the other way, light to dark. */
+  --h0:#eef0f3; --h1:#c4daf6; --h2:#85b2ec; --h3:#3d82d9; --h4:#1f5bb0;
+  --h0-sheet:#eef0f3;
   --skip:#6f42c1;
   --gold:#8a6400; --bad-text:#8c241b;
   /* #143. The delegation channel, darkened the way every accent is here:
@@ -1273,6 +1295,9 @@ PAGE = r"""<!doctype html>
   --ok-soft:rgba(78,201,143,.13); --warn-soft:rgba(227,179,65,.12);
   --on-accent:__BG__;
   --ok:#4ec98f; --warn:#e3b341; --bad:#f0655a;
+  /* #406: the dashboard's shades on the brand ground. */
+  --h0:#141a2c; --h1:#1c3561; --h2:#2459a0; --h3:#3f86e0; --h4:#8cbcff;
+  --h0-sheet:#1a2138;
   /* #296: SKIPPED IS NOT RUNNING. Both were --warn and the owner read one as the
      other (2026-09-25); skipped gets its own hue, plus shape and a label. */
   --skip:#b392f0;
@@ -1378,7 +1403,7 @@ body[data-code="shut"] #barr{width:auto;gap:6px}
    TWO NAMES, because only `crow` splits the O off. Setting both to the same
    value in the other two is what makes them one solid word there rather than
    a word with a hole in it. #382: the mockup's size and spacing. */
-#mark{font-weight:700;letter-spacing:.24em;font-size:12px;color:var(--mark);
+#mark{font-weight:700;letter-spacing:.24em;font-size:11px;color:var(--mark);
   padding:0 8px 0 4px;white-space:nowrap;pointer-events:none}
 #mark span{color:var(--mark-o)}
 /* #382. THE MOCKUP'S SMALL PARTS, defined once for every surface that uses
@@ -1390,7 +1415,15 @@ body[data-code="shut"] #barr{width:auto;gap:6px}
 .ib:hover{background:var(--hover);color:var(--text)}
 .ib.on{color:var(--accent);background:var(--accent-soft)}
 .ib svg{width:16px;height:16px}
+/* THE TITLE BAR A SIZE SMALLER (the owner, 2026-10-18: "zu klobig"): 28 px
+   buttons with 14 px glyphs in the 36 px bar, and a toggle that is on says so
+   by its colour alone, no tile behind it. The phone keeps 32 (REMOTE_CSS). */
+#bar .ib{width:28px;height:28px}
+#bar .ib svg{width:14px;height:14px}
+#bar .ib.on{background:transparent}
+#bar .ib.on:hover{background:var(--hover)}
 .vsep{width:1px;height:20px;background:var(--line);flex:none}
+#bar .vsep{height:16px}
 .kbd{font-family:var(--mono);font-size:10.5px;color:var(--dim);
   border:1px solid var(--line);border-radius:5px;padding:0 5px;line-height:17px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);
@@ -1415,6 +1448,7 @@ body.closing::after{content:"saving the chat and the cache...";position:fixed;
 .search{display:flex;align-items:center;height:32px;border:1px solid var(--line-soft);
   border-radius:9px;background:var(--bg);color:var(--dim);overflow:hidden;
   transition:border-color .2s,color .2s}
+#bar .search{height:28px}
 .search:hover{border-color:var(--line);color:var(--text)}
 .search:focus-within{border-color:var(--accent);color:var(--text)}
 .s-ico{display:inline-flex;align-items:center;justify-content:center;width:30px;
@@ -1896,7 +1930,7 @@ body[data-git="shut"] #git{display:none}
    nothing else -- no accent bar beside it (#385, the mockup's `.ri.on`). */
 .sess{position:relative;display:flex;flex-direction:column;gap:1px;width:100%;
   text-align:left;border:0;background:transparent;font:inherit;
-  color:var(--text-soft);padding:7px 10px;border-radius:8px;cursor:pointer}
+  color:var(--text-soft);padding:5px 10px;border-radius:8px;cursor:pointer}
 .sess:hover{background:var(--hover)}
 .sess.on{background:var(--raised);color:var(--text)}
 
@@ -2307,7 +2341,7 @@ body[data-rail="shut"] #main{margin-left:calc(var(--railshut) - 1px)}
    #panels (5) so the folder menu that drops from it is not drawn under a
    card. */
 #chathead{position:relative;z-index:7;display:flex;align-items:center;gap:8px;
-  flex-wrap:wrap;flex:none;padding:10px 24px;border-bottom:1px solid var(--line-soft)}
+  flex-wrap:wrap;flex:none;padding:7px 24px;border-bottom:1px solid var(--line-soft)}
 #chathead h1{margin:0 6px 0 0;font-size:14px;font-weight:600;color:var(--text);
   min-width:0;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #chathead .sp{flex:1 1 auto}
@@ -2421,6 +2455,15 @@ details.rollcard pre.rtp{max-height:220px;overflow:auto;white-space:pre-wrap;
 #flow > .turn.crowturn + .turn{margin-top:12px}
 .tacts{display:flex;align-items:center;gap:4px;margin-top:6px}
 .tacts .ib{width:28px;height:28px}
+/* THE FOLDED STRIP'S LINE (the owner, 2026-10-18): small and faint beside the
+   copy button; a click unfolds the strip under the row and turns the chevron. */
+.tsum{min-width:0;border:0;background:transparent;padding:2px 6px;border-radius:6px;
+  font-size:11px;color:var(--dimmer);cursor:pointer;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.tsum:hover{color:var(--dim);background:var(--hover)}
+.tsum::after{content:"›";display:inline-block;margin-left:5px;transition:transform .15s}
+.tsum[aria-expanded="true"]::after{transform:rotate(90deg)}
+.cost.tele[hidden]{display:none}
 /* #131 / #383. THE TRACE STRIP. It still holds the finished ROUNDS, folded
    (`.tb`, opened by its head); above them one segment per tool call of the
    turn in call order, coloured by kind, and a legend. */
@@ -2430,9 +2473,10 @@ details.rollcard pre.rtp{max-height:220px;overflow:auto;white-space:pre-wrap;
 .trace:hover{border-color:var(--line)}
 .trace[hidden],.trace .segs[hidden],.trace .leg[hidden],.trace .tb[hidden],
 .subref[hidden]{display:none}
-.trh{display:flex;align-items:center;gap:8px;width:100%;padding:0;border:0;
+.trh{display:flex;align-items:baseline;gap:8px;width:100%;padding:0;border:0;
   background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
-.trh svg{width:14px;height:14px;color:var(--dim);flex:none;transition:transform .12s ease}
+.trh svg{width:14px;height:14px;color:var(--dim);flex:none;align-self:center;
+  transition:transform .12s ease}
 .trh[aria-expanded="true"] svg{transform:rotate(90deg)}
 .trh .tl{font-weight:600;color:var(--text)}
 .trh .tn{font-size:11.5px;color:var(--dim)}
@@ -3120,7 +3164,7 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
    #233/#256-Kartenreserve). */
 #composer{position:absolute;bottom:0;z-index:6;
   left:var(--sbw);right:var(--sbw);
-  padding:26px var(--colpad) 20px;
+  padding:22px var(--colpad) 14px;
   background:linear-gradient(to bottom,transparent,var(--bg) 26px)}
 /* -- #385: the start screen ---------------------------------------------- */
 /* AN EMPTY CHAT IS ONE CENTRED GROUP (mockup Start.dc.html): the mark and the
@@ -3142,6 +3186,21 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
     gap:10px;box-shadow:0 14px 40px var(--shadow)}
   #main.empty #in{font-size:15px;min-height:4.5em}
   #main.empty #cont:not([hidden]){display:flex}
+  /* #406: THE FIRST START OF THE DAY (mockup Main.dc.html) is a page, not a
+     centred group: the greeting and the dashboard centred in the space above,
+     1000 px wide, the composer at the foot, 820 px. `#main.dash` is set by
+     `crow.emptyCheck` while #hello carries the dashboard. The flow takes the
+     spacers' room and centres its child itself; WIDTH 100% because an item
+     with auto side margins in a column shrinks to its content. "Continue" is
+     not in the mockup's view and stays away while it is up. */
+  #main.empty.dash{padding:36px 0 20px}
+  #main.empty.dash::before,#main.empty.dash::after{flex:0 0 0}
+  #main.empty.dash #flow{flex:1 0 auto;display:flex;flex-direction:column;
+    justify-content:center}
+  #main.empty.dash #hello{width:100%;max-width:calc(1000px + 2 * var(--colpad))}
+  #main.empty.dash #composer{padding-top:24px}
+  #main.empty.dash #box{max-width:820px}
+  #main.empty.dash #cont:not([hidden]){display:none}
 }
 #cont{display:none;flex:none;flex-direction:column;gap:10px;width:100%;
   max-width:calc(760px + 2 * var(--colpad));margin:32px auto 0;
@@ -3158,6 +3217,108 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
   text-overflow:ellipsis}
 .cont-s{font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}
+/* -- #406: the usage dashboard ------------------------------------------- */
+/* THE MOCKUP'S NUMBERS (vault Crow/02_docs/mockup-crow-dashboard-2026-10-18,
+   Main.dc.html; the owner approved it on 2026-10-18): 14 px cells 4 px apart,
+   the weekday column 30 px, so everything under the grid starts 37 px in (the
+   column, its gap and the scroller's 3 px). One builder draws it in the chat
+   and on the settings sheet; `.sm` is the sheet's smaller set below.
+   `#hello.dash` IS THE FIRST START OF THE DAY: the greeting moves to the left
+   with its date above it and the mark gives way, because the mockup's group
+   is a page to read, not a centred hello. #hello sets 19 px and letter
+   spacing for its line; the view resets both. */
+#hello.dash{align-items:stretch;text-align:left;gap:30px}
+#hello.dash .mk{display:none}
+#hello .dhead{display:flex;flex-direction:column;gap:4px}
+#hello .ddate{font-size:12.5px;line-height:1.5;color:var(--dim);letter-spacing:0}
+.dashv{display:flex;flex-direction:column;gap:30px;text-align:left;
+  font-size:13px;line-height:1.5;letter-spacing:normal;color:var(--dim)}
+.dashv .dact{display:flex;flex-direction:column;gap:12px}
+.dashv .dhd{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.dashv .dhd h2,.dashv .dhd h4{margin:0;font-size:14px;font-weight:600;
+  letter-spacing:normal;color:var(--text)}
+.dashv .dhd span{font-size:13px;color:var(--dim)}
+.dashv .dscroll{overflow-x:auto;padding:3px}
+.dashv .dmons{display:flex;gap:4px;margin-left:34px;height:18px}
+.dashv .mon{width:14px;flex:none;font-size:11px;color:var(--dim);
+  white-space:nowrap;overflow:visible}
+.dashv .dgrid{display:flex;gap:4px}
+.dashv .dwd,.dashv .dcol{display:flex;flex-direction:column;gap:4px}
+.dashv .dwd{flex:0 0 30px}
+.dashv .wdl{height:14px;font-size:10.5px;line-height:14px;color:var(--dim)}
+/* THE SHADE IS NEVER THE ONLY CARRIER (WCAG 2.2 SC 1.4.1): every cell has its
+   day and tokens as a title, and the hovered one is written out under the
+   grid. The ring marks that one; its inner ring is the ground it stands on. */
+.dashv .hm{display:block;width:14px;height:14px;border-radius:3.5px;background:var(--h0)}
+.dashv .hm.l1{background:var(--h1)}
+.dashv .hm.l2{background:var(--h2)}
+.dashv .hm.l3{background:var(--h3)}
+.dashv .hm.l4{background:var(--h4)}
+.dashv .hm.sel{box-shadow:0 0 0 1.5px var(--dash-ground,var(--bg)),0 0 0 3px var(--text-soft)}
+.dashv .dfoot{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  font-size:12px;color:var(--dim);padding-left:37px}
+.dashv .dtell{flex:1 1 260px;min-width:0}
+.dashv .dleg{display:inline-flex;align-items:center;gap:4px}
+.dashv .dleg .hm{width:11px;height:11px}
+.dashv .dfigs{display:flex;gap:56px;flex-wrap:wrap;padding-left:37px}
+.dashv .fig{display:flex;flex-direction:column;gap:2px;min-width:0}
+.dashv .fig b{font-size:26px;font-weight:600;letter-spacing:-.01em;color:var(--text);
+  line-height:1.2;font-variant-numeric:tabular-nums}
+.dashv .fig span{font-size:12.5px;color:var(--dim)}
+.dashv .dmodels{display:flex;flex-direction:column;gap:10px;padding-left:37px;
+  max-width:760px}
+.dashv .mrow{display:flex;align-items:center;gap:16px;padding:9px 0;
+  border-top:1px solid var(--line-soft);font-size:13px}
+.dashv .mrow.head{border-top:0;padding:0 0 6px;font-size:11.5px}
+.dashv .mrow.head span,.dashv .mrow.none{color:var(--dim)}
+/* NARROW, THE SHARE GIVES WAY AND THE NAME KEEPS 5em: on the phone's sheet
+   (358 px) the fixed 190 px share pushed the names to nothing and the
+   percentages past the edge. Where there is room nothing moves. */
+.dashv .mname{flex:1 1 auto;min-width:5em;color:var(--text);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.dashv .mnum{flex:0 0 64px;text-align:right;font-variant-numeric:tabular-nums;
+  color:var(--text-soft)}
+.dashv .mshare{flex:0 1 190px;min-width:0;display:flex;align-items:center;gap:10px;
+  color:var(--dim)}
+.dashv .track{flex:1 1 auto;height:6px;border-radius:3px;background:var(--raised);
+  overflow:hidden;display:flex}
+.dashv .bar{display:block;height:6px;border-radius:3px;background:var(--h3)}
+.dashv .pct{flex:0 0 34px;text-align:right;font-size:12px;color:var(--dim);
+  font-variant-numeric:tabular-nums}
+/* THE SHEET'S SET (mockup Settings.dc.html): 11 px cells 3 px apart, the
+   weekday column 27 px, so 33 px in. The empty shade and the ring's ground
+   are the panel's, through the two names, not a second set of rules. */
+.dashv.sm{gap:28px;--h0:var(--h0-sheet);--dash-ground:var(--panel)}
+.dashv.sm .dact{gap:10px}
+.dashv.sm .dhd h4{font-size:13px}
+.dashv.sm .dhd span{font-size:12.5px}
+.dashv.sm .dmons{gap:3px;margin-left:30px;height:16px}
+.dashv.sm .mon{width:11px;font-size:10.5px}
+.dashv.sm .dgrid,.dashv.sm .dwd,.dashv.sm .dcol{gap:3px}
+.dashv.sm .dwd{flex-basis:27px}
+.dashv.sm .wdl{height:11px;font-size:10px;line-height:11px}
+.dashv.sm .hm{width:11px;height:11px;border-radius:2.5px}
+.dashv.sm .dfoot{padding-left:33px}
+.dashv.sm .dtell{flex-basis:240px}
+.dashv.sm .dfigs{gap:48px;padding-left:33px}
+.dashv.sm .fig{gap:1px}
+.dashv.sm .fig b{font-size:22px;line-height:1.25;letter-spacing:normal}
+.dashv.sm .fig span{font-size:12px}
+.dashv.sm .dmodels{padding-left:33px;max-width:700px}
+.dashv.sm .mrow{padding:8px 0;font-size:12.5px}
+.dashv.sm .mrow.head{padding:0 0 6px;font-size:11px}
+.dashv.sm .mnum{flex-basis:60px}
+.dashv.sm .mshare{flex-basis:180px}
+.dashv.sm .pct{font-size:11.5px}
+#spane section[data-cat="dashboard"]:not([hidden]){display:flex;flex-direction:column;
+  gap:28px}
+#spane .dashhead{display:flex;flex-direction:column;gap:3px}
+#spane .dashhead h3{margin:0}
+#spane .dashhead span{font-size:12px;color:var(--dim)}
+#spane .dashopt{border-top:1px solid var(--line-soft);padding-top:18px}
+#spane .dashopt label{display:inline-flex;align-items:center;gap:9px;font-size:12.5px;
+  color:var(--text-soft);cursor:pointer}
+#spane .dashopt input{accent-color:var(--accent);width:15px;height:15px;margin:0}
 /* DAS BAND LIEGT UEBER DEM PLATZHALTER, NICHT UEBER DER ZEILE (the owner,
    2026-08-23). Eine eigene Zeile machte die Maske hoeher, sobald jemand zu
    sprechen anfaengt, und schoebe alles darunter -- dieselbe Bewegung, die der
@@ -3910,7 +4071,11 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
     </div>
     <div class="sbody">
       <nav id="scats">
-        <button class="on" data-cat="look" onclick="crow.settingsCat('look')">Appearance</button>
+        <!-- #406. THE DASHBOARD IS THE FIRST PAGE and the one a fresh sheet
+             opens on (mockup Settings.dc.html); after that the sheet reopens on
+             whichever page it was left on. -->
+        <button class="on" data-cat="dashboard" onclick="crow.settingsCat('dashboard')">Dashboard</button>
+        <button data-cat="look" onclick="crow.settingsCat('look')">Appearance</button>
         <button data-cat="skills" onclick="crow.settingsCat('skills')">Skills</button>
         <button data-cat="server" onclick="crow.settingsCat('server')">Server</button>
         <button data-cat="mcp" onclick="crow.settingsCat('mcp')">MCPs</button>
@@ -3921,7 +4086,20 @@ figure.gen .genact{margin-left:8px;padding:0;border:0;background:none;
         <button data-cat="about" onclick="crow.settingsCat('about')">About</button>
       </nav>
       <div id="spane">
-        <section data-cat="look">
+        <!-- #406. THE SAME VIEW AS THE FIRST START OF THE DAY, in the sheet's
+             smaller cells, drawn by `crow.drawDash` when the page opens; the
+             switch is stamped from `dashboard_daily()` before the page is
+             handed over. -->
+        <section data-cat="dashboard">
+          <div class="dashhead">
+            <h3>Dashboard</h3>
+            <span>Counted on this machine from every finished turn. Nothing leaves it.</span>
+          </div>
+          <div id="sdash"></div>
+          <div class="dashopt"><label><input type="checkbox" id="dashdaily" __DASHDAILY__
+                 onchange="crow.setDashDaily(this.checked)"><span>Show the dashboard on the first start of each day</span></label></div>
+        </section>
+        <section data-cat="look" hidden>
           <h3>Theme</h3>
           <div id="themes">
             <button data-theme="dark"  onclick="crow.setTheme('dark')">Dark</button>
@@ -4950,6 +5128,143 @@ const crow = {
     p.textContent=text; d.appendChild(p);
     flow.appendChild(d); },
 
+  // #406. THE USAGE DASHBOARD, one builder for the chat's first start of the
+  // day and the settings page (`sheet`, the smaller cells). Everything it
+  // shows comes from `usage_summary` (the core's dict); the page only lays it
+  // out, as in the approved mockup and nothing more. Built node by node with
+  // textContent -- a model's name in the table is a string off the machine.
+  // TOKENS AS THE MOCKUP WRITES THEM: 1.23 B, 4.5 M, 12 k, and below a
+  // thousand the number itself.
+  fmtTok(n){ n=Number(n)||0;
+    if(n>=1e9) return (n/1e9).toFixed(2)+" B";
+    if(n>=1e6) return (n/1e6).toFixed(1)+" M";
+    if(n>=1e3) return (n/1e3).toFixed(0)+" k";
+    return String(n); },
+  // "Sun 18 Oct 2026" from "2026-10-18", read as a calendar date in UTC so no
+  // time zone can move it to the day before.
+  dashDay(iso){ const [y,m,d]=String(iso||"").split("-").map(Number);
+    if(!y || !m || !d) return "";
+    const wd=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][(new Date(Date.UTC(y,m-1,d)).getUTCDay()+6)%7];
+    const mon=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m-1];
+    return wd+" "+d+" "+mon+" "+y; },
+  dashTell(day){ const t=Number(day.tokens)||0;
+    return this.dashDay(day.day)+(t>0 ? " · "+this.fmtTok(t)+" tokens" : " · nothing ran"); },
+  dashEl(tag, cls, text){ const e=document.createElement(tag);
+    if(cls) e.className=cls;
+    if(text!==undefined) e.textContent=text;
+    return e; },
+  // The mockup's date line above the greeting: "Sunday, 18 October".
+  dashToday(){ const d=new Date();
+    return ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][d.getDay()]
+      +", "+d.getDate()+" "+["January","February","March","April","May","June","July",
+      "August","September","October","November","December"][d.getMonth()]; },
+  dashView(u, sheet){ const el=(t,c,x)=>this.dashEl(t,c,x), head=sheet ? "h4" : "h2";
+    const v=el("div", sheet ? "dashv sm" : "dashv");
+    const days=Array.isArray(u.days) ? u.days : [], today=u.today||"";
+    // THE GRID: 53 weeks, a column each, Monday on top. A month is named over
+    // the week whose Monday is the first in it -- not over the last column,
+    // where the name would run out of the grid. A future day is not drawn.
+    const act=el("section","dact"); act.setAttribute("aria-label","Activity");
+    const hd=el("div","dhd");
+    hd.appendChild(el(head,"",this.fmtTok(u.year_tokens)+" tokens"));
+    hd.appendChild(el("span","","in the last 12 months"));
+    act.appendChild(hd);
+    const scroll=el("div","dscroll"), mons=el("div","dmons"), grid=el("div","dgrid");
+    const wd=el("div","dwd");
+    ["Mon","","Wed","","Fri","",""].forEach(t=>wd.appendChild(el("span","wdl",t)));
+    grid.appendChild(wd);
+    const tell=el("span","dtell");
+    let sel=null;
+    const pick=(cell, day)=>{ if(sel) sel.classList.remove("sel");
+      sel=cell; cell.classList.add("sel"); tell.textContent=this.dashTell(day); };
+    const weeks=Math.ceil(days.length/7);
+    let prev=-1;
+    for(let w=0; w<weeks; w++){
+      const m=Number(String(days[w*7].day||"").slice(5,7))-1;
+      mons.appendChild(el("span","mon", m!==prev && m>=0 && w<weeks-1
+        ? ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m] : ""));
+      prev=m;
+      const col=el("div","dcol");
+      for(let k=w*7; k<Math.min(w*7+7, days.length); k++){ const day=days[k];
+        if(day.future) continue;
+        const lv=Math.max(0, Math.min(4, Number(day.level)||0));
+        const c=el("span", lv ? "hm l"+lv : "hm");
+        c.title=this.dashTell(day);
+        c.onmouseenter=()=>pick(c, day);
+        col.appendChild(c);
+        if(day.day===today) pick(c, day); }
+      grid.appendChild(col); }
+    scroll.appendChild(mons); scroll.appendChild(grid); act.appendChild(scroll);
+    const foot=el("div","dfoot"), leg=el("span","dleg");
+    leg.setAttribute("aria-hidden","true");
+    leg.appendChild(el("span","","Less"));
+    [0,1,2,3,4].forEach(l=>leg.appendChild(el("span", l ? "hm l"+l : "hm")));
+    leg.appendChild(el("span","","More"));
+    foot.appendChild(tell); foot.appendChild(leg); act.appendChild(foot);
+    v.appendChild(act);
+    // THE THREE FIGURES, in the mockup's order.
+    const figs=el("div","dfigs"), streak=Number(u.streak)||0;
+    [[this.fmtTok(u.month_tokens), "tokens in the last 30 days"],
+     [streak+(streak===1 ? " day" : " days"), "streak, longest "+(Number(u.longest)||0)],
+     [String(Number(u.active_days)||0), "active days this year"]].forEach(([n, what])=>{
+      const f=el("div","fig"); f.appendChild(el("b","",n)); f.appendChild(el("span","",what));
+      figs.appendChild(f); });
+    v.appendChild(figs);
+    // THE MODELS of the last 30 days, largest first: days used, tokens, and
+    // the share as a bar AND a number.
+    const ms=el("section","dmodels"); ms.setAttribute("aria-label","Models");
+    const mh=el("div","dhd");
+    mh.appendChild(el(head,"","Models")); mh.appendChild(el("span","","last 30 days"));
+    ms.appendChild(mh);
+    const table=el("div","dtable"), top=el("div","mrow head");
+    [["mname","Model"],["mnum","Days"],["mnum","Tokens"],["mshare","Share of tokens"]]
+      .forEach(([c, t])=>top.appendChild(el("span",c,t)));
+    table.appendChild(top);
+    const rows=(Array.isArray(u.models) ? u.models : []).slice()
+      .sort((a, b)=>(Number(b.tokens)||0)-(Number(a.tokens)||0));
+    rows.forEach(r=>{ const row=el("div","mrow");
+      const name=el("span","mname",r.model||""); name.title=r.model||"";
+      row.appendChild(name);
+      row.appendChild(el("span","mnum",String(Number(r.days)||0)));
+      row.appendChild(el("span","mnum",this.fmtTok(r.tokens)));
+      const pct=Math.max(0, Math.min(1, Number(r.share)||0))*100;
+      const share=el("span","mshare"), track=el("span","track"), bar=el("span","bar");
+      bar.style.width=pct.toFixed(1)+"%";
+      track.appendChild(bar); share.appendChild(track);
+      share.appendChild(el("span","pct",Math.round(pct)+"%"));
+      row.appendChild(share); table.appendChild(row); });
+    if(!rows.length) table.appendChild(el("div","mrow none","nothing ran in the last 30 days"));
+    ms.appendChild(table); v.appendChild(ms);
+    return v; },
+  // THE FIRST START OF THE DAY: the dashboard INSIDE the greeting, under its
+  // line, so `turn()` -- which removes #hello with the first row -- removes it
+  // too, and `hello()` on a later new chat draws the greeting alone.
+  dash(u){ const g=$("#hello"); if(!g || !u) return;
+    const line=g.querySelector(".hellotext"), top=this.dashEl("div","dhead");
+    top.appendChild(this.dashEl("span","ddate",this.dashToday()));
+    if(line) top.appendChild(line);
+    g.appendChild(top);
+    const v=this.dashView(u, false);
+    g.appendChild(v);
+    g.classList.add("dash");
+    this.emptyCheck();
+    this.dashEnd(v); },
+  // TODAY IN VIEW. Where the grid is wider than its room -- the phone's
+  // sheet, a narrow window -- it scrolls, and it opens on its newest end
+  // rather than on a year ago. Once it is in the page: before, it has no width.
+  dashEnd(v){ const s=v.querySelector(".dscroll"); if(s) s.scrollLeft=s.scrollWidth; },
+  // ASKED EVERY TIME ITS PAGE OPENS: the ledger grows with every turn. A
+  // phone asks the desktop the same (`usage_summary` is proxied) and draws
+  // the same page.
+  drawDash(){ pywebview.api.usage_summary().then(u=>{ const box=$("#sdash");
+      if(!box) return;
+      box.textContent="";
+      if(!u) return;
+      const v=this.dashView(u, true);
+      box.appendChild(v);
+      this.dashEnd(v); }); },
+  setDashDaily(on){ pywebview.api.set_dashboard_daily(!!on); },
+
   user(text){
     this.endTrace();
     const t=this.turn(""); t.innerHTML=
@@ -5404,6 +5719,16 @@ const crow = {
     const md=b.querySelector(".smd"); if(md) md.title=String(it.model||"");
     b.title="Open "+it.i+" in the inspector";
     b.onclick=()=>{ if(this.inspectorShow) this.inspectorShow("subs", String(it.i)); }; },
+
+  // THE FOLDED STRIP'S ONE LINE (the owner, 2026-10-18), beside the copy
+  // button: the decode cell and the wait, taken from `teleCells` so nothing
+  // is formatted twice.
+  teleLine(st){
+    const cs=this.teleCells(st, null), out=[],
+      dec=cs.find(c=>c.label==="Decode"), wt=cs.find(c=>c.label==="Waited");
+    if(dec) out.push(dec.value+" "+dec.unit, dec.note);
+    if(wt) out.push(wt.value+wt.unit);
+    return out.filter(Boolean).join(" · "); },
 
   // THE TELEMETRY STRIP, drawn (again) from its own numbers: `stats` as the
   // push brought them, and the cards of its turn for the Delegated cell.
@@ -6161,24 +6486,37 @@ const crow = {
     // phone layer addresses it. A cut-off turn says so under the strip, in
     // the core's words. The line itself is drawn only where a push brought
     // no numbers (a chat remembered from before #382).
+    // FOLDED BY DEFAULT (the owner, 2026-10-18: a strip after every turn
+    // "flutet den Chat"): it waits hidden under the copy row, and the faint
+    // line beside the copy button (`teleLine`) unfolds it.
+    let tele=null;
     if(line && stats){ const d=document.createElement("div"); d.className="cost tele";
       d.setAttribute("role","group"); d.setAttribute("aria-label","Turn statistics");
       d.teleStats=stats; d.teleFrame=this.frameEl; this.teleDraw(d);
-      (this.col||flow).appendChild(d);
-      if(cut){ const w=document.createElement("div"); w.className="tcut";
-        w.textContent=cut; (this.col||flow).appendChild(w); } }
+      d.hidden=true; tele=d; }
     else if(line){ const d=document.createElement("div"); d.className="cost";
       d.textContent=line; (this.col||flow).appendChild(d); }
     // THE COPY BUTTON UNDER THE ANSWER (the owner, 2026-10-14), where a reader
     // looks for it -- live and replayed turns alike, since both end here.
-    const f=this.frameEl;
-    if(f && f.isConnected){ const a=document.createElement("div"); a.className="tacts";
-      const cp=document.createElement("button"); cp.type="button"; cp.className="ib thcopy";
-      cp.setAttribute("aria-label","Copy answer"); cp.title="Copy answer";
-      cp.innerHTML=this.turnIcon('<rect x="9" y="9" width="11" height="11" rx="2"></rect>'
-        +'<path d="M5 15V6a2 2 0 0 1 2-2h8"></path>');
-      cp.onclick=()=>this.turnCopy(f, cp);
-      a.appendChild(cp); (this.col||flow).appendChild(a); }
+    const f=this.frameEl, live=f && f.isConnected;
+    if(live || tele){ const a=document.createElement("div"); a.className="tacts";
+      if(live){ const cp=document.createElement("button"); cp.type="button";
+        cp.className="ib thcopy";
+        cp.setAttribute("aria-label","Copy answer"); cp.title="Copy answer";
+        cp.innerHTML=this.turnIcon('<rect x="9" y="9" width="11" height="11" rx="2"></rect>'
+          +'<path d="M5 15V6a2 2 0 0 1 2-2h8"></path>');
+        cp.onclick=()=>this.turnCopy(f, cp);
+        a.appendChild(cp); }
+      if(tele){ const t=document.createElement("button"); t.type="button";
+        t.className="tsum mono"; t.textContent=this.teleLine(stats);
+        t.title="Turn statistics"; t.setAttribute("aria-expanded","false");
+        t.onclick=()=>{ tele.hidden=!tele.hidden;
+          t.setAttribute("aria-expanded", String(!tele.hidden)); };
+        a.appendChild(t); }
+      (this.col||flow).appendChild(a); }
+    if(tele) (this.col||flow).appendChild(tele);
+    if(tele && cut){ const w=document.createElement("div"); w.className="tcut";
+      w.textContent=cut; (this.col||flow).appendChild(w); }
     this.bottom();
   },
 
@@ -6280,6 +6618,8 @@ const crow = {
     // Code twice, so it runs when its own page opens (`settingsCat`) -- or now,
     // if that page is the one the sheet reopens on.
     if(!$('#spane section[data-cat="subs"]').hidden) this.drawSubs(false);
+    // #406: the dashboard likewise, and it is the page a fresh sheet opens on.
+    if(!$('#spane section[data-cat="dashboard"]').hidden) this.drawDash();
     $("#settings").hidden=false;
   },
   // #124. ASKED FOR EVERY TIME THE SHEET OPENS, never cached in the page: the
@@ -7011,6 +7351,8 @@ const crow = {
     if(name==="about"){ this.updateCheck(); this.engineCheck(); }
     // #390: the same rule for Claude Code -- asked when its page opens.
     if(name==="subs") this.drawSubs(false);
+    // #406: and the dashboard, from the ledger as it is now.
+    if(name==="dashboard") this.drawDash();
   },
 
   updateCheck(){
@@ -8841,6 +9183,9 @@ const crow = {
   // both without either having to call it.
   emptyCheck(){ const m=$("#main"); if(!m) return;
     const now=!!flow.querySelector(":scope > #hello");
+    // #406: the first start of the day's layout, while #hello carries the
+    // dashboard -- set by `dash()`, gone with #hello on the first turn.
+    m.classList.toggle("dash", !!flow.querySelector(":scope > #hello.dash"));
     if(m.classList.contains("empty")===now) return;
     m.classList.toggle("empty", now);
     this.placeRoot(); this.railSubs(); this.contDraw(); fitFlow(); },
@@ -9714,6 +10059,8 @@ const crow = {
       case "clear": flow.innerHTML=""; this.gens={}; this.cost("",null);
         this.pendState([]); this.toolsReset(); this.endTrace(); break;
       case "hello": this.hello(e.t); break;
+      // #406: the first start of the day, under the greeting just drawn.
+      case "dash": this.dash(e.u); break;
       // #94. /thoughts in the terminal shows or hides the reasoning; here it is
       // always rendered and folded, so the same question is open-or-closed.
       // EVERY block, not just the ones on screen -- a fold that only reached
@@ -10350,6 +10697,10 @@ REMOTE_PROXIED = frozenset({
     "image_thumb", "image_full", "image_info",
     # #340: the player's source -- the bytes for a phone, like `image_full`.
     "video_src",
+    # #406: the sheet opens on its Dashboard page on the phone too, so the
+    # phone reads the desktop's ledger and flips the desktop's switch -- the
+    # one switch there is. Answered on the phone, that page stayed empty.
+    "usage_summary", "set_dashboard_daily",
 })
 # WAS DAS TELEFON STATTDESSEN TUT, je Schluessel ein Satz. Die Seite liest
 # die Schluessel (`__REMOTE_BOUND__`), dieser Text ist fuer Menschen.
@@ -10467,6 +10818,13 @@ REMOTE_CSS = """
    Fensterknoepfe, Zieh- und Greifzonen und der Telefonknopf selbst. */
 #wbtns,.grip,#remotetoggle{display:none !important}
 #bar{-webkit-app-region:no-drag}
+/* The phone keeps the title bar's 32 px buttons and their tile (the desktop
+   went to 28 px and flat on 2026-10-18). */
+#bar .ib{width:32px;height:32px}
+#bar .ib svg{width:16px;height:16px}
+#bar .ib.on{background:var(--accent-soft)}
+#bar .search{height:32px}
+#bar .vsep{height:20px}
 #remotepair{position:fixed;inset:0;z-index:50;display:grid;place-items:center;
   background:var(--bg);color:var(--text);padding:24px;text-align:center}
 #remotepair[hidden]{display:none}
@@ -11469,6 +11827,9 @@ def stamped_page(remote: bool = False) -> str:
                 # steht auf dem Element, bevor die Seite uebergeben wird.
                 .replace("__GIT__", "open" if git_open() else "shut")
                 .replace("__BROWSER__", "open" if browser_open() else "shut")
+                # #406: the daily switch on the Dashboard page, checked or not
+                # before the page is handed over, like the panels above.
+                .replace("__DASHDAILY__", "checked" if dashboard_daily() else "")
                 .replace("__CODEW__", str(code_width_setting()))
                 .replace("__MARKDARK__", mark_svg("dark"))
                 # WHO MOVES THE WINDOW, stamped on the page for the reason the
@@ -13664,6 +14025,10 @@ class Api:
         # eigenen Faden, weil `git status` auf einer kalten Platte dauert und
         # der erste Blick auf das Fenster nicht darauf warten darf.
         self.git_refresh()
+        # #406: THIS PROBE IS THE WINDOW'S START, and only it may open the day
+        # on the dashboard. Armed here, consumed in `_probe`: a reload's probe,
+        # a model switch's and a case that calls `_probe` alone are not starts.
+        self._dash_start = True
         threading.Thread(target=self._probe, daemon=True).start()
 
     # #391. THE DOT FOLLOWS THE LOCAL SERVER WITHOUT A LINE BEING SENT. Before
@@ -14211,6 +14576,8 @@ class Api:
 
     ARCHIVE_PREFIX = "chat-"
     ROLLOVER_PREFIX = "rollover-"
+    # #406: set by `ready()` for the one probe that is the window's start.
+    _dash_start = False
 
     @staticmethod
     def _same(one: "str | None", other: "str | None") -> bool:
@@ -14572,6 +14939,9 @@ class Api:
             return
         if redraw or not self._args.session:
             return
+        # #406: THE START'S ONE CHANCE AT THE DAY'S DASHBOARD, taken here and
+        # not again -- whatever this probe goes on to restore.
+        start, self._dash_start = self._dash_start, False
         # #209: ONLY A FRESH CONVERSATION TAKES A SAVED ONE, and the question
         # is asked twice. Here, BEFORE `load_session`, because that call POSTs
         # the saved KV into /slots/0 -- under a chat that is already running.
@@ -14616,6 +14986,10 @@ class Api:
             # which is why the greeting is its own message and not a field.
             self._pin_memory(SESSION_FILE)
             self._hello()
+            # #406: the first start of the day, under the greeting just drawn.
+            day = self._dashboard_day() if start else ""
+            if day:
+                self._dashboard_show(day)
             # #325: an empty or broken session.json is said, not opened silently.
             unreadable = crow_core.set_aside_unreadable_session(SESSION_FILE)
             if unreadable:
@@ -14634,10 +15008,16 @@ class Api:
         # #390: the Claude Code session comes back with the chat it belongs to.
         self._conversation.claude_session = crow_core.session_claude()
         self._context_tokens, self._promised_warm = tokens, kv
-        # An empty restored chat is still an empty chat; `turn()` takes the line
-        # back off the moment `_replay` puts a row in.
-        self._hello()
-        self._replay(messages, self._notes)
+        # #406: ON THE FIRST START OF THE DAY THE RESTORED CHAT IS NOT DRAWN.
+        # It is restored in full -- boundary, pin, counter -- so `_dashboard_over`
+        # below can put it aside like "New chat" does; drawing it first would
+        # flash yesterday's chat before the empty one replaces it.
+        day = self._dashboard_day() if start else ""
+        if not day:
+            # An empty restored chat is still an empty chat; `turn()` takes the
+            # line back off the moment `_replay` puts a row in.
+            self._hello()
+            self._replay(messages, self._notes)
         self._reload_rail()
         # #101: THE RESTORED CHAT BRINGS ITS OWN BOUNDARY, and this is the second
         # of the two bindings a launch does. `ready()` has already bound the
@@ -14660,6 +15040,74 @@ class Api:
             self._head_follows_stated_root()
         self.push({"k": "up", "model": None, "n_ctx": self._n_ctx,
                    "tokens": self._context_tokens})
+        if day:
+            self._dashboard_over(day, messages)
+
+    # ---- #406: the usage dashboard
+
+    def usage_summary(self) -> "dict | None":
+        """#406. Everything the dashboard draws, from the core's ledger, for the
+        page: the start pushes it under the greeting, the settings page asks.
+
+        None WHEN THE LEDGER COULD NOT BE READ, and the page then draws nothing.
+        A dashboard is never worth a start that dies on its probe thread, nor a
+        settings sheet whose promise never settles."""
+        try:
+            return crow_core.usage_summary()
+        except Exception:                  # noqa: BLE001 - None is the page's answer
+            return None
+
+    def set_dashboard_daily(self, on: bool) -> bool:
+        """#406. The switch on the Dashboard page. True when it reached the disk.
+
+        WRITTEN HERE AND READ AT START, the rule `set_theme` states: the reader is
+        `dashboard_daily`, which decides the first start (`_dashboard_day`) and
+        stamps this switch onto the page before it is handed over."""
+        doc = read_settings()
+        doc["dashboard_daily"] = bool(on)
+        return write_settings(doc)
+
+    def _dashboard_day(self) -> str:
+        """#406. The usage day the dashboard is owed for at this start, "" when
+        it is not: switched off, or already shown on this day.
+
+        THE CORE'S DAY, NOT THE CALENDAR'S. A day starts at 04:00 there, so a
+        start at 01:30 is still the evening before and does not open on a second
+        dashboard -- the same day the ledger files that hour's turns under."""
+        if not dashboard_daily():
+            return ""
+        day = crow_core.usage_day().isoformat()
+        return "" if read_settings().get("dashboard_seen") == day else day
+
+    def _dashboard_show(self, day: str) -> bool:
+        """#406. The dashboard under the greeting just drawn, and the day noted.
+
+        THE WINDOW'S ALONE: pushed to the desktop and to no phone, which keeps
+        the mirror (#387) as it was. Noted only once it was sent, so a ledger
+        that could not be read leaves the day still owed."""
+        summary = self.usage_summary()
+        if not summary:
+            return False
+        self.push({"k": "dash", "u": summary}, to=(DESKTOP,))
+        doc = read_settings()
+        doc["dashboard_seen"] = day
+        write_settings(doc)
+        return True
+
+    def _dashboard_over(self, day: str, messages: list) -> None:
+        """#406. The first start of the day found a chat with turns: it is put
+        aside the way "New chat" puts it aside -- into its file, so it stays in
+        the rail -- and the window comes up on an empty chat with the dashboard.
+
+        `reset` CHANGES NOTHING WHEN THE CHAT COULD NOT BE WRITTEN, and says so.
+        Then the chat is drawn as any other start draws it, and the day stays
+        owed: a dashboard is never worth a chat that is on no disk."""
+        self.reset()
+        if self._conversation.fresh:
+            self._dashboard_show(day)
+            return
+        self._hello()
+        self._replay(messages, self._notes)
 
     def _head_follows_stated_root(self) -> None:
         """#303: the restored head must name the root typed for this window.
@@ -20118,6 +20566,12 @@ class Api:
             # wie die Zeile und nicht an einer zweiten.
             self._timings.append(dict(record, at=len(self._conversation)))
             del self._timings[:-crow_core.SESSION_TIMINGS_MAX]
+            # #406. AND THE SAME BALANCE INTO THE USAGE LEDGER, with the model
+            # that served it. Here because this is the one close every turn
+            # shares -- local, OpenRouter and the Claude subscription (#390) --
+            # and the chat file cannot carry it: it keeps no date per turn, at
+            # most 2000 turns, and a deleted chat takes its days with it.
+            crow_core.usage_append(record, model=self._model)
         self.push({"k": "cost", "line": "[" + line + "]" if line else "",
                    "share": events.share, "tokens": self._context_tokens,
                    "n_ctx": self._n_ctx,

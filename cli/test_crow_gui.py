@@ -141,6 +141,12 @@ crow_core.LOG_FILE = os.path.join(_SANDBOX, "log", "crow.log")
 crow_gui.PASTE_DIR = os.path.join(_NOWHERE, "pastes")
 crow_gui.SESSION_FILE = os.path.join(_NOWHERE, "session", "session.json")
 crow_gui.SETTINGS_FILE = os.path.join(_SANDBOX, "has-no-settings", "settings.json")
+# #406: THE USAGE LEDGER. Every case that ends a turn with a balance hands it to
+# `crow_core.usage_append`, which reads this name at call time, and the real
+# ledger is what the owner's dashboard counts -- a suite run must not add a day
+# of made-up turns to it. A parent that does not exist, like the ones above, and
+# its OWN parent: a writer that creates it must not create `_NOWHERE` with it.
+crow_core.USAGE_FILE = os.path.join(_SANDBOX, "has-no-usage", "usage.jsonl")
 
 
 # #249: KEIN FALL OEFFNET JE EINEN ECHTEN PORT. Der Standard-Doppelgaenger
@@ -241,17 +247,28 @@ class ApiCase(unittest.TestCase):
         self.session = os.path.join(self.dir, "session.json")
         self._before = (crow_core._post_stream, crow_core.SESSION_FILE,
                         crow_core.SESSION_DIR, crow_gui.SESSION_FILE,
-                        crow_gui.time)
+                        crow_gui.time, crow_gui.SETTINGS_FILE)
         self.addCleanup(self._restore)
         crow_core.SESSION_DIR = self.dir
         crow_core.SESSION_FILE = self.session
         crow_gui.SESSION_FILE = self.session
+        # #406: SETTINGS PER CASE, ABSENT AT THE START. A start now writes
+        # `dashboard_seen`, and in the one sandbox file every case shares, the
+        # first case to start would decide whether the next one sees the first
+        # start of the day -- an order no case controls.
+        crow_gui.SETTINGS_FILE = os.path.join(self.dir, "settings.json")
         crow_core.INTERRUPT.clear()
 
     def _restore(self) -> None:
         (crow_core._post_stream, crow_core.SESSION_FILE, crow_core.SESSION_DIR,
-         crow_gui.SESSION_FILE, crow_gui.time) = self._before
+         crow_gui.SESSION_FILE, crow_gui.time, crow_gui.SETTINGS_FILE) = self._before
         crow_core.INTERRUPT.clear()
+
+    def not_the_first_start_of_the_day(self) -> None:
+        """#406: a start that restores the last chat, as every start did before.
+        The first start of a day opens on the dashboard instead, so a case about
+        the restore says it is not that start -- the dashboard is switched off."""
+        crow_gui.write_settings({"dashboard_daily": False})
 
     def api(self, *argv: str, klass=None, session: bool = True):
         """The object the page talks to. No window, because the page is not here.
@@ -5281,8 +5298,9 @@ class TheRibbonAndTheChatRunIntoOneTests(unittest.TestCase):
         # still exact, so a tenth button with a nine-name list is still red.
         # WIDENED BY ONE (2026-08-28, robins Ansage): the broker moved out of
         # the Model page onto its own -- `openrouter` is a category now.
-        self.assertEqual(buttons, {"look", "skills", "server", "mcp", "model",
-                                   "openrouter", "subs", "keys", "about"})
+        # WIDENED BY ONE (#406): the usage dashboard is a page of its own.
+        self.assertEqual(buttons, {"dashboard", "look", "skills", "server", "mcp",
+                                   "model", "openrouter", "subs", "keys", "about"})
         self.assertIn("b.dataset.cat===name", self.source)
         self.assertNotIn('["look","skills"', self.source,
                          "the positional list is back")
@@ -6666,6 +6684,7 @@ class _TurnPage(unittest.TestCase):
             ("  traceLegend(calls){", "  // THE SUBTASK'S CARD"),
             ("  refBind(heads, items, taken){", "  // THE CARD'S LINE, pure"),
             ("  refParts(it, task){", "  // DRAWN AGAIN ON EVERY PUSH"),
+            ("  teleLine(st){", "  // THE TELEMETRY STRIP, drawn (again)"),
             ("  teleCells(st, del){", "  // THE COPY BUTTON"))
 
     @classmethod
@@ -6700,6 +6719,21 @@ class _TurnPage(unittest.TestCase):
 class TheTelemetryStripTests(_TurnPage):
     """#383: the bracket line under an answer becomes labelled cells that
     wrap, drawn from `stats` (#382) -- never parsed out of the line."""
+
+    def test_the_strip_is_folded_behind_one_line(self):
+        """The owner, 2026-10-18: a strip after every turn floods the chat.
+        It starts hidden; one faint line beside the copy button, cut from
+        the same cells, unfolds it."""
+        stats = [m for m in self.goal_run() if m["k"] == "cost"][0]["stats"]
+        cells = self.run_js("o.teleCells(%s, null)" % json.dumps(stats))
+        waited = [c["value"] + c["unit"] for c in cells if c["label"] == "Waited"][0]
+        self.assertEqual(self.run_js("o.teleLine(%s)" % json.dumps(stats)),
+                         "35.85 tok/s · 1,399 tok · " + waited)
+        cost = self._js("  cost(line,share,stats,cut){", "  fail(msg){")
+        self.assertIn("d.hidden=true; tele=d;", cost)
+        self.assertIn('t.setAttribute("aria-expanded","false")', cost)
+        self.assertIn("tele.hidden=!tele.hidden;", cost)
+        self.assertIn("display:none", self._rule(".cost.tele[hidden]{"))
 
     def test_the_cells_are_the_goal_runs_numbers(self):
         """The ticket's Expected result, from the fixture's own `stats`."""
@@ -7185,6 +7219,17 @@ class TheTraceFoldsFinishedRoundsTests(unittest.TestCase):
         self.assertIn('<button class="trh" type="button" aria-expanded="false"', frame)
         self.assertIn('<div class="tb" id="\'+id+\'" hidden></div>', frame)
         self.assertIn('head.setAttribute("aria-expanded", String(!tb.hidden))', frame)
+
+    def test_the_label_and_the_count_share_one_baseline(self):
+        """The owner, 2026-10-18: "Trace" and "31 tool calls · 33 rounds" sat
+        at different heights. The count is 11.5 px mono beside the label, so
+        centring the two boxes leaves their text offset; they share the
+        baseline and only the caret is centred."""
+        CLOSE = chr(125)
+        head = self.css[self.css.index(".trh{"):]
+        self.assertIn("align-items:baseline", head[:head.index(CLOSE)])
+        caret = self.css[self.css.index(".trh svg{"):]
+        self.assertIn("align-self:center", caret[:caret.index(CLOSE)])
 
 
 class ADismissedToolRowStaysDismissedTests(ApiCase):
@@ -10448,12 +10493,12 @@ class NothingOverhangsOrClipsTests(unittest.TestCase):
                                    r"\{visibility:hidden\}\}")
 
     def test_the_settings_sheet_starts_below_the_title_bar(self):
-        # #382 CHANGES THE FORM: the bar is 46 px, and both numbers are now the
-        # one name --barh, so they cannot drift apart again.
+        # #382 CHANGES THE FORM: one name --barh for both numbers, so they cannot
+        # drift apart again; 36 px since 2026-10-18 (46 before, too bulky).
         self.assertIn("height:var(--barh)", self._rule("#bar{"))
         self.assertIn("padding-top:var(--barh)", self._rule("#settings{position:fixed"))
         self.assertIn("padding-top:var(--barh)", self._rule("#remotedlg{position:fixed"))
-        self.assertEqual(self._px(self._rule(":root{"), "--barh"), 46)
+        self.assertEqual(self._px(self._rule(":root{"), "--barh"), 36)
 
     def test_the_level_keeps_the_space_before_its_dot(self):
         """`.lvl` ist ein Flex-Item, sein fuehrendes Leerzeichen stuende am
@@ -15484,6 +15529,7 @@ class ARestoreNeverMeetsARunningChatTests(ApiCase):
 
     def test_a_reloaded_page_is_redrawn_not_restored_twice(self):
         self._saved_chat()
+        self.not_the_first_start_of_the_day()          # #406
         api = self.api()
         api._mic_probe = lambda: None
         api.git_refresh = lambda: None
@@ -15557,6 +15603,7 @@ class AStatedRootWinsOverTheRestoredChatTests(ApiCase):
         self.assertEqual("crow_root" in data, chosen)
 
     def _start(self, *argv):
+        self.not_the_first_start_of_the_day()          # #406
         api = self.api(*argv)
         api._mic_probe = lambda: None
         api.git_refresh = lambda: None
@@ -16078,7 +16125,7 @@ class RemoteApiParityTests(RemoteCase):
     to the desktop with a stated replacement -- and a call from one client
     produces the push the other one needs."""
 
-    PAGE_METHODS = 105         # 88 at fb31ca2 + the six pairing controls (#249 stage 5) + stage_image_data, drop_seen (#312) + the eight image_* (#311) + video_src, video_reveal (#340) + engine_check, engine_update_start (#367) + mono_font (#382) - the five sign-in doors + provider_subscriptions (#390)
+    PAGE_METHODS = 107         # 88 at fb31ca2 + the six pairing controls (#249 stage 5) + stage_image_data, drop_seen (#312) + the eight image_* (#311) + video_src, video_reveal (#340) + engine_check, engine_update_start (#367) + mono_font (#382) - the five sign-in doors + provider_subscriptions (#390) + usage_summary, set_dashboard_daily (#406, proxied)
 
     def page_methods(self) -> set:
         page = crow_gui.PAGE
@@ -16097,6 +16144,25 @@ class RemoteApiParityTests(RemoteCase):
                              sorted((crow_gui.REMOTE_PROXIED | bound) - called)))
         for name in called:
             self.assertTrue(callable(getattr(crow_gui.Api, name, None)), name)
+
+    def test_the_phone_draws_the_same_dashboard_page(self):
+        """#406. THE SHEET OPENS ON ITS DASHBOARD PAGE ON THE PHONE TOO, so the
+        phone asks the desktop for the same summary and flips the same switch.
+        Answered on the phone itself, the first page of its Settings was empty."""
+        summary = {"today": "2026-10-18", "days": [], "year_tokens": 1200,
+                   "month_tokens": 900, "streak": 2, "longest": 5,
+                   "active_days": 3, "models": [], "first": "2026-10-16"}
+        api = self.mirrored()
+        with mock.patch.object(crow_core, "usage_summary", lambda **_: summary,
+                               create=True):
+            self.assertEqual(self.as_phone(api._remote_call, "usage_summary", []),
+                             summary)
+        self.assertTrue(self.as_phone(api._remote_call, "set_dashboard_daily", [False]))
+        self.assertFalse(crow_gui.dashboard_daily())
+        for name in ("usage_summary", "set_dashboard_daily"):
+            self.assertIn(name, crow_gui.REMOTE_PROXIED)
+            self.assertNotIn(name, crow_gui.REMOTE_DESKTOP_BOUND,
+                             "the phone's bridge would answer it itself")
 
     def test_every_bound_method_says_what_the_phone_does(self):
         for name, how in crow_gui.REMOTE_DESKTOP_BOUND.items():
@@ -20346,6 +20412,244 @@ class TheLocalServerIsWatchedTests(ApiCase):
              mock.patch.object(crow_gui, "check_endpoint") as asked:
             api._health_tick()
         asked.assert_not_called()
+
+
+class TheUsageDashboardTests(ApiCase):
+    """#406. The usage dashboard: under the greeting on the first start of the
+    day, and the first page of the settings sheet.
+
+    THE CORE'S HALF IS PATCHED IN WITH `create=True`, so these cases hold the
+    window's half whether or not the core's functions are in this build:
+    `usage_day` answers a fixed day, `usage_summary` a dict the case owns, and
+    the ledger is a mock wherever a case looks at it."""
+
+    DAY = "2026-10-18"
+    YESTERDAY = [{"role": "user", "content": "yesterday's question"},
+                 {"role": "assistant", "content": "yesterday's answer"}]
+
+    def setUp(self) -> None:
+        super().setUp()
+        import datetime
+        self.source = (HERE / "crow_gui.py").read_text(encoding="utf-8")
+        self.summary = {"today": self.DAY, "days": [], "year_tokens": 1200,
+                        "month_tokens": 900, "streak": 2, "longest": 5,
+                        "active_days": 3, "models": [], "first": "2026-10-16"}
+        for name, value in (("usage_day", lambda now=None: datetime.date(2026, 10, 18)),
+                            ("usage_summary", lambda **_: self.summary)):
+            patch = mock.patch.object(crow_core, name, value, create=True)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def start(self, restored=None):
+        """The window's first page load: `ready()`, its probe on the spot."""
+        api = self.api()
+        api._mic_probe = lambda: None
+        api.git_refresh = lambda: None
+        back = (list(restored), 10, False) if restored else None
+        # THE MACHINE LINE IS FIXED HERE: probed once per process through
+        # nvidia-smi, whose reader threads would meet `_RunsNow` below when
+        # this class runs first.
+        with mock.patch.object(crow_platform, "machine_facts", return_value="a machine"), \
+             mock.patch.object(crow_gui, "check_endpoint", return_value="ok"), \
+             mock.patch.object(crow_gui, "model_display_name", return_value="m"), \
+             mock.patch.object(crow_gui, "fetch_model_name", return_value="m"), \
+             mock.patch.object(crow_gui, "fetch_n_ctx", return_value=1000), \
+             mock.patch.object(crow_gui, "load_session", return_value=back), \
+             mock.patch.object(crow_gui.threading, "Thread", _RunsNow):
+            api.ready()
+        return api, self.drained(api)
+
+    @staticmethod
+    def kinds(said: list) -> list:
+        return [m.get("k") for m in said]
+
+    def assert_under_the_greeting(self, kinds: list) -> int:
+        """The dashboard after the last greeting, with no clear or row between:
+        the page hangs it into that #hello. Returns its index."""
+        self.assertIn("dash", kinds, "the first start of the day shows no dashboard")
+        at = kinds.index("dash")
+        before = kinds[:at]
+        self.assertIn("hello", before, "no greeting before the dashboard")
+        last = len(before) - 1 - before[::-1].index("hello")
+        for gone in ("clear", "user", "start", "fail"):
+            self.assertNotIn(gone, kinds[last:at], "the greeting is gone again")
+        return at
+
+    # -- the settings sheet --------------------------------------------------
+
+    def test_dashboard_is_the_first_category_and_has_its_page(self):
+        nav = self.source[self.source.index('<nav id="scats">'):]
+        nav = nav[:nav.index("</nav>")]
+        first = re.search(r'<button([^>]*)>([^<]+)</button>', nav)
+        self.assertIn('data-cat="dashboard"', first.group(1))
+        self.assertEqual(first.group(2), "Dashboard")
+        # THE PAGE A FRESH SHEET OPENS ON; after that it reopens where it was left.
+        self.assertIn('class="on"', first.group(1))
+        self.assertEqual(nav.count('class="on"'), 1)
+        pane = self.source[self.source.index('<section data-cat="dashboard">'):]
+        pane = pane[:pane.index("</section>")]
+        self.assertIn('id="sdash"', pane)
+        self.assertIn("Show the dashboard on the first start of each day", pane)
+        self.assertIn('<section data-cat="look" hidden>', self.source)
+
+    def test_the_sheet_draws_it_when_its_page_opens_or_is_open(self):
+        cat = self.source[self.source.index("  settingsCat(name){"):]
+        cat = cat[:cat.index("\n  },")]
+        self.assertIn('if(name==="dashboard") this.drawDash();', cat)
+        opener = self.source[self.source.index("  openSettings(){"):]
+        opener = opener[:opener.index("\n  },")]
+        self.assertIn('if(!$(\'#spane section[data-cat="dashboard"]\').hidden) this.drawDash();',
+                      opener)
+
+    # -- the ledger ----------------------------------------------------------
+
+    @staticmethod
+    def a_turn(rounds: bool = True):
+        cost = crow_core.TurnCost()
+        if rounds:
+            cost.add_round({"predicted_n": 200, "prompt_n": 1000,
+                            "predicted_ms": 10000.0, "prompt_ms": 2000.0,
+                            "_client_total_s": 12.0, "_cached_tokens": 900})
+        return types.SimpleNamespace(cost=cost)
+
+    def test_a_finished_turn_goes_into_the_ledger_with_the_served_model(self):
+        """One line per turn with a balance, the same `record` the strip and the
+        chat file get, and the model the turn was served by. NEGATIVE in the
+        same case: a turn without rounds has no balance and leaves no line."""
+        api = self.api()
+        api._model = "Qwen3.8-27B"
+        with mock.patch.object(crow_core, "usage_append", create=True,
+                               return_value=True) as ledger:
+            api._turn_end(self.a_turn(), types.SimpleNamespace(share=None))
+            ledger.assert_called_once()
+            (record,), kw = ledger.call_args
+            self.assertEqual(kw, {"model": "Qwen3.8-27B"})
+            self.assertEqual(record["decoded"], 200)
+            self.assertEqual(dict(record, at=api._timings[-1]["at"]), api._timings[-1])
+            api._turn_end(self.a_turn(rounds=False), types.SimpleNamespace(share=None))
+        self.assertEqual(ledger.call_count, 1, "a turn without rounds wrote a line")
+
+    def test_usage_summary_hands_the_core_dict_to_the_page(self):
+        self.assertEqual(self.api().usage_summary(), self.summary)
+
+    def test_the_daily_switch_is_written_and_read_back(self):
+        """WRITTEN HERE AND READ AT START, the rule `set_theme` states: the reader
+        decides the first start and stamps the checkbox of the sheet."""
+        api = self.api()
+        self.assertTrue(crow_gui.dashboard_daily(), "the default is on")
+        self.assertIn('id="dashdaily" checked', crow_gui.stamped_page())
+        self.assertTrue(api.set_dashboard_daily(False))
+        self.assertFalse(crow_gui.dashboard_daily())
+        self.assertNotIn('id="dashdaily" checked', crow_gui.stamped_page())
+        self.assertTrue(api.set_dashboard_daily(True))
+        self.assertTrue(crow_gui.dashboard_daily())
+
+    # -- the first start of the day ------------------------------------------
+
+    def test_the_first_start_of_the_day_opens_on_the_dashboard(self):
+        """Absent settings are a first start: the greeting, the dashboard right
+        under it, and the day written to `dashboard_seen`. A new chat later the
+        same day is greeted as before, without it."""
+        api, said = self.start()
+        at = self.assert_under_the_greeting(self.kinds(said))
+        self.assertEqual(said[at]["u"], self.summary)
+        self.assertEqual(crow_gui.read_settings().get("dashboard_seen"), self.DAY)
+        api.reset()
+        later = self.kinds(self.drained(api))
+        self.assertIn("hello", later)
+        self.assertNotIn("dash", later, "a later new chat opened on the dashboard too")
+
+    def test_the_second_start_of_the_same_day_does_not(self):
+        _, first = self.start()
+        self.assertIn("dash", self.kinds(first))
+        _, second = self.start()
+        self.assertIn("hello", self.kinds(second))
+        self.assertNotIn("dash", self.kinds(second), "dashboard_seen was not read")
+
+    def test_switched_off_it_is_not_shown_and_not_marked(self):
+        self.assertTrue(self.api().set_dashboard_daily(False))
+        _, said = self.start()
+        self.assertIn("hello", self.kinds(said))
+        self.assertNotIn("dash", self.kinds(said))
+        self.assertNotIn("dashboard_seen", crow_gui.read_settings())
+
+    def test_a_restored_chat_gives_way_to_a_new_one_and_stays_in_the_rail(self):
+        api, said = self.start(self.YESTERDAY)
+        self.assert_under_the_greeting(self.kinds(said))
+        self.assertNotIn("yesterday's question",
+                         [m.get("t") for m in said if m.get("k") == "user"],
+                         "the restored chat was drawn instead of an empty one")
+        self.assertTrue(api._conversation.fresh, "the window is not on an empty chat")
+        kept = [os.path.join(self.dir, n) for n in os.listdir(self.dir)
+                if n.startswith(api.ARCHIVE_PREFIX) and n.endswith(".json")]
+        self.assertEqual(len(kept), 1, "the restored chat was not put aside")
+        with open(kept[0], encoding="utf-8") as fh:
+            self.assertIn("yesterday's question", fh.read())
+        rail = [m for m in said if m.get("k") == "rail"][-1]
+        self.assertIn(os.path.normcase(kept[0]),
+                      [os.path.normcase(r["path"]) for r in rail["rollovers"]])
+
+    # -- the page ------------------------------------------------------------
+
+    def run_view(self) -> dict:
+        js = (_FAKE_PAGE_DOM + "const crow = {\n"
+              + _crow_methods(self.source, "fmtTok", "dashDay", "dashTell", "dashEl",
+                              "dashToday", "dashView", "dash", "dashEnd") + "\n"
+              "  emptyCheck(){ log.push('check'); } };\n"
+              "const days = [], t0 = Date.UTC(2025, 9, 13);\n"
+              "for (let i = 0; i < 371; i++) days.push({day: new Date(t0 + i * 864e5)"
+              ".toISOString().slice(0, 10), tokens: i === 367 ? 1600000 : 0,"
+              " level: i === 367 ? 4 : 0, future: i > 367});\n"
+              "const u = {today: days[367].day, days, year_tokens: 1234567890,"
+              " month_tokens: 4500000, streak: 1, longest: 9, active_days: 12,"
+              " models: [{model: 'small', days: 1, tokens: 1000, share: 0.25},"
+              " {model: 'big', days: 2, tokens: 3000, share: 0.75}]};\n"
+              "const all = (e, f, out = []) => { (e.children || []).forEach(c => {"
+              " if (f(c)) out.push(c); all(c, f, out); }); return out; };\n"
+              "const cls = n => e => e.className === n;\n"
+              "const v = crow.dashView(u, false), out = {};\n"
+              "out.fmt = [1234567890, 4500000, 12345, 512].map(n => crow.fmtTok(n));\n"
+              "out.none = crow.dashTell({day: '2026-10-12', tokens: 0});\n"
+              "const cells = all(v, e => /^hm/.test(e.className || '') && e.title);\n"
+              "out.cells = cells.length;\n"
+              "out.sel = cells.filter(c => c.classList.contains('sel')).map(c => c.title);\n"
+              "out.tell = all(v, cls('dtell'))[0].textContent;\n"
+              "out.title = all(v, cls('dhd'))[0].children.map(c => c.textContent);\n"
+              "out.months = all(v, cls('mon')).map(e => e.textContent).filter(Boolean);\n"
+              "out.figs = all(v, cls('fig')).map(f => f.children.map(c => c.textContent));\n"
+              "out.rows = all(v, cls('mrow')).map(r => r.children.map(c =>"
+              " c.className === 'mshare' ? c.children[1].textContent : c.textContent));\n"
+              "const hello = $('#hello'); crow.dash(u);\n"
+              "out.inHello = hello.children.some(c => c.className === 'dashv');\n"
+              "out.marked = hello.classList.contains('dash'); out.log = log;\n"
+              "console.log(JSON.stringify(out));\n")
+        return _run_page(self, js)
+
+    def test_the_view_draws_the_mockup_and_nothing_else(self):
+        out = self.run_view()
+        self.assertEqual(out["fmt"], ["1.23 B", "4.5 M", "12 k", "512"])
+        self.assertEqual(out["cells"], 368, "future days are drawn")
+        today = "Thu 15 Oct 2026 · 1.6 M tokens"
+        self.assertEqual(out["sel"], [today])
+        self.assertEqual(out["tell"], today, "the line under the grid is not today")
+        self.assertEqual(out["none"], "Mon 12 Oct 2026 · nothing ran")
+        self.assertEqual(out["title"], ["1.23 B tokens", "in the last 12 months"])
+        self.assertEqual(out["months"][0], "Oct")
+        self.assertEqual(len(out["months"]), 13, out["months"])
+        self.assertEqual(out["figs"], [["4.5 M", "tokens in the last 30 days"],
+                                       ["1 day", "streak, longest 9"],
+                                       ["12", "active days this year"]])
+        self.assertEqual(out["rows"], [["big", "2", "3 k", "75%"],
+                                       ["small", "1", "1 k", "25%"]])
+
+    def test_it_rides_in_the_greeting_so_the_first_turn_takes_it(self):
+        """`turn()` removes #hello; the dashboard is a child of it, so the first
+        row takes both and no second removal can be forgotten."""
+        out = self.run_view()
+        self.assertTrue(out["inHello"])
+        self.assertTrue(out["marked"])
+        self.assertIn("check", out["log"])
+        self.assertIn('turn(cls){ const g=$("#hello"); if(g) g.remove();', self.source)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 <picture>
-  <source media="(max-width: 700px) and (prefers-color-scheme: dark)" srcset="docs/images/readme/crow-mobile-dark.svg?v=20261015b">
-  <source media="(max-width: 700px)" srcset="docs/images/readme/crow-mobile-light.svg?v=20261015b">
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/crow-dark.svg?v=20261015b">
-  <img src="docs/images/readme/crow-light.svg?v=20261015b" width="100%" alt="Crow v4.1.0: an agent, not a chat box. A local model at 200k context with 31 tools and MCP, memory, skills, goals, subagents, a browser panel and vision. It makes and edits images with Qwen-Image 2.1 beside crow-nest's 27B on one 32 GB card. Runs on this machine, on OpenRouter, or on your Claude subscription through Claude Code. crow-nest CNQ4.5-M on an RTX 5090, Windows, 2026-10-06: 40 tok/s decode in Crow at 8k, 780 tok/s prefill at 100k–175k.">
+  <source media="(max-width: 700px) and (prefers-color-scheme: dark)" srcset="docs/images/readme/crow-mobile-dark.svg?v=20261018">
+  <source media="(max-width: 700px)" srcset="docs/images/readme/crow-mobile-light.svg?v=20261018">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/crow-dark.svg?v=20261018">
+  <img src="docs/images/readme/crow-light.svg?v=20261018" width="100%" alt="Crow v4.2.0: an agent, not a chat box. A local model at 200k context with 31 tools and MCP, memory, skills, goals, subagents, a browser panel, vision and a usage dashboard. It makes and edits images with Qwen-Image 2.1 beside crow-nest's 27B on one 32 GB card. Runs on this machine, on OpenRouter, or on your Claude subscription through Claude Code. crow-nest CNQ4.5-M on an RTX 5090, Windows, 2026-10-06: 40 tok/s decode in Crow at 8k, 780 tok/s prefill at 100k–175k.">
 </picture>
 
 **Linux**
