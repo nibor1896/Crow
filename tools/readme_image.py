@@ -84,7 +84,7 @@ FEATURES = [
  ("Subagents", "delegate, subtasks, collect: up to 16 at once", "ok"),
  ("Browser panel", "tabs and an address bar, render_page for the model", "gold"),
  ("Vision", "read_image, a drop, a paste; Flash-Next and the 27B", "sub"),
- ("Images", "Qwen-Image 2.1 pictures, LTX-2.5 clips, local", "ok"),
+ ("Images", "Ming-Image pictures, LTX-2.5 clips, local", "ok"),
  ("Lightbox", "folder, download, size in MB; on the phone too", "gold"),
  ("Session search", "SQLite FTS5 over every archived conversation", "sub"),
  ("MCP", "stdio and Streamable HTTP, OAuth, per-tool classes", "ok"),
@@ -120,30 +120,30 @@ if sorted(_listed) != sorted(BUILTIN):
     sys.exit(f"readme_image: TOOLS is out of date; missing {sorted(set(BUILTIN) - set(_listed))}, "
              f"extra {sorted(set(_listed) - set(BUILTIN))}")
 
-# Measured on Linux 2026-09-27, the Windows row 2026-09-28 (docs/reference/tools.md, "generate_image and edit_image"): 40 steps.
-IMAGES = [("generate_image, warm", "2752×1536", "155.2 s"),
-          ("generate_image, cold", "2752×1536", "175.3 s"),
-          ("edit_image, 2 stages", "1 MP edit + full-size redraw", "105.7 + 55.3 s"),
-          ("generate_image, Windows", "2752×1536", "218.1 s"),
+# Ming-Image 0.1 Design replaced Qwen-Image 2.1 (#401). Nothing of Ming-Image is measured, so its row says so;
+# the Qwen-Image 2.1 figures this table showed (155.2 s warm, 175.3 s cold, edit 105.7 + 55.3 s, Windows 218.1 s,
+# all 40 steps at 2752×1536) stay in docs/reference/tools.md, labelled with their model.
+IMAGES = [("generate_image", "2048×2048, 12 steps", "not measured"),
+          ("edit_image", "text-to-image only in stable-diffusion.cpp", "not available"),
           ("animate_image, 5 s clip", "1920×1088, Media Stack", "65.6 s")]
-IMAGES_SUB = "Qwen-Image 2.1 beside crow-nest's 27B"
+IMAGES_SUB = "Ming-Image 0.1 Design beside crow-nest's 27B"
 IMAGES_TEXT = ("In the chat an animated square in the theme's colours stands where the picture will be, "
                "then turns into it.")
-IMAGES_NOTE = ("RTX 5090; pictures beside the 27B, 40 steps, 2026-09-27/28; the clip: median of 5, 2026-10-02. "
+IMAGES_NOTE = ("Ming-Image: not measured on this machine. The clip: RTX 5090, median of 5, 2026-10-02. "
                "Source: docs/")
 
 OPS = [("Flash-Next, Windows", "Qwen3.8-Flash-Next CNQ4.5-M, 200k", "40‡", "crow-nest"),
        ("Flash-Next, Linux", "Qwen3.8-Flash-Next CNQ4.5-M, 200k", "35.8*", "crow-nest"),
        ("Qwen3.8-27B", "Qwen3.8-27B CNQ4.5, 128k", "72.3†", "crow-nest"),
        ("GLM-5.3-Flash, Windows", "GLM-5.3-Flash MUL1K3, 200k", "14.17‡", "crow-nest"),
-       ("Image Stack", "27B CNQ4.5 + Qwen-Image 2.1", "—", "crow-nest"),
-       ("Media Stack, Windows", "Qwen3.5-9B Q8_0 + Qwen-Image + LTX-2.5", "—", "llama.cpp")]
+       ("Image Stack", "27B CNQ4.5 + Ming-Image 0.1 Design", "—", "crow-nest"),
+       ("Media Stack, Windows", "Qwen3.5-9B Q8_0 + Ming-Image + LTX-2.5", "—", "llama.cpp")]
 STATS_NOTE = "crow-nest CNQ4.5-M, RTX 5090, Windows 2026-10-06, after the PLE fix: decode in a live Crow session, prefill cold. Source: docs/operating-points.md"
 OPS_NOTE = "‡ live Crow session, 8k 2026-10-06, GLM 2026-10-11. * 122k, 2026-09-24. † crow-nest bench, Linux, 2026-09-27. — not measured."
 INTRO_LINES = (
     f"A local model at 200k context with {NTOOLS} tools and MCP, persistent memory, its own skills,",
     "a browser panel, eyes, and subagents it can send out while it keeps working.",
-    "It makes and edits images beside crow-nest's 27B, on one 32 GB card.",
+    "It makes images with Ming-Image beside crow-nest's 27B.",
     "Runs on this machine, or on a provider you choose.")
 INSTALL_TEXT = "One line, Windows or Linux. Preflight, download, a per-file sha256 against the release manifest. No root, no elevation. One window: CrowSetup, from the release on Windows and built from the repo on Linux, installs Crow, the crow-nest engine and the operating points you pick."
 
