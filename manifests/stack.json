@@ -53,13 +53,19 @@
    "text_file": "glm-license",
    "summary": "Permissive (zai-org/GLM-5.3-Flash); keep the copyright and permission notice."
   },
-  "qwen-research": {
-   "name": "Qwen Research License Agreement",
-   "covers": "Qwen-Image weights",
-   "non_commercial": true,
-   "show_at_install": true,
-   "text_file": "qi-license",
-   "summary": "Research or evaluation purposes only. Commercial use needs a separate licence from Qwen (model-business@notice.qwencloud.com). Crow ships no Qwen-Image weights; the installer fetches them from Qwen/Qwen-Image-2.1."
+  "mit-inclusionai": {
+   "name": "MIT License",
+   "non_commercial": false,
+   "show_at_install": false,
+   "text_file": "mi-license",
+   "summary": "Permissive (inclusionAI/Ming-Image-0.1-Design, \"Copyright (c) 2026 inclusionAI\": the weights and the reference code); keep the copyright and permission notice. Crow ships no Ming-Image file: the installer fetches the tokenizer and this licence from inclusionAI/Ming-Image-0.1-Design."
+  },
+  "mit-comfy-org": {
+   "name": "MIT License",
+   "non_commercial": false,
+   "show_at_install": false,
+   "text_file": "mi-license",
+   "summary": "Comfy-Org/Ming-Image is Comfy-Org's single-file repackage of inclusionAI/Ming-Image-0.1-Design (its card: license mit, base_model inclusionAI/Ming-Image-0.1-Design), the layout stable-diffusion.cpp loads. The repo carries no licence file, so the text is inclusionAI's LICENSE (mi-license). Crow ships no Ming-Image weights; the installer fetches them from Comfy-Org/Ming-Image."
   },
   "ltx-2.x-community": {
    "name": "LTX-2.x Community License Agreement",
@@ -395,134 +401,69 @@
    "role": "license"
   },
   {
-   "id": "qi-license",
-   "repo": "Qwen/Qwen-Image-2.1",
+   "id": "mi-diffusion",
+   "repo": "Comfy-Org/Ming-Image",
+   "path": "diffusion_models/ming_image_0.1_design_bf16.safetensors",
+   "revision": "93804ff3747517a318969c5f61b25a57daefe09f",
+   "bytes": 12309858664,
+   "sha256": "8781c6fc679f1812ad318cc7fd84c4d05a23b3571b9a7efeff73a92054ef4659",
+   "dest": "${MODELS}/ming-image-0.1-design/diffusion_models/ming_image_0.1_design_bf16.safetensors",
+   "source": null,
+   "status": "upstream",
+   "license": "mit-comfy-org",
+   "role": "weights"
+  },
+  {
+   "id": "mi-text-encoder",
+   "repo": "Comfy-Org/Ming-Image",
+   "path": "text_encoders/ming_image_0.1_ling_mini_2.0_bf16.safetensors",
+   "revision": "93804ff3747517a318969c5f61b25a57daefe09f",
+   "bytes": 36677768245,
+   "sha256": "7eccad21934f2e6d9103b5c589a448082e89f7b5b73a6b9c6d0332be7de26c1e",
+   "dest": "${MODELS}/ming-image-0.1-design/text_encoders/ming_image_0.1_ling_mini_2.0_bf16.safetensors",
+   "source": null,
+   "status": "upstream",
+   "license": "mit-comfy-org",
+   "role": "weights"
+  },
+  {
+   "id": "mi-vae",
+   "repo": "Comfy-Org/Ming-Image",
+   "path": "vae/ming_image_vae_bf16.safetensors",
+   "revision": "93804ff3747517a318969c5f61b25a57daefe09f",
+   "bytes": 253816696,
+   "sha256": "7f5bed402dc8c77dc2e0ab1929a85d4df433b7cf7b599dfa8c353da98db0b90a",
+   "dest": "${MODELS}/ming-image-0.1-design/vae/ming_image_vae_bf16.safetensors",
+   "source": null,
+   "status": "upstream",
+   "license": "mit-comfy-org",
+   "role": "weights"
+  },
+  {
+   "id": "mi-tokenizer",
+   "repo": "inclusionAI/Ming-Image-0.1-Design",
+   "path": "mllm/tokenizer.json",
+   "revision": "c57c49689d12ef7d4e24a170014f1dc43d3ce258",
+   "bytes": 12210709,
+   "sha256": "e7ff01708d504f7bf4dbf7f5815adde57bab9a40e7f563ab6ad1acace4464917",
+   "dest": "${MODELS}/ming-image-0.1-design/mllm/tokenizer.json",
+   "source": null,
+   "status": "upstream",
+   "license": "mit-inclusionai",
+   "role": "tokenizer"
+  },
+  {
+   "id": "mi-license",
+   "repo": "inclusionAI/Ming-Image-0.1-Design",
    "path": "LICENSE",
-   "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
-   "bytes": 7831,
-   "sha256": "8dc973f024ff95966bea25866efa443fd16776dcb1001e681e3d467ea572b28d",
-   "dest": "${MODELS}/qwen-image-2.1/LICENSE",
+   "revision": "c57c49689d12ef7d4e24a170014f1dc43d3ce258",
+   "bytes": 1068,
+   "sha256": "b772c54f1f150a680e7c083a92431c518cf62821a407f6cccdf53f6a07bcf702",
+   "dest": "${MODELS}/ming-image-0.1-design/LICENSE",
    "source": null,
    "status": "upstream",
-   "license": "qwen-research",
+   "license": "mit-inclusionai",
    "role": "license"
-  },
-  {
-   "id": "qi-transformer-index",
-   "repo": "Qwen/Qwen-Image-2.1",
-   "path": "transformer/diffusion_pytorch_model.safetensors.index.json",
-   "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
-   "bytes": 30283,
-   "sha256": "17987f6623b1c814d0ef55a137d99142b7b3b040eb1bf241b5575dd35af803a2",
-   "dest": "${MODELS}/qwen-image-2.1/transformer/diffusion_pytorch_model.safetensors.index.json",
-   "source": null,
-   "status": "upstream",
-   "license": "qwen-research",
-   "role": "weights"
-  },
-  {
-   "id": "qi-transformer-1",
-   "repo": "Qwen/Qwen-Image-2.1",
-   "path": "transformer/diffusion_pytorch_model-00001-of-00002.safetensors",
-   "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
-   "bytes": 9968332504,
-   "sha256": "9e6bc2d641e67bf277895ea8777141044a38f3edb7101bc469b2961dd7c36b4b",
-   "dest": "${MODELS}/qwen-image-2.1/transformer/diffusion_pytorch_model-00001-of-00002.safetensors",
-   "source": null,
-   "status": "upstream",
-   "license": "qwen-research",
-   "role": "weights"
-  },
-  {
-   "id": "qi-transformer-2",
-   "repo": "Qwen/Qwen-Image-2.1",
-   "path": "transformer/diffusion_pytorch_model-00002-of-00002.safetensors",
-   "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
-   "bytes": 4261951904,
-   "sha256": "3aaf234dcbe128530479735854a346b5e3e66283b7c11db56f836bbd1c13ebaa",
-   "dest": "${MODELS}/qwen-image-2.1/transformer/diffusion_pytorch_model-00002-of-00002.safetensors",
-   "source": null,
-   "status": "upstream",
-   "license": "qwen-research",
-   "role": "weights"
-  },
-  {
-   "id": "qi-text-encoder-index",
-   "repo": "Qwen/Qwen-Image-2.1",
-   "path": "text_encoder/model.safetensors.index.json",
-   "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
-   "bytes": 67795,
-   "sha256": "859146bff8db1d617fca8b457a5223edff963bb70076b3645f2189fe0540a147",
-   "dest": "${MODELS}/qwen-image-2.1/text_encoder/model.safetensors.index.json",
-   "source": null,
-   "status": "upstream",
-   "license": "qwen-research",
-   "role": "converter-input"
-  },
-  {
-   "id": "qi-text-encoder-1",
-   "repo": "Qwen/Qwen-Image-2.1",
-   "path": "text_encoder/model-00001-of-00004.safetensors",
-   "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
-   "bytes": 4998056552,
-   "sha256": "dde00291b5f7fb92013895310a3da0ddba78674df9f10d505d375243dc01fc6f",
-   "dest": "${MODELS}/qwen-image-2.1/text_encoder/model-00001-of-00004.safetensors",
-   "source": null,
-   "status": "upstream",
-   "license": "qwen-research",
-   "role": "converter-input"
-  },
-  {
-   "id": "qi-text-encoder-2",
-   "repo": "Qwen/Qwen-Image-2.1",
-   "path": "text_encoder/model-00002-of-00004.safetensors",
-   "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
-   "bytes": 4915962464,
-   "sha256": "9047faccc0a6d98496a52d55f27be1c94a9c259d1e283fbea0128d054a948d42",
-   "dest": "${MODELS}/qwen-image-2.1/text_encoder/model-00002-of-00004.safetensors",
-   "source": null,
-   "status": "upstream",
-   "license": "qwen-research",
-   "role": "converter-input"
-  },
-  {
-   "id": "qi-text-encoder-3",
-   "repo": "Qwen/Qwen-Image-2.1",
-   "path": "text_encoder/model-00003-of-00004.safetensors",
-   "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
-   "bytes": 4915962496,
-   "sha256": "8c54187654c0176b73ae73785bf791dc9a14c9df7fb4310083a09d42048cb57e",
-   "dest": "${MODELS}/qwen-image-2.1/text_encoder/model-00003-of-00004.safetensors",
-   "source": null,
-   "status": "upstream",
-   "license": "qwen-research",
-   "role": "converter-input"
-  },
-  {
-   "id": "qi-text-encoder-4",
-   "repo": "Qwen/Qwen-Image-2.1",
-   "path": "text_encoder/model-00004-of-00004.safetensors",
-   "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
-   "bytes": 2704357976,
-   "sha256": "5311532aaaeae3259eb6a7b2c600636be1159adf7ded35f53579f7d0e7d43cdd",
-   "dest": "${MODELS}/qwen-image-2.1/text_encoder/model-00004-of-00004.safetensors",
-   "source": null,
-   "status": "upstream",
-   "license": "qwen-research",
-   "role": "converter-input"
-  },
-  {
-   "id": "qi-vae",
-   "repo": "Qwen/Qwen-Image-2.1",
-   "path": "vae/diffusion_pytorch_model.safetensors",
-   "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
-   "bytes": 1350989512,
-   "sha256": "a07a1b7c4ee2966a1b3bdc37de9b4f983d56937e46619f709a80b6e490675417",
-   "dest": "${MODELS}/qwen-image-2.1/vae/diffusion_pytorch_model.safetensors",
-   "source": null,
-   "status": "upstream",
-   "license": "qwen-research",
-   "role": "weights"
   },
   {
    "id": "ms-model",
@@ -664,54 +605,7 @@
    "host": "github"
   }
  ],
- "derived": [
-  {
-   "id": "qi-text-encoder-sdcli",
-   "_what": "Upstream text_encoder/ with its tensor names rewritten for sd-server's conditioner; header-only, every payload byte as downloaded.",
-   "_sizes": "Each shard is the upstream shard plus the header growth: +3 bytes per model.language_model.* name, +18 per model.visual.* and lm_head.* name, minus the dropped __metadata__ entry (31 bytes) and the upstream header padding (0/2/4/2 bytes). Shard sha256 is not pinned: te_rename verifies every output payload byte against its input instead.",
-   "tool": "tools/te_rename.py",
-   "argv": [
-    "${MODELS}/qwen-image-2.1/text_encoder",
-    "${MODELS}/qwen-image-2.1/text_encoder_sdcli"
-   ],
-   "inputs": [
-    "qi-text-encoder-index",
-    "qi-text-encoder-1",
-    "qi-text-encoder-2",
-    "qi-text-encoder-3",
-    "qi-text-encoder-4"
-   ],
-   "dest": "${MODELS}/qwen-image-2.1/text_encoder_sdcli",
-   "outputs": [
-    {
-     "path": "model-00001-of-00004.safetensors",
-     "bytes": 4998063064,
-     "sha256": null
-    },
-    {
-     "path": "model-00002-of-00004.safetensors",
-     "bytes": 4915962857,
-     "sha256": null
-    },
-    {
-     "path": "model-00003-of-00004.safetensors",
-     "bytes": 4915962887,
-     "sha256": null
-    },
-    {
-     "path": "model-00004-of-00004.safetensors",
-     "bytes": 2704358078,
-     "sha256": null
-    },
-    {
-     "path": "model.safetensors.index.json",
-     "bytes": 72302,
-     "sha256": "6506d5d2f074eb0c7055054f09d0336a1e68f4ba95ae4539caae45ed2182b399"
-    }
-   ],
-   "bytes": 17534419188
-  }
- ],
+ "derived": [],
  "_crow_files": "Files every Crow install gets, whatever points are chosen: the dictation model (faster-whisper small, CTranslate2). dest is under ${INSTALL}, not ${MODELS}: cli/crow_voice.py model_dir loads <crow>/models/whisper-small beside the client and only when model.bin is there. status upstream, revision pinned; licence mit is the repo card's (the repo carries no licence file, so it is not under licenses). Same file fields as files, without source.",
  "crow_files": [
   {
@@ -1272,8 +1166,8 @@
    "id": "image-stack",
    "menu": {
     "title": "Image Stack",
-    "line": "27B + Qwen-Image 2.1 — create AWESOME pictures",
-    "gui": "27B with Qwen-Image 2.1. Create pictures."
+    "line": "27B + Ming-Image 0.1 Design — create AWESOME pictures",
+    "gui": "27B with Ming-Image 0.1 Design. Create pictures."
    },
    "files": [
     "27b-cnq",
@@ -1283,27 +1177,20 @@
     "27b-tokenizer-config",
     "27b-sha256sums",
     "27b-license",
-    "qi-transformer-index",
-    "qi-transformer-1",
-    "qi-transformer-2",
-    "qi-text-encoder-index",
-    "qi-text-encoder-1",
-    "qi-text-encoder-2",
-    "qi-text-encoder-3",
-    "qi-text-encoder-4",
-    "qi-vae",
-    "qi-license"
+    "mi-diffusion",
+    "mi-text-encoder",
+    "mi-vae",
+    "mi-tokenizer",
+    "mi-license"
    ],
-   "derived": [
-    "qi-text-encoder-sdcli"
-   ],
+   "derived": [],
    "bytes": {
     "published": 17844230886,
     "mirror_pending": 0,
-    "upstream": 34056154053,
-    "files": 51900384939,
-    "derived": 17534419188,
-    "disk": 69434804127
+    "upstream": 50194090118,
+    "files": 68038321004,
+    "derived": 0,
+    "disk": 68038321004
    },
    "engine": {
     "binary": {
@@ -1356,19 +1243,20 @@
     },
     "argv": [
      "--diffusion-model",
-     "${MODELS}/qwen-image-2.1/transformer/diffusion_pytorch_model.safetensors.index.json",
+     "${MODELS}/ming-image-0.1-design/diffusion_models/ming_image_0.1_design_bf16.safetensors",
      "--llm",
-     "${MODELS}/qwen-image-2.1/text_encoder_sdcli/model.safetensors.index.json",
+     "${MODELS}/ming-image-0.1-design/text_encoders/ming_image_0.1_ling_mini_2.0_bf16.safetensors",
      "--vae",
-     "${MODELS}/qwen-image-2.1/vae/diffusion_pytorch_model.safetensors",
+     "${MODELS}/ming-image-0.1-design/vae/ming_image_vae_bf16.safetensors",
+     "--tokenizer",
+     "${MODELS}/ming-image-0.1-design/mllm/tokenizer.json",
      "--backend",
      "te=cpu",
-     "--diffusion-fa",
+     "--flash-attn",
+     "off,diffusion=on",
      "--max-vram",
      "7",
      "--vae-tiling",
-     "--model-args",
-     "qwen_image_2_1_prefix_cache_type=q8_0",
      "--listen-port",
      "8097",
      "-v"
@@ -1387,7 +1275,7 @@
     }
    },
    "crow_env": {
-    "CROW_IMAGE_MODEL_DIR": "${MODELS}/qwen-image-2.1"
+    "CROW_IMAGE_MODEL_DIR": "${MODELS}/ming-image-0.1-design"
    },
    "preflight": {
     "gpu": {
@@ -1397,17 +1285,17 @@
     },
     "host_ram": {
      "pinned_max_gib": null,
-     "_source": "Windows: sd-server needs --mmap; measured 2026-09-28 beside the default 27B serve the image completed with commit 51,149 of 64,901 MB (Crow crow_platform.image_server_platform_args). VRAM: --max-vram 7 keeps it beside the 27B, card peak 31,322-31,566 MiB of 32,127 (Linux, crow_core.image_server_command)."
+     "_source": "NOT MEASURED for Ming-Image 0.1 Design: 45.87 GiB of host weights (text encoder 34.16 GiB on the CPU with --backend te=cpu, DiT 11.46 GiB streamed with --max-vram 7, VAE 0.24 GiB) against 29.05 GiB for Qwen-Image 2.1 (\"total params memory size = 29751.86MB\", sd-server.log, which divides by 1024 twice), beside the 27B (#400). The flags are the line measured with Qwen-Image 2.1: on Windows sd-server needs --mmap, and beside the default 27B serve that image completed with commit 51,149 of 64,901 MB on 2026-09-28 (Crow crow_platform.image_server_platform_args); --max-vram 7 kept it beside the 27B at a card peak of 31,322-31,566 MiB of 32,127 (Linux, crow_core.image_server_command)."
     },
-    "disk_bytes": 69434804127
+    "disk_bytes": 68038321004
    }
   },
   {
    "id": "media-stack",
    "menu": {
     "title": "Media Stack",
-    "line": "9B + Qwen-Image 2.1 + LTX-2.5 — pictures and short videos",
-    "gui": "Qwen3.5-9B with Qwen-Image 2.1 and LTX-2.5. Create pictures and videos."
+    "line": "9B + Ming-Image 0.1 Design + LTX-2.5 — pictures and short videos",
+    "gui": "Qwen3.5-9B with Ming-Image 0.1 Design and LTX-2.5. Create pictures and videos."
    },
    "platforms": [
     "windows"
@@ -1416,16 +1304,11 @@
    "files": [
     "ms-model",
     "ms-mmproj",
-    "qi-transformer-index",
-    "qi-transformer-1",
-    "qi-transformer-2",
-    "qi-text-encoder-index",
-    "qi-text-encoder-1",
-    "qi-text-encoder-2",
-    "qi-text-encoder-3",
-    "qi-text-encoder-4",
-    "qi-vae",
-    "qi-license",
+    "mi-diffusion",
+    "mi-text-encoder",
+    "mi-vae",
+    "mi-tokenizer",
+    "mi-license",
     "lx-transformer",
     "lx-text-encoder",
     "lx-video-vae",
@@ -1435,16 +1318,14 @@
     "comfyui-portable",
     "comfyui-license"
    ],
-   "derived": [
-    "qi-text-encoder-sdcli"
-   ],
+   "derived": [],
    "bytes": {
     "published": 0,
     "mirror_pending": 0,
-    "upstream": 85265651750,
-    "files": 85265651750,
-    "derived": 21919007463,
-    "disk": 107184659213
+    "upstream": 101403587815,
+    "files": 101403587815,
+    "derived": 4384588275,
+    "disk": 105788176090
    },
    "engine": {
     "kind": "llama-server",
@@ -1535,7 +1416,7 @@
     }
    },
    "crow_env": {
-    "CROW_IMAGE_MODEL_DIR": "${MODELS}/qwen-image-2.1"
+    "CROW_IMAGE_MODEL_DIR": "${MODELS}/ming-image-0.1-design"
    },
    "preflight": {
     "gpu": {
@@ -1548,7 +1429,7 @@
      "peak_gib": 50,
      "_source": "#340 Phase 0, RTX 5090, runs/340-ltx25-phase0/results.jsonl: clip B-20s peaked at host_ram_used_peak_mib 50,868 (49.7 GiB used machine-wide of 63.4 GiB) and VRAM 32,049 MiB of 32,607, so images and videos never share the card (crow_core.use_mode)."
     },
-    "disk_bytes": 107184659213
+    "disk_bytes": 105788176090
    }
   }
  ]

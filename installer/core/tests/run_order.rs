@@ -115,11 +115,12 @@ fn full_order_packages_before_install_before_models() {
     assert!(at("install engine") < at("python"));
     assert!(at("python") < at("download whisper"));
     assert!(at("download fn-cnq") < at("check flash-next"));
-    assert!(!log.iter().any(|l| l == "convert"), "no convert without the image stack");
+    assert!(!log.iter().any(|l| l == "convert"), "no convert without a derived file");
 }
 
+/// The fake image stack carries a derived file (the real one has none since #403).
 #[test]
-fn image_stack_adds_convert_after_the_downloads() {
+fn a_derived_file_adds_convert_after_the_downloads() {
     let mut f = FakeSteps::default();
     let (out, events) = run_once(&mut f, &selection(&["image-stack"], &root()));
     assert_eq!(out, Outcome::Done);
@@ -432,13 +433,13 @@ fn after_convert_a_missing_non_input_file_is_fetched_again() {
         let mut sh = f.shared.lock().unwrap();
         sh.log.clear();
         sh.saved.as_mut().unwrap().steps_done.retain(|x| x != "done");
-        sh.present.remove("qi-transformer");
+        sh.present.remove("mi-diffusion");
     }
     let (out, _) = run_once(&mut f.clone(), &sel);
     assert_eq!(out, Outcome::Done);
     let log = f.log();
     let dl: Vec<&String> = log.iter().filter(|l| l.starts_with("download")).collect();
-    assert_eq!(dl, vec!["download qi-transformer from 1400"], "{log:?}");
+    assert_eq!(dl, vec!["download mi-diffusion from 1400"], "{log:?}");
 }
 
 /// #196 P2-E2E fix 5: after a successful install the two package zips are

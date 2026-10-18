@@ -84,15 +84,15 @@ fn run(steps: &mut Linking, sel: &Selection) -> (Outcome, Vec<Event>) {
 }
 
 #[test]
-fn a_prefilled_text_encoder_skips_its_inputs_and_the_convert() {
+fn a_prefilled_derived_output_skips_its_inputs_and_the_convert() {
     let sel = selection(&["image-stack"], Path::new("/r"));
     let mut s = Linking { fake: FakeSteps::default(), prefill: true, free: false };
     let (out, ev) = run(&mut s, &sel);
     assert_eq!(out, Outcome::Done, "{ev:?}");
     let log = s.fake.log();
-    assert!(!log.iter().any(|l| l.starts_with("download qi-text-encoder ")), "{log:?}");
+    assert!(!log.iter().any(|l| l.starts_with("download fake-input ")), "{log:?}");
     assert!(!log.iter().any(|l| l == "convert"), "{log:?}");
-    assert!(log.iter().any(|l| l.starts_with("download qi-transformer ")), "{log:?}");
+    assert!(log.iter().any(|l| l.starts_with("download mi-diffusion ")), "{log:?}");
     assert!(ev.iter().any(|e| matches!(e, Event::Step { name, .. } if name == "convert")), "the UI still sees the step");
 
     // without a prefill the order is the one every other test knows

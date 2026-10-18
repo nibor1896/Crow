@@ -149,7 +149,7 @@ fn the_jobs_come_from_the_selected_points_runtime_for_this_platform() {
     use crowsetup_core::api::Selection;
     use crowsetup_core::stack::Stack;
     let mut doc = Stack::embedded().raw.clone();
-    let mut file = doc["files"].as_array().unwrap().iter().find(|f| f["id"] == "qi-vae").unwrap().clone();
+    let mut file = doc["files"].as_array().unwrap().iter().find(|f| f["id"] == "mi-vae").unwrap().clone();
     file["id"] = "comfyui-portable".into();
     file["role"] = "runtime".into();
     file["dest"] = "${INSTALL}/setup/downloads/ComfyUI_windows_portable_nvidia.7z".into();

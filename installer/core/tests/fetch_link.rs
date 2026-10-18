@@ -1,7 +1,7 @@
 //! #342: `--source` on Linux. A file on the destination's file system is
 //! hard-linked after its sha256 matched (never copied, never written); a source
 //! may mirror the remote layout or be a models tree (`crow-stack/`); a source
-//! that holds the Image Stack's converted text encoder skips the convert.
+//! that holds a derived output in full skips the convert.
 #![cfg(unix)]
 
 mod fetch_support;
@@ -144,55 +144,61 @@ fn a_models_tree_is_a_source_too() {
     assert!(!remote.costs_no_disk(&j));
 }
 
-/// The embedded stack with the Image Stack's derived outputs made small: four
-/// shards checked by size, the index by size and sha256, as stack.json pins them.
+/// The embedded stack with a small derived entry on the Image Stack (the real
+/// stack has none since #403): two shards checked by size, the index by size
+/// and sha256, the shape Qwen-Image 2.1's converted text encoder had.
 fn small_stack(index: &[u8]) -> (Stack, Vec<(String, Vec<u8>)>) {
-    let mut s = Stack::embedded();
-    let d = &mut s.derived[0];
-    let mut files = Vec::new();
-    for (i, o) in d.outputs.iter_mut().enumerate() {
-        let body = if o.sha256.is_some() { index.to_vec() } else { data(1000 + i, 60 + i as u32) };
-        o.bytes = body.len() as u64;
-        if o.sha256.is_some() {
-            o.sha256 = Some(sha_hex(&body));
-        }
-        files.push((o.path.clone(), body));
-    }
-    (s, files)
+    let shards: Vec<Vec<u8>> = (0..2).map(|i| data(1000 + i, 60 + i as u32)).collect();
+    let mut outputs: Vec<serde_json::Value> = shards.iter().enumerate()
+        .map(|(i, b)| serde_json::json!({"path": format!("model-{i}.safetensors"), "bytes": b.len(), "sha256": null}))
+        .collect();
+    outputs.push(serde_json::json!({"path": "index.json", "bytes": index.len(), "sha256": sha_hex(index)}));
+    let bytes: usize = shards.iter().map(Vec::len).sum::<usize>() + index.len();
+    let mut doc = Stack::embedded().raw.clone();
+    doc["derived"] = serde_json::json!([{
+        "id": "mi-derived", "tool": "tools/derive.py", "argv": [], "inputs": ["mi-vae"],
+        "dest": "${MODELS}/ming-image-0.1-design/derived", "outputs": outputs, "bytes": bytes
+    }]);
+    let pt = doc["points"].as_array_mut().unwrap().iter_mut().find(|p| p["id"] == "image-stack").unwrap();
+    pt["derived"] = serde_json::json!(["mi-derived"]);
+    let mut files: Vec<(String, Vec<u8>)> =
+        shards.into_iter().enumerate().map(|(i, b)| (format!("model-{i}.safetensors"), b)).collect();
+    files.push(("index.json".into(), index.to_vec()));
+    (Stack::parse(&doc.to_string()).unwrap(), files)
 }
 
 #[test]
-fn a_source_holding_the_converted_text_encoder_skips_the_convert() {
+fn a_source_holding_a_derived_output_skips_the_convert() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("crow");
     let src = tmp.path().join("crow-stack");
-    let sdcli = src.join("qwen-image-2.1/text_encoder_sdcli");
-    fs::create_dir_all(&sdcli).unwrap();
+    let derived = src.join("ming-image-0.1-design/derived");
+    fs::create_dir_all(&derived).unwrap();
     let (stack, files) = small_stack(b"{\"weight_map\": {}}");
     for (name, body) in &files {
-        fs::write(sdcli.join(name), body).unwrap();
+        fs::write(derived.join(name), body).unwrap();
     }
     let sel = Selection { points: vec!["image-stack".into()], install_root: root.clone(), shortcut_dir: None };
     let mut steps = RealSteps::new(Source::Local(src.clone()), packages(), None, None).with_stack(stack.clone());
     let plan = steps.plan(&sel).unwrap();
     let models = models_root(&root);
     assert!(steps.prefill_derived(&plan, &models));
-    let dest = models.join("qwen-image-2.1/text_encoder_sdcli");
+    let dest = models.join("ming-image-0.1-design/derived");
     for (name, body) in &files {
-        assert_eq!(ino(&dest.join(name)), ino(&sdcli.join(name)), "{name} is not linked");
-        assert_eq!(&fs::read(sdcli.join(name)).unwrap(), body, "the source changed");
+        assert_eq!(ino(&dest.join(name)), ino(&derived.join(name)), "{name} is not linked");
+        assert_eq!(&fs::read(derived.join(name)).unwrap(), body, "the source changed");
     }
     // again: already in place, still true
     assert!(steps.prefill_derived(&plan, &models));
 
     // one shard of the wrong size: nothing is prefilled, nothing is left behind
     let root2 = tmp.path().join("crow2");
-    fs::write(sdcli.join(&files[1].0), b"short").unwrap();
+    fs::write(derived.join(&files[1].0), b"short").unwrap();
     let sel2 = Selection { install_root: root2.clone(), ..sel.clone() };
     let mut steps2 = RealSteps::new(Source::Local(src.clone()), packages(), None, None).with_stack(stack.clone());
     let plan2 = steps2.plan(&sel2).unwrap();
     assert!(!steps2.prefill_derived(&plan2, &models_root(&root2)));
-    assert!(!models_root(&root2).join("qwen-image-2.1/text_encoder_sdcli").join(&files[0].0).exists());
+    assert!(!models_root(&root2).join("ming-image-0.1-design/derived").join(&files[0].0).exists());
 
     // a remote source never prefills
     let mut remote = RealSteps::new(Source::Remote, packages(), None, None).with_stack(stack);
