@@ -711,6 +711,10 @@ def image_server_platform_args() -> list[str]:
     default 27B serve: the image completed in 237.7 s, commit 51,149 of
     64,901 MB. ELSEWHERE nothing: the Linux argv is the one measured beside
     the 27B (8.15 GiB free) and stays as it is.
+
+    Those numbers are Qwen-Image 2.1's (2026-09-28). Ming-Image 0.1 Design
+    (#400, #404) keeps the flag; its 45.87 GiB of weights beside the 27B are
+    NOT MEASURED on this machine.
     """
     return ["--mmap"] if IS_WINDOWS else []
 

@@ -159,7 +159,7 @@ class State2StartingTests(GuiCase):
         ctl = self.controller(get=get)
         ctl.start("image-stack")
         self.assertEqual(seen[0]["picker"]["detail"], "Loading the model. Usually ready in under 20 s.")
-        self.assertEqual(seen[-1]["picker"]["detail"], "Fetching the paint brushes (Qwen-Image).")
+        self.assertEqual(seen[-1]["picker"]["detail"], "Fetching the paint brushes (Ming-Image).")
 
     def test_a_failed_start_says_why_and_offers_every_point_again(self):
         self.layout("27b")
@@ -186,6 +186,14 @@ class State3LandedTests(GuiCase):
         self.assertEqual((p["selected"], p["enabled"], p["start"]["enabled"]), ("27b", True, False))
         self.assertEqual(v["bar"]["text"], "The Crow window opens on Qwen3.8-27B.")
         self.assertTrue(v["bar"]["button"]["enabled"])
+
+    def test_the_image_stack_card_names_its_image_model_and_port(self):
+        """#404: the card says Ming-Image, the name crow_core keeps."""
+        card = self.controller().running_card({
+            "kind": crow_platform.KIND_CROW_NEST, "point": "image-stack",
+            "base_url": "http://127.0.0.1:8099/v1", "pids": {"serve": 5151, "image": 6161}})
+        self.assertIn("Ming-Image on port 8097", card["detail"])
+        self.assertNotIn("Qwen-Image", card["detail"])
 
     def test_a_point_found_by_the_scan_shows_landed_when_the_window_opens(self):
         ctl = self.controller(scan=lambda: [SERVE_LINE],

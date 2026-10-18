@@ -1273,49 +1273,53 @@ TOOLS = [
                                  "Default: the running step."}},
         []),
     # #300 phase 3. THE MODEL'S OWN IMAGE MODEL, so a picture is no longer a
-    # detached sd-cli plus sleep-polling (#308 msgs 16-44). Both run on the
-    # resident sd-server and report their phases while they run.
+    # detached sd-cli plus sleep-polling (#308 msgs 16-44). It runs on the
+    # resident sd-server and reports its phases while it runs.
+    # #404: THE PROMPT IS MING-IMAGE'S STRUCTURED CAPTION. The model card names
+    # qwen3.8-27B -- Crow's 27B -- as its prompt enhancer, and the format is
+    # the one its released rewriter writes (inclusionAI/Ming-Image @ 3515cd7b1e
+    # assets/t2i_rewriter_system_prompt.txt, MIT): canvas_settings plus layers
+    # back to front, every rendered string verbatim exactly once. Kept short:
+    # this text travels on every turn. The sizes are IMAGE_SIZES' (a test holds
+    # them together).
     _fn("generate_image",
-        "Create a new picture with the local image model (Qwen-Image 2.1). "
-        "Write the prompt as a full description of the whole picture: "
-        "subject, composition, style, light, colours, any text in it. Takes "
-        "about 3 minutes; progress shows while it runs. The PNG is saved in "
-        "<working root>/images/ and handed back to you as an image, so you "
-        "can check it.",
-        {"prompt": dict(_STR, description="The full description of the "
-                                          "picture."),
-         "aspect_ratio": dict(_STR, description="1:1, 4:3, 3:4, 3:2, 2:3, "
-                                                "16:9 or 9:16, each at the "
-                                                "model's full size (16:9 is "
-                                                "2752x1536). Default 16:9."),
+        "Create a new picture with the local image model (Ming-Image 0.1 "
+        "Design), made for UI, posters, infographics and other text-rich "
+        "designs. Write `prompt` as one JSON object, the model's structured "
+        "caption: {\"canvas_settings\": {\"aspect_ratio\", "
+        "\"ambient_lighting\", \"image_style\"}, \"layers\": [...]}, the "
+        "layers from background to topmost, each with \"description\", "
+        "\"coordinates\" (one string, normalized: \"cx: 0.500, cy: 0.500, "
+        "w: 1.000, h: 1.000\"), \"hierarchy_and_relation\" and "
+        "\"color_specs\" (hex colours). Quote every text the picture shows "
+        "verbatim, exactly once across all descriptions. "
+        "canvas_settings.aspect_ratio matches `aspect_ratio`. For a "
+        "transparent background set `transparent`; never write an RGBA "
+        "phrase yourself. The model makes new pictures only: to change one, "
+        "generate it again from the whole new caption. Progress shows while "
+        "it runs. The PNG is saved in <working root>/images/ and handed back "
+        "to you as an image, so you can check it.",
+        {"prompt": dict(_STR, description="The structured caption: one JSON "
+                                          "object with canvas_settings and "
+                                          "layers."),
+         "aspect_ratio": dict(_STR, description="1:1 (2048x2048, default), "
+                                                "4:3 (2432x1824), 3:4, 3:2 "
+                                                "(2496x1664), 2:3, 16:9 "
+                                                "(2560x1440) or 9:16."),
+         "transparent": {"type": "boolean",
+                         "description": "true: a transparent background; the "
+                                        "PNG keeps its alpha channel. "
+                                        "Default false."},
          "seed": {"type": "integer",
                   "description": "Fixed seed to repeat a result. Default: "
                                  "random, named in the result."}},
         ["prompt"]),
-    _fn("edit_image",
-        "Change existing pictures with the local image model: 1-10 input "
-        "images plus an instruction. Runs two stages in this one call: the "
-        "edit at about 1 megapixel following `instruction`, then a "
-        "refinement to full size that sees only `description` and the "
-        "stage-1 picture -- so `description` must describe the whole FINAL "
-        "picture in full (subject, composition, style, light, colours), not "
-        "just the change. About 3 minutes. The PNG is saved in <working "
-        "root>/images/ and handed back to you as an image. For a picture "
-        "from nothing use generate_image.",
-        {"images": {"type": "array", "items": _STR,
-                    "description": "1-10 image paths in the working area; "
-                                   "the last one sets the default shape."},
-         "instruction": dict(_STR, description="What to change, e.g. 'make "
-                                               "it a bright daytime scene, "
-                                               "keep everything else'."),
-         "description": dict(_STR, description="The full description of "
-                                               "the final picture, for "
-                                               "stage 2."),
-         "aspect_ratio": dict(_STR, description="1:1, 4:3, 3:4, 3:2, 2:3, "
-                                                "16:9 or 9:16. Default: the "
-                                                "last image's shape, snapped "
-                                                "to that list.")},
-        ["images", "instruction", "description"]),
+    # #404: NO edit_image DECLARATION while the image model cannot edit.
+    # stable-diffusion.cpp's Ming-Image support is text-to-image only (PR
+    # #2063, f8890b9), and TOOLS is one list for every operating point (it is
+    # hashed into prefix_fingerprint), so the gate is here: the tool is not
+    # offered at all. tool_edit_image stays in TOOL_IMPL, so a call from an
+    # older conversation is answered with one sentence instead of "unknown tool".
     # #340. THE STILL MOVES. Its rules for `motion` are what Phase 0's clips
     # and the owner's test clip showed: one motion that carries through, nothing
     # the still does not hold, sound as words.
@@ -10555,7 +10559,7 @@ _BLANK_SHARE = 0.999
 _PNG_DECODE_BUDGET = 16 * 1024 * 1024
 
 
-def _png_pixels(data: bytes) -> "tuple | None":
+def _png_pixels(data: bytes, budget: int = _PNG_DECODE_BUDGET) -> "tuple | None":
     """#213, split out for #265: a PNG's unfiltered scanlines, or
     None. Returns (width, height, colour_type, channels, rows) with one
     `bytearray` per row.
@@ -10564,7 +10568,8 @@ def _png_pixels(data: bytes) -> "tuple | None":
     Filter --, damit die Suite echte Bytes ohne Browser pruefen kann. Nur was
     ein Screenshot hier wirklich ist (8 Bit Tiefe, kein Interlace, Grau/RGB/
     RGBA) wird dekodiert; Palette und 16 Bit sind None und damit KEIN Urteil.
-    Ueber dem Budget (_PNG_DECODE_BUDGET) ebenfalls None.
+    Ueber dem Budget (_PNG_DECODE_BUDGET, oder `budget`: #404's
+    _flatten_on_white liest ganze Bilder des Bildmodells) ebenfalls None.
     """
     import zlib
 
@@ -10595,7 +10600,7 @@ def _png_pixels(data: bytes) -> "tuple | None":
         return None
     channels = {0: 1, 2: 3, 6: 4}[colour]
     stride = width * channels
-    if height * (stride + 1) > _PNG_DECODE_BUDGET:
+    if height * (stride + 1) > budget:
         return None
     try:
         raw = zlib.decompress(b"".join(idat))
@@ -12752,63 +12757,91 @@ def tool_read_image(path: str, **_) -> str:
 
 
 # ------------------------------------------ #300 phase 3, #308, #311 -----
-# IMAGE TOOLS: generate_image and edit_image over a RESIDENT sd-server.
+# IMAGE TOOLS: generate_image over a RESIDENT sd-server (edit_image answers
+# that the image model cannot edit, #404).
+#
+# THE IMAGE MODEL IS MING-IMAGE 0.1 DESIGN (#400, #404) on stable-diffusion.cpp
+# 2f016e8 (#402), replacing Qwen-Image 2.1 on 2f88688. Every number below that
+# names G1/G2/E1 was measured on Qwen-Image; NOTHING about Ming-Image's speed or
+# memory on this machine is measured yet (#400 phase 7 is the owner's run).
 #
 # WHY A SERVER AND NOT sd-cli PER CALL. #300 phase 3 A measured what a cold
 # sd-cli pays per image: 397 text-encoder tensors plus 14.27 s of CPU text
 # encoding BEFORE the first step, and on 2026-09-27 a detached sd-cli inside
 # run_command's 8G scope never got past that load in 10 min 47 s (#308). The
 # resident server pays the load once: G1 175.3 s cold, G2 155.2 s warm at
-# 2752x1536, 40 steps, beside the 27B serve (crow-nest decode_out/p3-img,
-# RESULTS.md). So the server is started on the first call and kept.
+# 2752x1536, 40 steps, beside the 27B serve (Qwen-Image 2.1; crow-nest
+# decode_out/p3-img, RESULTS.md). So the server is started on the first call
+# and kept.
 #
-# WHY THE LOG AND NOT AN API FOR PROGRESS. sd-server 2f88688 has none: the job
-# JSON carries a status and no step, there is no SSE and no websocket (#308
-# Research 2; upstream PR #1884 is open). Its bars go to its own stdout, which
-# Crow owns because Crow started it -- so the tool tails that file.
+# WHY THE LOG AND NOT AN API FOR PROGRESS. sd-server 2f88688 had none: the job
+# JSON carried a status and no step (#308 Research 2). At 2f016e8 a job that is
+# posted with `preview` set carries `preview` {pass, step, total_steps,
+# b64_json} while it generates (96f67fe, examples/server/async_jobs.cpp
+# make_async_job_json) -- a FOLLOW-UP, not built: it costs a PNG encode per
+# step and says nothing about loading, encoding or decoding. The bars still go
+# to the server's own stdout, which Crow owns because Crow started it -- so the
+# tool tails that file.
 IMAGE_SERVER_URL = "http://127.0.0.1:8097"
-IMAGE_MODEL_NAME = "qwen-image-2.1"
+IMAGE_MODEL_NAME = "ming-image-0.1-design"
+IMAGE_MODEL_LABEL = "Ming-Image 0.1 Design"
+# The short name the boot menu and its window print while the server loads.
+IMAGE_MODEL_SHORT = "Ming-Image"
 IMAGE_MODEL_DIR_ENV = "CROW_IMAGE_MODEL_DIR"
+# #404: an ADDITIVE fallback, NOT MEASURED. Set (e.g. `q8_0`), sd-server gets
+# `--type <value>` and converts the weights while it loads them
+# (examples/common/common.cpp:798 at 2f016e8, parsed by sd-server's own
+# SDContextParams; src/pipeline/diffusion_engine.cpp:880-883
+# set_wtype_override). Unset, the argv is exactly #400's contract argv.
+IMAGE_WEIGHT_TYPE_ENV = "CROW_IMAGE_WEIGHT_TYPE"
+# edit_image stays a name here although it is no longer declared (#404): a
+# call from an older conversation still takes the image tools' blind rule.
 IMAGE_TOOL_NAMES = ("generate_image", "edit_image", "animate_image")
 IMAGE_HANDED = " It is handed to you as an image below."
+# #404: the ride copy of a transparent picture is flattened onto white
+# (_flatten_on_white); this says so, and run_turn strips it with IMAGE_HANDED
+# when the server is blind.
+IMAGE_HANDED_FLAT = (" It is handed to you as an image below, flattened onto "
+                     "white: the PNG itself keeps its transparent background.")
+# The README's own phrase (inclusionAI/Ming-Image @ 3515cd7b1e README,
+# "Transparent-background generation tip": exactly one fixed phrase, at the
+# beginning of the prompt, never two).
+IMAGE_RGBA_PHRASE = "RGBA, 4-channel, transparent background"
+EDIT_UNAVAILABLE = ("error: edit_image is not available: Ming-Image in "
+                    "sd-server makes new pictures only -- call generate_image "
+                    "with the whole new picture instead.")
 
 # ONE JOB MAY TAKE 20 MINUTES, AND NOT ONE SECOND MORE. The slowest measured
-# job was E1, a 4 MP edit: 697.2 s. Twice that is still a job that ends; a
-# server that holds a job longer is stuck, and a tool that waits for it is
-# the hang this ticket exists to end.
+# job was E1, a 4 MP Qwen-Image edit: 697.2 s. Twice that is still a job that
+# ends; a server that holds a job longer is stuck, and a tool that waits for it
+# is the hang this ticket exists to end. Ming-Image: not measured.
 IMAGE_JOB_TIMEOUT = 20 * 60
 IMAGE_POLL_S = 0.5
 # `capabilities` answers once the arguments are parsed -- the weights load
-# lazily with the first job ("weights will be prepared lazily", sd-server.log).
+# lazily with the first job ("model metadata validated; weights will be
+# prepared lazily", src/pipeline/diffusion_engine.cpp:1389 at 2f016e8).
 IMAGE_BOOT_WAIT = 180.0
 # #320: how far back a failed job's log is searched for its cause.
 IMAGE_LOG_SCAN_BYTES = 8 << 20
 
-# THE MODEL CARD'S TABLE, not a formula: each is the size Qwen-Image 2.1 was
-# trained at for that shape. 16:9 is the default because every measured run
-# (G1, G2, E1-E3, B4, B5) used it.
+# THE MODEL'S OWN TABLE, not a formula: ASPECT_RATIO_2048 in inclusionAI/
+# Ming-Image @ 3515cd7b1e bailingmm_utils.py:373-397 (keyed by h/w, values
+# [h, w]), the 2048 bucket the model card recommends. All are multiples of 16,
+# as sd.cpp requires (docs/ming_image.md). 1:1 is the default: the card's
+# 2048x2048.
 IMAGE_SIZES = {
     "1:1": (2048, 2048),
-    "4:3": (2400, 1792),
-    "3:4": (1792, 2400),
-    "3:2": (2528, 1696),
-    "2:3": (1696, 2528),
-    "16:9": (2752, 1536),
-    "9:16": (1536, 2752),
+    "4:3": (2432, 1824),
+    "3:4": (1824, 2432),
+    "3:2": (2496, 1664),
+    "2:3": (1664, 2496),
+    "16:9": (2560, 1440),
+    "9:16": (1440, 2560),
 }
-IMAGE_DEFAULT_ASPECT = "16:9"
-IMAGE_STEPS = 40
-IMAGE_MAX_INPUTS = 10
-
-# THE EDIT RUNS TWICE, and the owner chose it on the pictures (2026-09-27). A 4 MP
-# edit OUTPUT is grainy whatever the reference size: E1 (4 MP ref, 4 MP out)
-# and E2 (1 MP ref, 4 MP out) both show frame-wide grain, E3 (1 MP ref, 1 MP
-# out, the diffusers pipeline's own output_resolution=1024) is clean. B5 then
-# takes E3 to 2752x1536 by img2img at strength 0.25 with a full description
-# and no reference: clean, closest to E3. E3 105.7 s + B5 55.3 s.
-EDIT_STAGE1_PIXELS = 1024 * 1024
-EDIT_REF_ARGS = "vae_input_max_pixels=1048576"
-EDIT_REFINE_STRENGTH = 0.25
+IMAGE_DEFAULT_ASPECT = "1:1"
+# Model card "Recommended settings" and docs/ming_image.md at 2f016e8: 12 steps,
+# CFG 1.0, the Euler sampler.
+IMAGE_STEPS = 12
 
 # Per turn thread, like the INTERRUPT flag's owner: subtasks run their turns
 # on threads of their own (Subtask), and one's progress must never draw on
@@ -12879,12 +12912,13 @@ def take_announced_videos() -> "list[dict]":
 
 
 def image_model_dir() -> str:
-    """Where Qwen-Image 2.1 lies: $CROW_IMAGE_MODEL_DIR, else beside the text
+    """Where the image model's folder (IMAGE_MODEL_NAME, the four files of
+    _image_model_files) lies: $CROW_IMAGE_MODEL_DIR, else beside the text
     models under `crow_platform.models_dir()`.
 
     THE VARIABLE IS NOT A NICETY ON THIS MACHINE. install.sh links
     `<install>/models` to ONE model's tree (here qwen3.8-flash-next), so the
-    sibling `qwen-image-2.1` is not under it; the image model sits in the
+    sibling image-model folder is not under it; the image model sits in the
     models root beside that tree. One variable says where, as $CROW_MODELS
     does for the text models.
     """
@@ -12901,9 +12935,10 @@ def image_model_dir() -> str:
     inside = os.path.join(root, IMAGE_MODEL_NAME)
     # BESIDE THE LINKED TREE, the layout install.sh makes: `<install>/models`
     # -> ~/Projects/models/qwen3.8-flash-next, the image model at
-    # ~/Projects/models/qwen-image-2.1 (the owner's machine, 2026-09-27). Asked
-    # only when the plain place has nothing, so an install that keeps the
-    # image model inside the models root is read exactly as before.
+    # ~/Projects/models/<image model> (the owner's machine, 2026-09-27, then
+    # qwen-image-2.1). Asked only when the plain place has nothing, so an
+    # install that keeps the image model inside the models root is read
+    # exactly as before.
     beside = os.path.join(os.path.dirname(os.path.realpath(root)), IMAGE_MODEL_NAME)
     if not os.path.isdir(inside) and os.path.isdir(beside):
         return beside
@@ -12911,12 +12946,17 @@ def image_model_dir() -> str:
 
 
 def _image_model_files(model: str) -> "list[str]":
-    """The three files the measured argv names, in argv order."""
-    return [os.path.join(model, "transformer",
-                         "diffusion_pytorch_model.safetensors.index.json"),
-            os.path.join(model, "text_encoder_sdcli",
-                         "model.safetensors.index.json"),
-            os.path.join(model, "vae", "diffusion_pytorch_model.safetensors")]
+    """The four files sd-server reads, in argv order: DiT, text encoder, VAE,
+    tokenizer (#400's file set; docs/ming_image.md at 2f016e8 names the same
+    four, `--tokenizer` required). The first three are Comfy-Org/Ming-Image's
+    single-file BF16 repackage, the tokenizer inclusionAI's own; nothing is
+    converted or derived."""
+    return [os.path.join(model, "diffusion_models",
+                         "ming_image_0.1_design_bf16.safetensors"),
+            os.path.join(model, "text_encoders",
+                         "ming_image_0.1_ling_mini_2.0_bf16.safetensors"),
+            os.path.join(model, "vae", "ming_image_vae_bf16.safetensors"),
+            os.path.join(model, "mllm", "tokenizer.json")]
 
 
 def image_server_binary() -> "str | None":
@@ -12962,8 +13002,9 @@ def image_tools_unavailable() -> "str | None":
     model = image_model_dir()
     missing = [p for p in _image_model_files(model) if not os.path.isfile(p)]
     if missing:
-        return ("the image model is not on disk: %s is missing -- set %s to "
-                "the qwen-image-2.1 folder" % (missing[0], IMAGE_MODEL_DIR_ENV))
+        return ("the image model (%s) is not on disk: %s is missing -- set %s "
+                "to the %s folder" % (IMAGE_MODEL_LABEL, missing[0],
+                                      IMAGE_MODEL_DIR_ENV, IMAGE_MODEL_NAME))
     return None
 
 
@@ -12972,29 +13013,53 @@ def image_tools_available() -> bool:
     return image_tools_unavailable() is None
 
 
-def image_server_command(port: int) -> "list[str]":
-    """The argv measured on 2026-09-27 beside the 27B serve (8.15 GiB free).
+def image_weight_type_args() -> "list[str]":
+    """#404: `["--type", <CROW_IMAGE_WEIGHT_TYPE>]`, or [] while it is unset.
 
-    `--max-vram 7` and `te=cpu` are what keeps it beside the language model:
-    card peak 31,322-31,566 MiB of 32,127 over every arm (Linux). The q8_0
-    prefix cache is the measured line's; E1's grain was NOT traced to it (E3
-    is clean with it). No `vae_tiling_params` is ever sent per request -- the
-    server's own `--vae-tiling` is the measured setting.
+    NOT MEASURED. sd.cpp converts the BF16 weights to that type while it
+    loads them. Read, not measured: a converted tensor cannot be the file's
+    mmap'd page, so on Windows it would count against the commit limit #320 is
+    about. A fallback for the owner to try, never a default. A value sd.cpp does not know ends
+    the server at start ("invalid weight format", common.cpp on_type_arg),
+    which image_server_start reports with the log's last lines. crow_boot
+    appends the same tail to stack.json's argv.
+    """
+    value = (os.environ.get(IMAGE_WEIGHT_TYPE_ENV) or "").strip()
+    return ["--type", value] if value else []
+
+
+def image_server_command(port: int) -> "list[str]":
+    """#400's argv for Ming-Image 0.1 Design on sd-server 2f016e8.
+
+    Kept from the line measured on 2026-09-27 beside the 27B serve with
+    Qwen-Image 2.1 (8.15 GiB free): `--max-vram 7` and `--backend te=cpu`
+    (card peak 31,322-31,566 MiB of 32,127 over every arm, Linux),
+    `--vae-tiling` (no `vae_tiling_params` is ever sent per request), and on
+    Windows `--mmap`. `--diffusion-fa` became `--flash-attn off,diffusion=on`,
+    its own stated equivalent at 2f016e8 ("deprecated; use --flash-attn
+    off,diffusion=on", examples/common/common.cpp). The Qwen-only `--model-args
+    qwen_image_2_1_prefix_cache_type=q8_0` is gone; `--tokenizer` is required
+    for Ming (docs/ming_image.md). `--conv-direct` is left at its 2f016e8
+    default `auto` (src/pipeline/diffusion_engine.cpp:1237-1263 probes each
+    backend). NOT MEASURED with Ming-Image: its host weights are 45.87 GiB
+    against Qwen-Image's 29.05 GiB.
 
     Windows adds `--mmap` (#320, crow_platform.image_server_platform_args):
-    measured 2026-09-28 beside the default 27B serve, the image completed in
-    237.7 s with it (commit 51,149 of 64,901 MB); without it every job failed.
+    measured 2026-09-28 beside the default 27B serve, the Qwen-Image picture
+    completed in 237.7 s with it (commit 51,149 of 64,901 MB); without it every
+    job failed. $CROW_IMAGE_WEIGHT_TYPE appends `--type` (image_weight_type_args).
     """
-    transformer, encoder, vae = _image_model_files(image_model_dir())
+    dit, encoder, vae, tokenizer = _image_model_files(image_model_dir())
     argv = [image_server_binary() or "sd-server",
-            "--diffusion-model", transformer, "--llm", encoder, "--vae", vae,
-            "--backend", "te=cpu", "--diffusion-fa", "--max-vram", "7",
-            "--vae-tiling",
-            "--model-args", "qwen_image_2_1_prefix_cache_type=q8_0",
+            "--diffusion-model", dit, "--llm", encoder, "--vae", vae,
+            "--tokenizer", tokenizer,
+            "--backend", "te=cpu", "--flash-attn", "off,diffusion=on",
+            "--max-vram", "7", "--vae-tiling",
             "--listen-port", str(port), "-v"]
     # #320: Windows appends --mmap (the commit limit under WDDM); the
     # reason and the numbers stand at crow_platform.image_server_platform_args.
-    return argv + crow_platform.image_server_platform_args()
+    return (argv + crow_platform.image_server_platform_args()
+            + image_weight_type_args())
 
 
 def _image_server_env() -> dict:
@@ -13044,6 +13109,10 @@ def image_server_workdir() -> str:
     (`EXCEPTION_WHAT: directory_entry::status: The file cannot be accessed by
     the system.`), the probe got HTTP 500 and no job was ever posted
     (2026-09-28). From an empty folder the same probe answered 200 in 29 ms.
+    At 2f016e8 sd-server clears `lora_model_dir` itself ("disabling cwd scans
+    for sd-server", examples/server/main.cpp:78-79, a4a9669 #2086); the folder
+    of its own stays, so nothing it might still read relative to `.` reaches
+    the window's directory.
     """
     return os.path.join(crow_platform.state_dir(), "image-server")
 
@@ -13077,11 +13146,23 @@ def _image_server_answers(timeout: float = 2.0) -> bool:
 # One pattern for every line the server redraws: `\r`, `\n` and the `ESC[K`
 # that ends each bar. The bar and a log line can share one physical line --
 # sd-server3.log: `| 2/25 - 3.56s/it^[[K[VERBOSE] ggml_runner...` -- so the
-# escape has to be a separator, not only something to strip.
+# escape has to be a separator, not only something to strip. The bar itself is
+# unchanged at 2f016e8 (src/core/util.cpp:590-638 print_progress_line,
+# `\r%s %i/%i - %s\033[K`).
 _SD_SPLIT = re.compile(rb"\r|\n|\x1b\[K")
 _SD_BAR = re.compile(r"^\|([#=> ]*)\|\s*(\d+)/(\d+)\s*-\s*([\d.]+)\s*"
                      r"(s/it|it/s|GB/s|MB/s|KB/s|B/s)")
-_SD_LOG = re.compile(r"^\[(INFO|VERBOSE|DEBUG|WARN|ERROR)\s*\][^-]*-\s(.*)$")
+# #404: THE LINE SHAPE OF sd-server 2f016e8 (203a882 #2104, fd43b54 #2106).
+# examples/common/log.cpp log_print writes `[%s] ` with one letter (D, V, I,
+# W, E; `?` otherwise), then the message; src/core/util.cpp sd_log_dispatch
+# appends ` --- <file>:<line>` to the library's lines and writes ggml's as
+# `ggml: <text>`, and the example's own LOG_* append the same origin
+# (example_log_printf). Prompts are logged with their newlines escaped
+# (escape_newlines), so a caption is one line. Group 1 is the level letter,
+# group 2 the message without its origin. 2f88688's `[INFO   ] file:N  - msg`
+# is not read: that build cannot load Ming-Image.
+_SD_LOG = re.compile(r"^\[([DVIWE?])\] (.*?)(?: --- [^ ]+:\d+)?$")
+_SD_ERROR = "E"
 
 
 def _image_log_lines(path: str, since: "int | None" = None) -> "list[str] | None":
@@ -13119,14 +13200,17 @@ def _image_log_tail(path: str, lines: int = 6) -> str:
 
 # #320. WHAT AN OUT-OF-MEMORY JOB LEAVES IN THE LOG. sd-server's job answers
 # only "generate_image returned no results"; the cause stands in its log
-# (sd-server-8097.log, Windows, 2026-09-28):
-#   [ERROR  ] ggml - ggml_backend_cuda_buffer_type_alloc_buffer: allocating
-#             416.00 MiB on device 0: cudaMalloc failed: out of memory
-#   [ERROR  ] ggml - alloc_tensor_range: failed to allocate CUDA0 buffer ...
-#   [VERBOSE] ggml - ggml_cuda_host_malloc: failed to allocate 416.00 MiB of
-#             pinned memory: resource already mapped
+# (sd-server-8097.log, Windows, 2026-09-28, then at 2f88688). At 2f016e8 the
+# same ggml texts (ggml d25b121 ggml-cuda.cu:901 and :1300, ggml-alloc.c:1134)
+# come in the new shape (_SD_LOG):
+#   [E] ggml: ggml_backend_cuda_buffer_type_alloc_buffer: allocating
+#       416.00 MiB on device 0: cudaMalloc failed: out of memory
+#   [E] ggml: alloc_tensor_range: failed to allocate CUDA0 buffer ...
+#   [V] ggml: ggml_cuda_host_malloc: failed to allocate 416.00 MiB of
+#       pinned memory: resource already mapped
 # ERROR lines first, cudaMalloc's before the rest; a pinned-memory refusal
-# is logged VERBOSE and counts only when nothing louder stands there.
+# is logged VERBOSE (GGML_LOG_DEBUG, which sd_ggml_log_callback maps to
+# verbose) and counts only when nothing louder stands there.
 _SD_OOM_MARKS = ("cudaMalloc failed: out of memory", "failed to allocate")
 _SD_PINNED_MARKS = ("ggml_cuda_host_malloc: failed", "of pinned memory")
 
@@ -13141,7 +13225,7 @@ def _image_oom_cause(path: str, since: int) -> "str | None":
     for mark in _SD_OOM_MARKS:
         for line in lines:
             level = _SD_LOG.match(line)
-            if mark in line and not (level and level.group(1) != "ERROR"):
+            if mark in line and not (level and level.group(1) != _SD_ERROR):
                 found = line
                 break
         if found:
@@ -13169,8 +13253,10 @@ def image_server_start() -> "str | None":
     """Make sure an image server answers on IMAGE_SERVER_URL. None, or the error.
 
     SOMEBODY ELSE'S SERVER IS USED, NOT REPLACED -- start_server's rule: a
-    second sd-server beside the first would load 29.8 GB of weights twice
-    into RAM ("total params memory size = 29751.86MB", sd-server.log).
+    second sd-server beside the first would load the weights twice into RAM
+    -- Qwen-Image 2.1's were 29.05 GiB ("total params memory size =
+    29751.86MB", sd-server.log; sd.cpp's MB is MiB, diffusion_engine.cpp
+    divides by 1024.0/1024.0), Ming-Image's files are 45.87 GiB.
 
     DETACHED LIKE start_server'S BOOT (#158): its own session and, on Linux,
     its own user scope outside app.slice, so a Ctrl+C or an oomd kill of the
@@ -13250,9 +13336,11 @@ def image_server_warm() -> "threading.Thread | None":
     """Start the image server and send it one tiny job, in a daemon thread.
 
     THE FIRST REAL JOB SHOULD NOT PAY THE LOAD. G1 (cold) took 175.3 s and
-    G2 (warm) 155.2 s; the difference is the lazy weight load, which any
-    job triggers. 256x256 at one step is the smallest job that loads every
-    part. Nothing is saved and nothing is reported: a surface calls this at
+    G2 (warm) 155.2 s on Qwen-Image 2.1; the difference is the lazy weight
+    load, which any job triggers. 256x256 at one step is the smallest job that
+    loads every part (256 is a multiple of 16, as Ming-Image needs; Euler at
+    txt_cfg 1.0 is the real job's sampler). Nothing is saved and nothing is
+    reported: a surface calls this at
     start when `image_tools_available()`, and a failure shows up again, with
     its reason, on the first real call.
     """
@@ -13280,7 +13368,10 @@ class SdProgress:
     """#308. sd-server's console, read as phases. Bytes in, states out.
 
     THE TABLE IS #308's, matched on MESSAGE TEXT, never on `file:line` -- the
-    installed binary logs image.cpp:805 where the checkout says :809.
+    installed binary logs image.cpp:805 where the checkout says :809. The
+    texts are unchanged at 2f016e8 (src/pipeline/image.cpp:529, 554, 814,
+    866, 1050; src/model_loader.cpp:1391); only the line around them moved
+    (_SD_LOG, #404).
 
       `#` bar before the condition is done   loading   i/N tensors
       the rest before it                     encoding  (CPU text encoder;
@@ -13289,7 +13380,7 @@ class SdProgress:
       `#` bars inside sampling               sampling  (streamed DiT, no change)
       `decoding N latents` then `=` bars     decoding  tile i/N
       `generate_image completed in`          saved
-      `[ERROR`                               error     that line
+      `[E]`                                  error     that line
 
     A line it does not know changes nothing: a verbose log is mostly such
     lines, and a parser that raised on one would end the job it watches.
@@ -13338,7 +13429,7 @@ class SdProgress:
         if not log:
             return False
         level, msg = log.group(1), log.group(2).strip()
-        if level == "ERROR":
+        if level == _SD_ERROR:
             self.phase, self.i, self.n, self.eta_s = "error", None, None, None
             self.error = self.line = msg
             return True
@@ -13464,33 +13555,16 @@ def image_dimensions(path: str) -> "tuple[int, int] | None":
         return None
 
 
-def snap_aspect(width: int, height: int) -> str:
-    """The IMAGE_SIZES key nearest to width:height, by log ratio."""
-    ratio = math.log(max(1, width) / max(1, height))
-    return min(IMAGE_SIZES, key=lambda k: abs(
-        math.log(IMAGE_SIZES[k][0] / IMAGE_SIZES[k][1]) - ratio))
-
-
-def one_megapixel(ratio: float) -> "tuple[int, int]":
-    """diffusers `calculate_dimensions(1024*1024, ratio)`: ~1 MP, both /32.
-
-    The QwenImage21Pipeline sizes every condition image and the edit output
-    this way (output_resolution=1024); 16:9 gives 1376x768, the E3 size.
-    """
-    width = math.sqrt(EDIT_STAGE1_PIXELS * ratio)
-    height = width / ratio
-    return int(round(width / 32) * 32), int(round(height / 32) * 32)
-
-
 def _image_input(raw) -> "tuple[str | None, str | None]":
-    """(absolute path, None) for an image an edit may read, else (None, error).
+    """(absolute path, None) for an image a tool may send to a server (the
+    still of animate_image), else (None, error).
 
     READ_IMAGE'S CHECKS (`_rooted`, #177; the IMAGE_TYPES table; the
     IMAGE_MAX_BYTES bound, #207) plus the magic bytes (#301's `_binary_kind`),
     because these bytes leave for another process and a text file named .png
     is a failed job three minutes later instead of a refusal now. And the
     working area (#144): a picture outside it is read only when the user
-    named that path (_MANDATED) or released it with "always" -- the edit
+    named that path (_MANDATED) or released it with "always" -- the tool
     reads it without asking, so the ask has to have happened already.
     """
     text = str(raw or "").strip().strip("'\"")
@@ -13558,7 +13632,7 @@ def _save_image(png: bytes, about: str) -> str:
     raise OSError("no free file name for %s in %s" % (stem, folder))
 
 
-def _run_image_job(body: dict, base: dict, refine: bool = False
+def _run_image_job(body: dict, base: dict
                    ) -> "tuple[bytes | None, float, str | None]":
     """Submit one job, report it until it ends. (png, seconds, None) or
     (None, seconds, the error or STOPPED line).
@@ -13580,9 +13654,6 @@ def _run_image_job(body: dict, base: dict, refine: bool = False
         full = dict(base, stage=base.get("stage", ""), i=None, n=None,
                     eta_s=None, line="")
         full.update(state)
-        if refine and full["phase"] == "sampling":
-            full["phase"] = "refining"
-            full["line"] = full["line"].replace("sampling", "refining", 1)
         if full != last:
             last = full
             report_progress(**full)
@@ -13714,26 +13785,89 @@ def _run_image_job(body: dict, base: dict, refine: bool = False
         time.sleep(IMAGE_POLL_S)
 
 
+# #404: the largest raw scanline buffer of an IMAGE_SIZES picture in RGBA (4:3,
+# 2432x1824: 17.7 MB) -- over _PNG_DECODE_BUDGET, which is sized for captures.
+_FLATTEN_BUDGET = max((w * 4 + 1) * h for w, h in IMAGE_SIZES.values())
+
+
+def _flatten_on_white(png: bytes) -> "bytes | None":
+    """#404: an RGBA PNG composited onto white as an RGB PNG, or None when it
+    has no alpha channel or cannot be read (8-bit, not interlaced: what
+    sd-server's stb writer makes).
+
+    WHY THE RIDE GETS A FLAT COPY. Both of Crow's vision paths DROP alpha
+    instead of compositing it: crow-nest's `decode_rgb` is
+    `image::load_from_memory(..).to_rgb8()` (engine/src/vit.rs:1202-1205; the
+    image crate's Rgba->Rgb keeps the colour channels and drops A), and
+    llama.cpp decodes with `stbi_load_from_memory(.., 3)`
+    (tools/mtmd/mtmd-helper.cpp:404), whose 4->3 conversion does the same. So
+    the model would see whatever RGB Ming-Image left under alpha 0, not the
+    picture. The HF reference processors composite onto white
+    (transformers.image_transforms.convert_to_rgb), and so does this.
+
+    Pure Python, like the rest of the PNG code here: a 2048x2048 RGBA PNG
+    with Paeth on every row decoded in 2.8 s in a scratch timing on the
+    owner's machine (2026-10-18), so only a `transparent` call pays it.
+    """
+    img = _png_pixels(png, _FLATTEN_BUDGET)
+    if img is None or img[2] != 6:
+        return None
+    width, height, _colour, _channels, rows = img
+    opaque, clear = b"\xff" * width, b"\x00" * width
+    white = b"\xff" * (width * 3)
+    out = []
+    for row in rows:
+        alpha = row[3::4]
+        if alpha == clear:
+            out.append(white)
+            continue
+        rgb = bytearray(width * 3)
+        rgb[0::3], rgb[1::3], rgb[2::3] = row[0::4], row[1::4], row[2::4]
+        if alpha != opaque:
+            for x, a in enumerate(alpha):
+                if a == 255:
+                    continue
+                k, j, inv = 3 * x, 4 * x, 255 * (255 - a) + 127
+                rgb[k] = (row[j] * a + inv) // 255
+                rgb[k + 1] = (row[j + 1] * a + inv) // 255
+                rgb[k + 2] = (row[j + 2] * a + inv) // 255
+        out.append(rgb)
+    return _png_encode(width, height, 2, out)
+
+
 def _image_result(path: str, png: bytes, seconds: float, seed: int,
-                  extra: str = "") -> str:
+                  extra: str = "", flatten: bool = False) -> str:
     """The tool's answer, and the picture on the image ride for the model.
 
     THE SAME RIDE AS read_image (#170), and the same bound: the file travels
     as it is on disk, and the server caps it at --image-max-tokens. A blind
     server is caught in run_turn, where the image tools keep their result and
     only lose the picture.
+
+    #404: `flatten` (a transparent picture) sends _flatten_on_white's copy
+    instead and says so; the file on disk keeps its alpha. Every Ming-Image
+    PNG is RGBA (sd.cpp's image channels are 4 for Ming), but without the RGBA
+    phrase its alpha is meant to be opaque and the file rides as it is.
     """
+    import base64
     size = image_dimensions(path) or (0, 0)
     shown = path
     root = get_root()
     if root and _inside(root, path):
         # FORWARD SLASHES on every platform: the model hands this path back to
-        # edit_image/read_image, which take "/" on Windows too, and one
+        # read_image/animate_image, which take "/" on Windows too, and one
         # spelling keeps the transcript the same everywhere (Windows CI, 2026-09-27).
         shown = os.path.relpath(path, root).replace(os.sep, "/")
     said = "saved %s (%s) -- %dx%d, %s bytes, %.1f s%s, seed %d." % (
         shown, path, size[0], size[1], "{:,}".format(len(png)), seconds,
         extra, seed)
+    flat = _flatten_on_white(png) if flatten else None
+    if flat is not None and len(flat) <= IMAGE_MAX_BYTES:
+        _IMAGE_RIDE.clear()
+        _IMAGE_RIDE.append([{"type": "image_url", "image_url": {
+            "url": "data:image/png;base64,"
+                   + base64.b64encode(flat).decode("ascii")}}])
+        return said + IMAGE_HANDED_FLAT
     if len(png) <= IMAGE_MAX_BYTES:
         try:
             _IMAGE_RIDE.clear()
@@ -14385,8 +14519,9 @@ def tool_animate_image(image: str = "", motion: str = "", seconds=None,
 
 
 def _image_sample_params() -> dict:
-    """The measured sampler: 40 Euler steps, txt_cfg 1.0 (the pipeline's
-    `true_cfg_scale` default -- "meant to be sampled without guidance")."""
+    """Ming-Image's sampler: 12 Euler steps, txt_cfg 1.0 (model card
+    "Recommended settings": 12 steps, CFG 1.0; docs/ming_image.md at 2f016e8:
+    `--steps 12 --cfg-scale 1 --sampling-method euler`)."""
     return {"sample_steps": IMAGE_STEPS, "sample_method": "euler",
             "guidance": {"txt_cfg": 1.0}}
 
@@ -14417,14 +14552,54 @@ def _image_start(kind: str, width: int, height: int, stage: str
     return base, why
 
 
+def _image_flag(value, name: str) -> "tuple[bool | None, str | None]":
+    """A boolean argument as the model sends it: JSON true/false, or the
+    words and digits a template may turn them into. Absent is False."""
+    if value is None or value == "":
+        return False, None
+    if isinstance(value, bool):
+        return value, None
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value), None
+    word = str(value).strip().lower()
+    if word in ("true", "yes", "1"):
+        return True, None
+    if word in ("false", "no", "0"):
+        return False, None
+    return None, "error: %s must be true or false, got %r" % (name, value)
+
+
+def _image_about(prompt: str) -> str:
+    """#404: the words a picture's file name is made of. A structured caption
+    names itself by its layers' descriptions, topmost first -- its first
+    words are always `canvas_settings`, which would name every file alike."""
+    try:
+        doc = json.loads(prompt)
+    except ValueError:
+        return prompt
+    layers = doc.get("layers") if isinstance(doc, dict) else None
+    if isinstance(layers, list):
+        said = " ".join(str(layer.get("description") or "")
+                        for layer in reversed(layers) if isinstance(layer, dict))
+        if said.strip():
+            return said
+    return prompt
+
+
 def tool_generate_image(prompt: str, aspect_ratio: str = IMAGE_DEFAULT_ASPECT,
-                        seed=None, **_) -> str:
+                        seed=None, transparent=False, **_) -> str:
     """#300 phase 3. A new picture from a prompt, saved under <root>/images/.
 
     ONE CALL, ONE PICTURE, AND THE CALL WAITS FOR IT. The model's own
     workaround before this tool -- `nohup sd-cli ... &` plus sleep-polling --
     cost eight poll calls and two wrong readings of the log (#308 msgs
     20-44). Here the wait is the tool's, and the progress is the window's.
+
+    #404 `transparent`: IMAGE_RGBA_PHRASE goes first, once (the README's
+    rule: one fixed phrase at the beginning, never two), then a newline and
+    the prompt -- the README names no separator, and a line break keeps a
+    JSON caption whole. NOT MEASURED. The PNG keeps sd-server's alpha; the
+    model sees it flattened onto white (_flatten_on_white).
     """
     if not str(prompt or "").strip():
         return "error: prompt is empty -- describe the whole picture"
@@ -14434,17 +14609,23 @@ def tool_generate_image(prompt: str, aspect_ratio: str = IMAGE_DEFAULT_ASPECT,
     value, bad = _image_seed(seed)
     if bad:
         return bad
+    clear, bad = _image_flag(transparent, "transparent")
+    if bad:
+        return bad
+    text = str(prompt)
+    if clear and not text.lstrip().startswith(IMAGE_RGBA_PHRASE):
+        text = IMAGE_RGBA_PHRASE + "\n" + text
     width, height = IMAGE_SIZES[aspect]
     base, why = _image_start("generate", width, height, "")
     if why is not None:
         return why
     png, took, err = _run_image_job({
-        "prompt": str(prompt), "width": width, "height": height,
+        "prompt": text, "width": width, "height": height,
         "seed": value, "sample_params": _image_sample_params()}, base)
     if err is not None:
         return err
     try:
-        path = _save_image(png, str(prompt))
+        path = _save_image(png, _image_about(str(prompt)))
     except OSError as exc:
         report_progress(**dict(base, phase="error", i=None, n=None,
                                eta_s=None, line=str(exc)[:200]))
@@ -14452,100 +14633,20 @@ def tool_generate_image(prompt: str, aspect_ratio: str = IMAGE_DEFAULT_ASPECT,
     report_progress(**dict(base, phase="saved", i=None, n=None, eta_s=0.0,
                            line=path))
     announce_image(path, "generate_image", base["job"])
-    return _image_result(path, png, took, value)
+    return _image_result(path, png, took, value,
+                         ", transparent background" if clear else "",
+                         flatten=clear)
 
 
-def tool_edit_image(images=None, instruction: str = "", description: str = "",
-                    aspect_ratio=None, **_) -> str:
-    """#300 phase 3. Change 1-10 pictures in TWO STAGES, one call.
-
-    Stage 1 edits at ~1 MP: every reference resized by the server
-    (`image_preprocess`, no Pillow here) to its own one_megapixel size, the
-    output at the target shape's one_megapixel size (16:9: 1376x768),
-    `ref_image_args` vae_input_max_pixels=1048576 -- E3, clean in 105.7 s.
-    Stage 2 is img2img at the full size WITHOUT references: the stage-1 PNG
-    as init, stretched by the server, strength 0.25, prompt = the full
-    description of the final picture -- B5, 55.3 s. The instruction alone
-    cannot be stage 2's prompt: without references the model sees only the
-    init image and that text, and "make it daytime" describes no picture.
+def tool_edit_image(*_args, **_kwargs) -> str:
+    """#404. NOT AVAILABLE ON MING-IMAGE: stable-diffusion.cpp's Ming support
+    is text-to-image only (PR #2063, f8890b9), so there is no engine under an
+    edit. The tool is no longer declared (TOOLS); this answers a call that
+    comes anyway -- an older conversation, a model's habit -- with one
+    sentence, before anything is read or sent. Qwen-Image 2.1's two-stage
+    edit (#300 phase 3, E3 + B5) went with that model.
     """
-    items = images if isinstance(images, (list, tuple)) \
-        else [p for p in re.split(r"[,\n]", str(images or "")) if p.strip()]
-    if not items:
-        return "error: images is empty -- pass 1 to %d paths" % IMAGE_MAX_INPUTS
-    if len(items) > IMAGE_MAX_INPUTS:
-        return ("error: %d images -- edit_image takes at most %d"
-                % (len(items), IMAGE_MAX_INPUTS))
-    if not str(instruction or "").strip():
-        return "error: instruction is empty -- say what to change"
-    if not str(description or "").strip():
-        return ("error: description is empty -- stage 2 sees only this text "
-                "and the stage-1 picture, so describe the whole final image")
-    paths, sizes = [], []
-    for item in items:
-        path, bad = _image_input(item)
-        if bad:
-            return bad
-        dims = image_dimensions(path)
-        if not dims or not all(dims):
-            return "error: cannot read the size of %s" % path
-        paths.append(path)
-        sizes.append(dims)
-    if aspect_ratio:
-        aspect, bad = _image_aspect(aspect_ratio)
-        if bad:
-            return bad
-    else:
-        aspect = snap_aspect(*sizes[-1])
-    width, height = IMAGE_SIZES[aspect]
-    value, _bad = _image_seed(None)
-    small_w, small_h = one_megapixel(width / height)
-    rules = []
-    refs = []
-    for k, (path, (w, h)) in enumerate(zip(paths, sizes)):
-        rw, rh = one_megapixel(w / h)
-        rules.append("target=ref,index=%d,mode=stretch,width=%d,height=%d,"
-                     "filter=lanczos" % (k, rw, rh))
-        try:
-            refs.append(image_part(path)["image_url"]["url"])
-        except CrowError as exc:
-            return "error: %s" % exc
-    base, why = _image_start("edit", width, height, "1/2")
-    if why is not None:
-        return why
-    first, took1, err = _run_image_job({
-        "prompt": str(instruction), "width": small_w, "height": small_h,
-        "seed": value, "sample_params": _image_sample_params(),
-        "ref_images": refs, "ref_image_args": EDIT_REF_ARGS,
-        "image_preprocess": rules}, base)
-    if err is not None:
-        return err
-    import base64
-    base = dict(base, stage="2/2")
-    final, took2, err = _run_image_job({
-        "prompt": str(description), "width": width, "height": height,
-        "seed": value, "sample_params": _image_sample_params(),
-        "init_image": "data:image/png;base64,"
-                      + base64.b64encode(first).decode("ascii"),
-        "strength": EDIT_REFINE_STRENGTH,
-        "image_preprocess": "target=init,mode=stretch,width=%d,height=%d,"
-                            "filter=lanczos" % (width, height)},
-        base, refine=True)
-    if err is not None:
-        return err
-    try:
-        path = _save_image(final, str(instruction))
-    except OSError as exc:
-        report_progress(**dict(base, phase="error", i=None, n=None,
-                               eta_s=None, line=str(exc)[:200]))
-        return "error: the picture could not be saved: %s" % exc
-    report_progress(**dict(base, phase="saved", i=None, n=None, eta_s=0.0,
-                           line=path))
-    announce_image(path, "edit_image", base["job"])
-    return _image_result(
-        path, final, took1 + took2, value,
-        " (stage 1 edit at %dx%d: %.1f s, stage 2 refine at %dx%d: %.1f s)"
-        % (small_w, small_h, took1, width, height, took2))
+    return EDIT_UNAVAILABLE
 
 
 # #301. A TEXT READER THAT MEETS BYTES SAYS SO. read_file opened every file as
@@ -18233,6 +18334,14 @@ TOOL_IMPL = {
     "animate_image": tool_animate_image,
 }
 
+# #404: NAMES THAT RUN BUT ARE NOT OFFERED. Every name in TOOLS has an entry in
+# TOOL_IMPL (a declared name the model cannot reach is the defect the
+# dispatcher tests guard); these are the other direction on purpose: a tool
+# taken out of TOOLS whose call still gets its own answer, not "unknown tool"
+# -- an older conversation shows the model calling it. edit_image: Ming-Image
+# in sd-server cannot edit (tool_edit_image).
+RETIRED_TOOLS = frozenset({"edit_image"})
+
 
 # ---------------------------------------------------------------- #88 ------
 # RELEASE LEVELS. The classes come from the tools themselves, not from taste:
@@ -18253,10 +18362,13 @@ TOOL_CLASS = {
     # sich bisher einen Browser gebaut hat: dieselbe Klasse wie vorher, nur mit
     # einem Handle daran.
     "render_page": "executing",
-    # #300 phase 3. render_page's reasoning, twice over: they start a
-    # process (the image server), hold the GPU for minutes and write a file.
+    # #300 phase 3. render_page's reasoning, twice over: it starts a
+    # process (the image server), holds the GPU for minutes and writes a file.
     "generate_image": "executing",
-    "edit_image": "executing",
+    # #404: edit_image now only answers that Ming-Image cannot edit -- it
+    # starts nothing and writes nothing, so asking before it would ask about
+    # nothing.
+    "edit_image": "reading",
     # #340: the same, and it stops and restarts the language model too.
     "animate_image": "executing",
     "list_dir": "reading",
@@ -25999,11 +26111,13 @@ class TurnEvents:
         with nothing on the screen naming a phase, a step or an error.
 
         `state` keys, all present on every event:
-          job     str, one id for the whole call (an edit's two stages share it)
-          kind    "generate" | "edit"
+          job     str, one id for the whole call
+          kind    "generate" ("edit" and its stages "1/2"/"2/2" and phase
+                  "refining" were Qwen-Image's two-stage edit; since #404 the
+                  core sends none, a surface may still draw old ones)
           phase   "queued" | "loading" | "encoding" | "sampling" | "decoding"
-                  | "refining" | "saved" | "error" | "stopped"
-          stage   "1/2", "2/2" for an edit, "" otherwise
+                  | "saved" | "error" | "stopped"
+          stage   "" (see kind)
           i, n    int step/tile/tensor counters, or None (indeterminate)
           eta_s   float seconds left in sampling, or None
           line    one human line for the phase
@@ -26909,7 +27023,8 @@ def run_turn(
                     # #300 phase 3: THE PICTURE EXISTS, only the model cannot
                     # look at it. An "error: " here would tell it the
                     # generation failed and send it generating again.
-                    result = (result.replace(IMAGE_HANDED, "")
+                    result = (result.replace(IMAGE_HANDED_FLAT, "")
+                              .replace(IMAGE_HANDED, "")
                               .replace(VIDEO_HANDED, "")
                               + " It is not shown to you: " + blind)
                     conversation.append("tool", result, tool_call_id=call["id"])
