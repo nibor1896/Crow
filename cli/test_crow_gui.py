@@ -16125,7 +16125,7 @@ class RemoteApiParityTests(RemoteCase):
     to the desktop with a stated replacement -- and a call from one client
     produces the push the other one needs."""
 
-    PAGE_METHODS = 107         # 88 at fb31ca2 + the six pairing controls (#249 stage 5) + stage_image_data, drop_seen (#312) + the eight image_* (#311) + video_src, video_reveal (#340) + engine_check, engine_update_start (#367) + mono_font (#382) - the five sign-in doors + provider_subscriptions (#390) + usage_summary, set_dashboard_daily (#406, desktop-only)
+    PAGE_METHODS = 107         # 88 at fb31ca2 + the six pairing controls (#249 stage 5) + stage_image_data, drop_seen (#312) + the eight image_* (#311) + video_src, video_reveal (#340) + engine_check, engine_update_start (#367) + mono_font (#382) - the five sign-in doors + provider_subscriptions (#390) + usage_summary, set_dashboard_daily (#406, proxied)
 
     def page_methods(self) -> set:
         page = crow_gui.PAGE
@@ -16144,6 +16144,25 @@ class RemoteApiParityTests(RemoteCase):
                              sorted((crow_gui.REMOTE_PROXIED | bound) - called)))
         for name in called:
             self.assertTrue(callable(getattr(crow_gui.Api, name, None)), name)
+
+    def test_the_phone_draws_the_same_dashboard_page(self):
+        """#406. THE SHEET OPENS ON ITS DASHBOARD PAGE ON THE PHONE TOO, so the
+        phone asks the desktop for the same summary and flips the same switch.
+        Answered on the phone itself, the first page of its Settings was empty."""
+        summary = {"today": "2026-10-18", "days": [], "year_tokens": 1200,
+                   "month_tokens": 900, "streak": 2, "longest": 5,
+                   "active_days": 3, "models": [], "first": "2026-10-16"}
+        api = self.mirrored()
+        with mock.patch.object(crow_core, "usage_summary", lambda **_: summary,
+                               create=True):
+            self.assertEqual(self.as_phone(api._remote_call, "usage_summary", []),
+                             summary)
+        self.assertTrue(self.as_phone(api._remote_call, "set_dashboard_daily", [False]))
+        self.assertFalse(crow_gui.dashboard_daily())
+        for name in ("usage_summary", "set_dashboard_daily"):
+            self.assertIn(name, crow_gui.REMOTE_PROXIED)
+            self.assertNotIn(name, crow_gui.REMOTE_DESKTOP_BOUND,
+                             "the phone's bridge would answer it itself")
 
     def test_every_bound_method_says_what_the_phone_does(self):
         for name, how in crow_gui.REMOTE_DESKTOP_BOUND.items():
@@ -20575,7 +20594,7 @@ class TheUsageDashboardTests(ApiCase):
     def run_view(self) -> dict:
         js = (_FAKE_PAGE_DOM + "const crow = {\n"
               + _crow_methods(self.source, "fmtTok", "dashDay", "dashTell", "dashEl",
-                              "dashToday", "dashView", "dash") + "\n"
+                              "dashToday", "dashView", "dash", "dashEnd") + "\n"
               "  emptyCheck(){ log.push('check'); } };\n"
               "const days = [], t0 = Date.UTC(2025, 9, 13);\n"
               "for (let i = 0; i < 371; i++) days.push({day: new Date(t0 + i * 864e5)"

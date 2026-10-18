@@ -3271,11 +3271,15 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
   border-top:1px solid var(--line-soft);font-size:13px}
 .dashv .mrow.head{border-top:0;padding:0 0 6px;font-size:11.5px}
 .dashv .mrow.head span,.dashv .mrow.none{color:var(--dim)}
-.dashv .mname{flex:1 1 auto;min-width:0;color:var(--text);white-space:nowrap;
+/* NARROW, THE SHARE GIVES WAY AND THE NAME KEEPS 5em: on the phone's sheet
+   (358 px) the fixed 190 px share pushed the names to nothing and the
+   percentages past the edge. Where there is room nothing moves. */
+.dashv .mname{flex:1 1 auto;min-width:5em;color:var(--text);white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis}
 .dashv .mnum{flex:0 0 64px;text-align:right;font-variant-numeric:tabular-nums;
   color:var(--text-soft)}
-.dashv .mshare{flex:0 0 190px;display:flex;align-items:center;gap:10px;color:var(--dim)}
+.dashv .mshare{flex:0 1 190px;min-width:0;display:flex;align-items:center;gap:10px;
+  color:var(--dim)}
 .dashv .track{flex:1 1 auto;height:6px;border-radius:3px;background:var(--raised);
   overflow:hidden;display:flex}
 .dashv .bar{display:block;height:6px;border-radius:3px;background:var(--h3)}
@@ -5240,15 +5244,25 @@ const crow = {
     top.appendChild(this.dashEl("span","ddate",this.dashToday()));
     if(line) top.appendChild(line);
     g.appendChild(top);
-    g.appendChild(this.dashView(u, false));
+    const v=this.dashView(u, false);
+    g.appendChild(v);
     g.classList.add("dash");
-    this.emptyCheck(); },
+    this.emptyCheck();
+    this.dashEnd(v); },
+  // TODAY IN VIEW. Where the grid is wider than its room -- the phone's
+  // sheet, a narrow window -- it scrolls, and it opens on its newest end
+  // rather than on a year ago. Once it is in the page: before, it has no width.
+  dashEnd(v){ const s=v.querySelector(".dscroll"); if(s) s.scrollLeft=s.scrollWidth; },
   // ASKED EVERY TIME ITS PAGE OPENS: the ledger grows with every turn. A
-  // phone gets null (`usage_summary` is desktop-only) and the page stays empty.
+  // phone asks the desktop the same (`usage_summary` is proxied) and draws
+  // the same page.
   drawDash(){ pywebview.api.usage_summary().then(u=>{ const box=$("#sdash");
       if(!box) return;
       box.textContent="";
-      if(u) box.appendChild(this.dashView(u, true)); }); },
+      if(!u) return;
+      const v=this.dashView(u, true);
+      box.appendChild(v);
+      this.dashEnd(v); }); },
   setDashDaily(on){ pywebview.api.set_dashboard_daily(!!on); },
 
   user(text){
@@ -10683,6 +10697,10 @@ REMOTE_PROXIED = frozenset({
     "image_thumb", "image_full", "image_info",
     # #340: the player's source -- the bytes for a phone, like `image_full`.
     "video_src",
+    # #406: the sheet opens on its Dashboard page on the phone too, so the
+    # phone reads the desktop's ledger and flips the desktop's switch -- the
+    # one switch there is. Answered on the phone, that page stayed empty.
+    "usage_summary", "set_dashboard_daily",
 })
 # WAS DAS TELEFON STATTDESSEN TUT, je Schluessel ein Satz. Die Seite liest
 # die Schluessel (`__REMOTE_BOUND__`), dieser Text ist fuer Menschen.
@@ -10731,9 +10749,6 @@ REMOTE_DESKTOP_BOUND = {
     "remote_forget": "desktop-only", "remote_use_ip": "desktop-only",
     "remote_use_https": "desktop-only",
     "remote_stop": "desktop-only",
-    # #406: THE USAGE DASHBOARD IS THE WINDOW'S. The mirror is not extended by
-    # it: a phone gets no ledger read and cannot flip the desktop's switch.
-    "usage_summary": "desktop-only", "set_dashboard_daily": "desktop-only",
     # #311: the lightbox's actions act on the desktop's file and machine --
     # its file manager, clipboard, viewer and trash (the owner's "im File
     # Explorer oeffnen" is the first of them).
