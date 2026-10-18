@@ -877,10 +877,10 @@ FAKE
         check "NEGATIVE: sourcing build-llama-server.sh defines its functions and builds nothing" \
               "$([ "$out" = sourced ] && [ -z "$(ls -A "$tmp/sdhome")" ] && echo 0 || echo 1)" \
               "$out | $(find "$tmp/sdhome" -mindepth 1 -maxdepth 1 | tr '\n' ' ')"
-        check "image server: the builder pins 2f016e8 and its four submodules" \
-              "$(for s in 2f016e8e30ab0d0051c268944ae96c0951dba4f0 d25b121ce1d6ae0c7e62ad080460d9fc1e46dd93 \
+        check "image server: the builder pins 2f88688 and its four submodules" \
+              "$(for s in 2f886889e6e8b78738d6b87f7191f6018557c551 4bf5f6000653b7881d00963cd6ddb665ccd62a8d \
                           0c9546f7efc61eac7f79ae115c3f99c91c21c443 5bf12267eea773a32fcf4949de52b0add158a8d5 \
-                          8e7c11505925c0dbf9aaea56a3a5058b8690d66b; do
+                          dd74a8e808aaa8b26124217424b23058935184de; do
                      grep -q "^[^#]*$s" "$REPO/tools/build-sd-server.sh" || { echo 1; exit; }
                  done; echo 0)"
     fi
@@ -1147,9 +1147,8 @@ install_engine() {
 }
 
 # --build-image-server (#314): sd-server and sd-cli from stable-diffusion.cpp
-# 2f016e8 (Ming-Image support, #400), the binaries the image tools run.
-# Unlike the engine, the builder runs whenever the flag is given, even over an
-# existing sd-server: it
+# 2f88688, the binaries generate_image/edit_image run. Unlike the engine, the
+# builder runs whenever the flag is given, even over an existing sd-server: it
 # is idempotent (~1.4 s when nothing changed, measured), it replaces a
 # hand-copied binary and keeps one of another commit as sd-server-<commit>.
 # After that the one thing still missing is the model, so the core is asked
@@ -1161,8 +1160,8 @@ install_image_server() {
         CROW_HOME="$CROW_HOME" bash "$builder" \
             || die "tools/build-sd-server.sh failed. Its output above says where."
     elif [ ! -f "$CROW_HOME/bin/sd-server" ]; then
-        note "no image server at $CROW_HOME/bin/sd-server: the image tools stay off."
-        note "Built here from stable-diffusion.cpp 2f016e8 with the engine's CUDA toolkit,"
+        note "no image server at $CROW_HOME/bin/sd-server: generate_image/edit_image stay off."
+        note "Built here from stable-diffusion.cpp 2f88688 with the engine's CUDA toolkit,"
         note "no root, ~3 minutes and ~1 GB (plus the toolkit download if it is not there):"
         cmd "CROW_HOME=$CROW_HOME bash $builder"
         return 0
@@ -1179,12 +1178,12 @@ EOF
     why="$(printf '%s\n' "$where" | sed -n 2p)"
     where="$(printf '%s\n' "$where" | sed -n 1p)"
     if [ -n "$where" ] && [ -z "$why" ]; then
-        ok "image tools: Ming-Image 0.1 Design at $where"
+        ok "image tools: Qwen-Image 2.1 at $where"
         return 0
     fi
-    warn "image tools: the server is there, the Ming-Image 0.1 Design model directory is not"
-    note "the image tools read it from \$CROW_IMAGE_MODEL_DIR, else"
-    note "<models>/ming-image-0.1-design, else ming-image-0.1-design beside the tree <install>/models"
+    warn "image tools: the server is there, the Qwen-Image 2.1 model directory is not"
+    note "generate_image/edit_image read it from \$CROW_IMAGE_MODEL_DIR, else"
+    note "<models>/qwen-image-2.1, else qwen-image-2.1 beside the tree <install>/models"
     note "links to (crow_core.image_model_dir())."
     [ -n "$why" ] && note "now: $why"
     return 0

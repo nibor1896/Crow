@@ -24,7 +24,7 @@ user will be missing, and the tool refuses to write an archive rather than ship 
 that fails on somebody else's machine.
 
 .PARAMETER SdBuildDir
-Optional. The bin directory of a Windows stable-diffusion.cpp build (pin 2f016e8,
+Optional. The bin directory of a Windows stable-diffusion.cpp build (pin 2f88688,
 CUDA 13, -DSD_CUDA=ON; recipe in docs/user-guide/install.md). sd-server.exe and
 sd-cli.exe from it go into bin\ beside llama-server.exe, the image server of
 generate_image/edit_image (#314). Their DLLs are resolved exactly like

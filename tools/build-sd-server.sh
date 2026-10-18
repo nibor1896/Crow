@@ -5,8 +5,7 @@
 #
 # WHAT
 #   Produces $CROW_HOME/bin/sd-server and $CROW_HOME/bin/sd-cli: the CUDA
-#   stable-diffusion.cpp binaries behind generate_image (and edit_image while
-#   the image model was Qwen-Image 2.1; Ming-Image has no edit path)
+#   stable-diffusion.cpp binaries behind generate_image / edit_image
 #   (crow_core.image_server_binary(), #300 phase 3, #308, #311), built for
 #   Blackwell (sm_120, RTX 5090) from a pinned tree. Before #314 no installer
 #   provided them: the tools worked on robin's machine only because sd-server
@@ -22,33 +21,23 @@
 #   PINNING" blocks hold for this build unchanged.
 #
 # WHY THIS PIN
-#   stable-diffusion.cpp 2f016e8e30ab0d0051c268944ae96c0951dba4f0, tag
-#   master-970-2f016e8 (2026-10-16), for Ming-Image 0.1 Design (#400, #402).
-#   Ming-Image support landed in f8890b9 (PR #2063, 2026-09-27): the Ling-mini-2.0
-#   text encoder, the DiT and the RGBA VAE, text-to-image only -- there is no
-#   reference-image edit path for it. The head commit, 2f016e8 (PR #2145), makes
-#   sd-cli and sd-server open UTF-8 file paths on Windows.
-#   The previous pin, 2f88688 (master-920-2f88688), is four commits before
-#   f8890b9 and has no Ming-Image code. It is the tree every Qwen-Image 2.1
-#   measurement in #300 phase 3 was taken on (G1, G2, E1-E3, B4, B5), built by
-#   hand on 2026-09-26 as ~/.local/share/crow/src/stable-diffusion.cpp-2f88688
-#   (cmake.log there; the blocks below cite it).
-#   NOTHING WAS MEASURED ON THIS TREE YET: no image, no speed, no memory line.
-#   As with llama.cpp: a newer tree is a different engine, and the 2f88688
-#   numbers do not carry over. On 2026-10-18 it was compiled on Windows with
-#   the recipe in docs/user-guide/install.md (no weights loaded); this script
-#   has not been run at this pin.
+#   stable-diffusion.cpp 2f886889e6e8b78738d6b87f7191f6018557c551, tag
+#   master-920-2f88688. It is the tree every image measurement in #300 phase 3
+#   was taken on (G1, G2, E1-E3, B4, B5; the argv in
+#   crow_core.image_server_command()), built by hand on 2026-09-26 as
+#   ~/.local/share/crow/src/stable-diffusion.cpp-2f88688 (cmake.log there).
+#   The previous hand build, 137f740 for #206, reports "version unknown" and
+#   predates the Qwen-Image 2.1 support that line relies on. As with llama.cpp:
+#   a newer tree is a different engine, and nothing was measured on it.
 #
-#   The submodules at that pin, read from the git tree of 2f016e8 -- the same
-#   four paths and .gitmodules as at 2f88688, ggml and the frontend moved -- and
-#   checked against the tree on every run (verify_src):
-#       ggml                      d25b121ce1d6ae0c7e62ad080460d9fc1e46dd93
+#   The submodules at that pin, read from `git ls-tree 2f88688` and checked
+#   against the tree on every run (verify_src):
+#       ggml                      4bf5f6000653b7881d00963cd6ddb665ccd62a8d
 #       thirdparty/libwebp        0c9546f7efc61eac7f79ae115c3f99c91c21c443
 #       thirdparty/libwebm        5bf12267eea773a32fcf4949de52b0add158a8d5
-#       examples/server/frontend  8e7c11505925c0dbf9aaea56a3a5058b8690d66b
+#       examples/server/frontend  dd74a8e808aaa8b26124217424b23058935184de
 #   The first three are compiled in. The frontend is recorded and NOT fetched;
-#   see WHY NO FRONTEND. ggml d25b121 is the head of no leejet/ggml branch, so
-#   `git submodule update` fetches it by SHA, as it did 4bf5f60 before.
+#   see WHY NO FRONTEND.
 #
 # WHY NO FRONTEND (SD_SERVER_BUILD_FRONTEND=OFF)
 #   examples/server/CMakeLists.txt builds the web UI with `pnpm install` +
@@ -113,14 +102,14 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/build-llama-server.sh"
 
 # --- parameters ------------------------------------------------------------
-SD_PIN="${SD_PIN:-2f016e8e30ab0d0051c268944ae96c0951dba4f0}"
-SD_TAG="${SD_TAG:-master-970-2f016e8}"
+SD_PIN="${SD_PIN:-2f886889e6e8b78738d6b87f7191f6018557c551}"
+SD_TAG="${SD_TAG:-master-920-2f88688}"
 # path:sha at SD_PIN. BUILT ones are fetched and checked out; the rest are
 # only checked against the pin's tree.
-SD_SUBMODULES_BUILT="ggml:d25b121ce1d6ae0c7e62ad080460d9fc1e46dd93
+SD_SUBMODULES_BUILT="ggml:4bf5f6000653b7881d00963cd6ddb665ccd62a8d
 thirdparty/libwebp:0c9546f7efc61eac7f79ae115c3f99c91c21c443
 thirdparty/libwebm:5bf12267eea773a32fcf4949de52b0add158a8d5"
-SD_SUBMODULES_RECORDED="examples/server/frontend:8e7c11505925c0dbf9aaea56a3a5058b8690d66b"
+SD_SUBMODULES_RECORDED="examples/server/frontend:dd74a8e808aaa8b26124217424b23058935184de"
 SD_UPSTREAM="${SD_UPSTREAM:-https://github.com/leejet/stable-diffusion.cpp.git}"
 
 SD_SRC_DIR="${SD_SRC_DIR:-$CROW_HOME/src/stable-diffusion.cpp-${SD_PIN:0:7}}"
@@ -288,7 +277,7 @@ configure_build() {
 }
 
 # --- 3. install + verify ---------------------------------------------------
-# "2f016e8" out of `<bin> --version`, or "unknown". LD_LIBRARY_PATH because a
+# "2f88688" out of `<bin> --version`, or "unknown". LD_LIBRARY_PATH because a
 # hand-copied binary without an RPATH does not start without it (2026-09-27).
 commit_of() {
     local out
@@ -366,10 +355,9 @@ sd_main() {
     configure_build
     install_verify
     say "done: $BIN_DIR/sd-server, $BIN_DIR/sd-cli"
-    echo "    generate_image also needs the Ming-Image 0.1 Design model directory:"
-    echo "    \$CROW_IMAGE_MODEL_DIR, else <models>/ming-image-0.1-design, else"
-    echo "    ming-image-0.1-design beside the tree <install>/models links to"
-    echo "    (crow_core.image_model_dir())."
+    echo "    generate_image/edit_image also need the Qwen-Image 2.1 model directory:"
+    echo "    \$CROW_IMAGE_MODEL_DIR, else <models>/qwen-image-2.1, else qwen-image-2.1"
+    echo "    beside the tree <install>/models links to (crow_core.image_model_dir())."
 }
 
 sd_main "$@"

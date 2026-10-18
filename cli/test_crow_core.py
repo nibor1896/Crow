@@ -2049,13 +2049,11 @@ class ReleaseLevelTests(TurnLoopCase):
         # und legen eine Datei an.
         # `animate_image` seit #340: executing wie generate_image -- es startet
         # ComfyUI, stoppt und startet das Sprachmodell und legt eine Datei an.
-        # `edit_image` seit #404 nicht mehr: es startet nichts und schreibt
-        # nichts, es sagt nur, dass Ming-Image nicht bearbeiten kann.
         self.assertEqual(asks["manual"],
                          ["animate_image", "append_file", "build_bundle", "edit_file",
-                          "generate_image", "render_page", "run_command",
+                          "edit_image", "generate_image", "render_page", "run_command",
                           "write_file"])
-        self.assertEqual(asks["allowedit"], ["animate_image", "build_bundle",
+        self.assertEqual(asks["allowedit"], ["animate_image", "build_bundle", "edit_image",
                                              "generate_image", "render_page", "run_command"])
         self.assertEqual(asks["auto"], [])
 
@@ -7843,7 +7841,7 @@ class TheMcpConfigurationTests(unittest.TestCase):
         with no entry in TOOL_IMPL is a tool the model calls and never reaches."""
         self._write(self._server())
         offered = {t["function"]["name"] for t in crow_core.TOOLS}
-        self.assertEqual(offered, set(crow_core.TOOL_IMPL) - crow_core.RETIRED_TOOLS)
+        self.assertEqual(offered, set(crow_core.TOOL_IMPL))
 
     def test_a_disabled_server_contributes_nothing(self):
         """`enabled: false` is Hermes' key and it means skipped, not merely
@@ -23449,8 +23447,8 @@ const d0 = Date.now(), p0 = performance.now(), r = [Math.random(), Math.random()
 
 
 class TheImageModelIsFoundBesideTheLinkedTreeTests(unittest.TestCase):
-    """install.sh links <install>/models to ONE model's tree; the image model
-    lies beside that tree (robin's machine, 2026-09-27). Without the variable the
+    """install.sh links <install>/models to ONE model's tree; Qwen-Image lies
+    beside that tree (robin's machine, 2026-09-27). Without the variable the
     image tools must still find it, and the plain place still wins."""
 
     def test_beside_the_link_target_and_inside_first(self):
@@ -25560,12 +25558,9 @@ class RunToolResultTests(ToolLayerCase):
 
     def test_the_dispatcher_covers_every_name_in_the_tools_list(self):
         """TOOLS is what the model is offered and TOOL_IMPL is what runs. A name
-        in one and not the other is a tool the model will call and never reach
-        -- except RETIRED_TOOLS (#404), which run and are on purpose not offered."""
+        in one and not the other is a tool the model will call and never reach."""
         offered = {t["function"]["name"] for t in crow_core.TOOLS}
-        self.assertEqual(offered, set(crow_core.TOOL_IMPL) - crow_core.RETIRED_TOOLS)
-        self.assertFalse(offered & crow_core.RETIRED_TOOLS)
-        self.assertLessEqual(crow_core.RETIRED_TOOLS, set(crow_core.TOOL_IMPL))
+        self.assertEqual(offered, set(crow_core.TOOL_IMPL))
 
 
 class ToolResultCeilingTests(ToolLayerCase):
@@ -28074,91 +28069,188 @@ class RenderWaitCapForPathTracedPages(unittest.TestCase):
 # ---------------------------------------------- #300 phase 3, #308, #311 ---
 # THE IMAGE TOOLS, WITH NO GPU AND NO REAL SERVER. The server is a fake that
 # speaks the sdcpp job API (img_gen, jobs, cancel, capabilities) and writes
-# the lines of an sd-server log into a file while its job "runs" -- the same
-# file the tool tails.
-#
-# #404: THE LOG IS sd-server 2f016e8's, BUILT FROM ITS FORMAT STRINGS, not
-# taken from a run: Ming-Image has not run on this machine yet. _sd_line and
-# _sd_bar copy the two printers; each message is a LOG_* format string of
-# 2f016e8 with its file:line there; the numbers in them are illustrative. The
-# job has the shape G1 had on Qwen-Image 2.1 (the text-encoder load, the
-# condition, one streamed DiT segment, every sampling bar, the VAE load and
-# five tiles), at Ming-Image's 2048x2048 and 12 steps.
+# the lines of a real sd-server log into a file while its job "runs" -- the
+# same file the tool tails. The lines are G1's (2026-09-27, 2752x1536, 40
+# steps, beside the 27B serve), trimmed: the text-encoder load, the
+# condition, one streamed DiT segment, all 40 sampling bars, the VAE load and
+# five of its 220 tiles. Paths are shortened to ~/models.
 
-
-def _sd_line(level: str, message: str, origin: str) -> bytes:
-    """One log line as sd-server 2f016e8 writes it to a file:
-    examples/common/log.cpp log_print `[%s] ` (D, V, I, W, E; no colour
-    without --color), then src/core/util.cpp sd_log_dispatch -- the message
-    and ` --- <file>:<line>`, or `ggml: <text>` for ggml's own lines."""
-    if origin == "ggml":
-        return ("[%s] ggml: %s\n" % (level, message)).encode("utf-8")
-    return ("[%s] %s --- %s\n" % (level, message, origin)).encode("utf-8")
-
-
-def _sd_bar(step: int, steps: int, speed: str, char: str = "=",
-            head: bool = True) -> bytes:
-    r"""src/core/util.cpp:570-598 at 2f016e8, build_progress_bar plus
-    print_progress_line: `\r  |<50 cells>| i/N - <speed>\x1b[K`, a newline
-    after the last step. Byte bars (model_loader.cpp's pretty_bytes_progress)
-    are `#` without a head."""
-    current = int(step * 50.0 / steps)
-    cells = "".join(" " if i > current else
-                    (">" if head and i == current and i != 49 else char)
-                    for i in range(50))
-    return ("\r  |%s| %d/%d - %s\x1b[K%s" % (cells, step, steps, speed,
-                                              "\n" if step == steps else "")
-            ).encode("utf-8")
-
-
-_SD_LOADED = ("loading tensors completed, taking %s (read: %s, memcpy: 0.00s, "
-              "convert: 0.00s, copy_to_backend: 0.00s)")
-_SD_MODELS = "~/models/ming-image-0.1-design/"
-SD_SERVER_LOG = b"".join([
-    _sd_line("I", "generate_image 2048x2048", "image.cpp:814"),
-    _sd_line("I", "sampling using Euler method", "request.cpp:422"),
-    _sd_line("V", "loading 905/905 tensors from " + _SD_MODELS
-             + "text_encoders/ming_image_0.1_ling_mini_2.0_bf16.safetensors",
-             "model_loader.cpp:1121"),
-    _sd_bar(11, 905, "0.00MB/s", "#", False),
-    _sd_bar(240, 905, "6.76GB/s", "#", False),
-    _sd_bar(512, 905, "5.95GB/s", "#", False),
-    _sd_bar(780, 905, "5.32GB/s", "#", False),
-    _sd_bar(905, 905, "5.57GB/s", "#", False),
-    _sd_line("I", _SD_LOADED % ("6.53s", "6.07s"), "model_loader.cpp:1391"),
-    _sd_line("I", "get_learned_condition completed, taking 15.14s", "image.cpp:529"),
-    _sd_line("I", "generating image: 1/1 - seed 7", "image.cpp:866"),
-    _sd_line("V", "loading 4/402 tensors from " + _SD_MODELS
-             + "diffusion_models/ming_image_0.1_design_bf16.safetensors",
-             "model_loader.cpp:1121"),
-    _sd_bar(3, 4, "0.00MB/s", "#", False),
-    _sd_bar(4, 4, "5.73GB/s", "#", False),
-    _sd_line("I", _SD_LOADED % ("0.01s", "0.01s"), "model_loader.cpp:1391"),
-    # A log line glued to a bar, as the server writes them (sd-server3.log).
-    _sd_bar(1, 12, "8.27s/it"),
-    _sd_line("I", "ming_image build cached graph cut plan done (taking 2 ms)",
-             "ggml_graph_cut.cpp:1032"),
-    _sd_bar(2, 12, "3.54s/it"),
-    _sd_line("V", "ming_image compute buffer size: 2338.38 MB(VRAM) on CUDA0 "
-             "(peak across 34 segments)", "ggml_runner.cpp:1019"),
-] + [_sd_bar(k, 12, "%.2fs/it" % (3.54 if k < 8 else 3.56)) for k in range(3, 13)] + [
-    _sd_line("I", "sampling completed, taking 46.96s", "image.cpp:899"),
-    _sd_line("I", "generating 1 latent images completed, taking 46.96s", "image.cpp:911"),
-    _sd_line("I", "decoding 1 latents", "image.cpp:554"),
-    _sd_line("V", "loading 128/238 tensors from " + _SD_MODELS
-             + "vae/ming_image_vae_bf16.safetensors", "model_loader.cpp:1121"),
-    _sd_bar(15, 128, "0.00MB/s", "#", False),
-    _sd_bar(128, 128, "4.71GB/s", "#", False),
-    _sd_line("I", _SD_LOADED % ("0.20s", "0.08s"), "model_loader.cpp:1391"),
-    _sd_bar(1, 144, "2.40it/s"),
-    _sd_bar(2, 144, "17.24it/s"),
-    _sd_bar(3, 144, "17.54it/s"),
-    _sd_bar(4, 144, "17.24it/s"),
-    _sd_bar(144, 144, "17.54it/s"),
-    _sd_line("I", "latent 1 decoded, taking 12.37s", "image.cpp:620"),
-    _sd_line("I", "decode_first_stage completed, taking 12.37s", "image.cpp:624"),
-    _sd_line("I", "generate_image completed in 74.50s", "image.cpp:1050"),
-])
+SD_SERVER_LOG_G1 = (
+    b'[INFO   ] image.cpp:809  - generate_image 2752x1536\n'
+    b'[INFO   ] request.cpp:420  - sampling using Euler method\n'
+    b'[VERBOSE] model_loader.cpp:1105 - loading 38/40 tensors from'
+    b' ~/models/qwen-image-2.1/text_encoder_sdcli/model-00004-of-0'
+    b'0004.safetensors\n'
+    b'\r  |##                                                | 11/3'
+    b'97 - 0.00MB/s\x1b[K'
+    b'\r  |#####                                             | 38/3'
+    b'97 - 6.76GB/s\x1b[K\n'
+    b'[VERBOSE] model_loader.cpp:1105 - loading 75/426 tensors fro'
+    b'm ~/models/qwen-image-2.1/text_encoder_sdcli/model-00001-of-'
+    b'00004.safetensors\n'
+    b'\r  |#######                                           | 49/3'
+    b'97 - 6.73GB/s\x1b[K'
+    b'\r  |############                                      | 92/3'
+    b'97 - 5.95GB/s\x1b[K'
+    b'\r  |###############                                   | 113/'
+    b'397 - 5.32GB/s\x1b[K\n'
+    b'[VERBOSE] model_loader.cpp:1105 - loading 142/142 tensors fr'
+    b'om ~/models/qwen-image-2.1/text_encoder_sdcli/model-00002-of'
+    b'-00004.safetensors\n'
+    b'\r  |################                                  | 125/'
+    b'397 - 5.32GB/s\x1b[K'
+    b'\r  |#####################                             | 159/'
+    b'397 - 4.92GB/s\x1b[K'
+    b'\r  |#########################                         | 198/'
+    b'397 - 5.21GB/s\x1b[K'
+    b'\r  |##############################                    | 236/'
+    b'397 - 5.28GB/s\x1b[K'
+    b'\r  |#################################                 | 255/'
+    b'397 - 5.50GB/s\x1b[K\n'
+    b'[VERBOSE] model_loader.cpp:1105 - loading 142/142 tensors fr'
+    b'om ~/models/qwen-image-2.1/text_encoder_sdcli/model-00003-of'
+    b'-00004.safetensors\n'
+    b'\r  |##################################                | 267/'
+    b'397 - 5.50GB/s\x1b[K'
+    b'\r  |######################################            | 301/'
+    b'397 - 5.33GB/s\x1b[K'
+    b'\r  |###########################################       | 337/'
+    b'397 - 5.35GB/s\x1b[K'
+    b'\r  |###############################################   | 373/'
+    b'397 - 5.40GB/s\x1b[K'
+    b'\r  |##################################################| 397/'
+    b'397 - 5.57GB/s\x1b[K\n'
+    b'[INFO   ] model_loader.cpp:1375 - loading tensors completed,'
+    b' taking 2.53s (read: 2.07s, memcpy: 0.00s, convert: 0.00s, c'
+    b'opy_to_backend: 0.00s)\n'
+    b'[INFO   ] image.cpp:524  - get_learned_condition completed, '
+    b'taking 15.14s\n'
+    b'[INFO   ] image.cpp:861  - generating image: 1/1 - seed 7\n'
+    b'[VERBOSE] model_loader.cpp:1105 - loading 4/211 tensors from'
+    b' ~/models/qwen-image-2.1/transformer/diffusion_pytorch_model'
+    b'-00001-of-00002.safetensors\n'
+    b'\r  |######################################            | 3/4 '
+    b'- 0.00MB/s\x1b[K'
+    b'\r  |##################################################| 4/4 '
+    b'- 5.73GB/s\x1b[K\n'
+    b'[INFO   ] model_loader.cpp:1375 - loading tensors completed,'
+    b' taking 0.01s (read: 0.01s, memcpy: 0.00s, convert: 0.00s, c'
+    b'opy_to_backend: 0.00s)\n'
+    b'\r  |=>                                                | 1/40'
+    b' - 8.27s/it\x1b[K'
+    b'[INFO   ] ggml_graph_cut.cpp:1032 - qwen_image_2_1 build cac'
+    b'hed graph cut plan done (taking 2 ms)\n'
+    b'\r  |==>                                               | 2/40'
+    b' - 3.54s/it\x1b[K'
+    b'[VERBOSE] ggml_runner.cpp:1019 - qwen_image_2_1 compute buff'
+    b'er size: 2338.38 MB(VRAM) on CUDA0 (peak across 34 segments)\n'
+    b'\r  |===>                                              | 3/40'
+    b' - 3.54s/it\x1b[K'
+    b'\r  |=====>                                            | 4/40'
+    b' - 3.54s/it\x1b[K'
+    b'\r  |======>                                           | 5/40'
+    b' - 3.54s/it\x1b[K'
+    b'\r  |=======>                                          | 6/40'
+    b' - 3.54s/it\x1b[K'
+    b'\r  |========>                                         | 7/40'
+    b' - 3.54s/it\x1b[K'
+    b'\r  |==========>                                       | 8/40'
+    b' - 3.55s/it\x1b[K'
+    b'\r  |===========>                                      | 9/40'
+    b' - 3.55s/it\x1b[K'
+    b'\r  |============>                                     | 10/4'
+    b'0 - 3.55s/it\x1b[K'
+    b'\r  |=============>                                    | 11/4'
+    b'0 - 3.55s/it\x1b[K'
+    b'\r  |===============>                                  | 12/4'
+    b'0 - 3.55s/it\x1b[K'
+    b'\r  |================>                                 | 13/4'
+    b'0 - 3.55s/it\x1b[K'
+    b'\r  |=================>                                | 14/4'
+    b'0 - 3.55s/it\x1b[K'
+    b'\r  |==================>                               | 15/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |====================>                             | 16/4'
+    b'0 - 3.55s/it\x1b[K'
+    b'\r  |=====================>                            | 17/4'
+    b'0 - 3.55s/it\x1b[K'
+    b'\r  |======================>                           | 18/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |=======================>                          | 19/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |=========================>                        | 20/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |==========================>                       | 21/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |===========================>                      | 22/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |============================>                     | 23/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |==============================>                   | 24/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |===============================>                  | 25/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |================================>                 | 26/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |=================================>                | 27/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |===================================>              | 28/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |====================================>             | 29/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |=====================================>            | 30/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |======================================>           | 31/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |========================================>         | 32/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |=========================================>        | 33/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |==========================================>       | 34/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |===========================================>      | 35/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |=============================================>    | 36/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |==============================================>   | 37/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |===============================================>  | 38/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |================================================> | 39/4'
+    b'0 - 3.56s/it\x1b[K'
+    b'\r  |==================================================| 40/4'
+    b'0 - 3.56s/it\x1b[K\n'
+    b'[INFO   ] image.cpp:894  - sampling completed, taking 146.96'
+    b's\n'
+    b'[INFO   ] image.cpp:906  - generating 1 latent images comple'
+    b'ted, taking 146.96s\n'
+    b'[INFO   ] image.cpp:549  - decoding 1 latents\n'
+    b'[VERBOSE] model_loader.cpp:1105 - loading 128/238 tensors fr'
+    b'om ~/models/qwen-image-2.1/vae/diffusion_pytorch_model.safet'
+    b'ensors\n'
+    b'\r  |######                                            | 15/1'
+    b'28 - 0.00MB/s\x1b[K'
+    b'\r  |##################################################| 128/'
+    b'128 - 4.71GB/s\x1b[K\n'
+    b'[INFO   ] model_loader.cpp:1375 - loading tensors completed,'
+    b' taking 0.20s (read: 0.08s, memcpy: 0.00s, convert: 0.04s, c'
+    b'opy_to_backend: 0.00s)\n'
+    b'\r  |>                                                 | 1/22'
+    b'0 - 2.40it/s\x1b[K'
+    b'\r  |>                                                 | 2/22'
+    b'0 - 17.24it/s\x1b[K'
+    b'\r  |>                                                 | 3/22'
+    b'0 - 17.54it/s\x1b[K'
+    b'\r  |>                                                 | 4/22'
+    b'0 - 17.24it/s\x1b[K'
+    b'\r  |==================================================| 220/'
+    b'220 - 17.54it/s\x1b[K\n'
+    b'[INFO   ] image.cpp:615  - latent 1 decoded, taking 12.37s\n'
+    b'[INFO   ] image.cpp:619  - decode_first_stage completed, tak'
+    b'ing 12.37s\n'
+    b'[INFO   ] image.cpp:1045 - generate_image completed in 174.5'
+    b'0s\n'
+)
 
 
 def _gray_png(width: int, height: int) -> bytes:
@@ -28178,9 +28270,7 @@ def _gray_png(width: int, height: int) -> bytes:
 
 
 class _FakeSdServer:
-    """sd-server's native job API, as far as the tools use it -- the same
-    fields at 2f88688 and 2f016e8 (examples/server/async_jobs.cpp
-    make_async_job_json, routes_sdcpp.cpp; #404).
+    """sd-server 2f88688's native job API, as far as the tools use it.
 
     Each job answers `queued` on its first poll, then `generating` while it
     appends `per_poll` fixture lines to the log per poll, then `completed`
@@ -28190,7 +28280,7 @@ class _FakeSdServer:
     answer -- the stop case sets INTERRUPT from there.
     """
 
-    def __init__(self, log_path: str, lines=SD_SERVER_LOG, per_poll: int = 8):
+    def __init__(self, log_path: str, lines=SD_SERVER_LOG_G1, per_poll: int = 8):
         self.log_path = log_path
         self.lines = [x for x in lines.split(b"\n") if x]
         self.per_poll = per_poll
@@ -28200,9 +28290,6 @@ class _FakeSdServer:
         self.mode = "ok"
         self.fail_message = "CUDA out of memory"
         self.on_poll = None
-        # #404: the finished picture, png(body) -> bytes; None: an all-black
-        # greyscale PNG of the requested size.
-        self.png = None
         fake = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -28275,8 +28362,7 @@ class _FakeSdServer:
                                        "error": {"message": self.fail_message}})
         import base64
         body = job["body"]
-        png = (self.png(body) if self.png is not None
-               else _gray_png(body["width"], body["height"]))
+        png = _gray_png(body["width"], body["height"])
         job["status"] = "completed"
         return handler._send(200, {"id": ident, "status": "completed", "result": {
             "images": [{"index": 0, "b64_json": base64.b64encode(png).decode()}]}})
@@ -28359,8 +28445,8 @@ class _ImageServerCase(unittest.TestCase):
 
 
 class SdProgressReadsTheServersConsoleTests(unittest.TestCase):
-    """#308's table, on SD_SERVER_LOG (2f016e8's line shape, #404). Every
-    expectation below is a number that stands in the log itself."""
+    """#308's table, on the G1 log. Every expectation below is a number that
+    stands in the log itself."""
 
     def _feed(self, data: bytes, step: int = 0) -> "list[dict]":
         parser = crow_core.SdProgress()
@@ -28372,7 +28458,7 @@ class SdProgressReadsTheServersConsoleTests(unittest.TestCase):
         return out
 
     def test_the_phases_come_in_the_logs_order(self):
-        states = self._feed(SD_SERVER_LOG)
+        states = self._feed(SD_SERVER_LOG_G1)
         order = []
         for state in states:
             if not order or order[-1] != state["phase"]:
@@ -28380,75 +28466,70 @@ class SdProgressReadsTheServersConsoleTests(unittest.TestCase):
         self.assertEqual(order, ["loading", "encoding", "sampling", "decoding",
                                  "saved"])
 
-    def test_loading_counts_the_tensors_and_ends_at_905(self):
-        loading = [s for s in self._feed(SD_SERVER_LOG) if s["phase"] == "loading"
+    def test_loading_counts_the_tensors_and_ends_at_397(self):
+        loading = [s for s in self._feed(SD_SERVER_LOG_G1) if s["phase"] == "loading"
                    and s["i"] is not None]
-        self.assertEqual((loading[0]["i"], loading[0]["n"]), (11, 905))
-        self.assertEqual((loading[-1]["i"], loading[-1]["n"]), (905, 905))
+        self.assertEqual((loading[0]["i"], loading[0]["n"]), (11, 397))
+        self.assertEqual((loading[-1]["i"], loading[-1]["n"]), (397, 397))
         self.assertIn("GB/s", loading[-1]["line"])
 
     def test_sampling_counts_every_step_with_the_logs_rate(self):
-        steps = [s for s in self._feed(SD_SERVER_LOG) if s["phase"] == "sampling"
+        steps = [s for s in self._feed(SD_SERVER_LOG_G1) if s["phase"] == "sampling"
                  and s["i"]]
-        self.assertEqual([s["i"] for s in steps], list(range(1, 13)))
-        self.assertTrue(all(s["n"] == 12 for s in steps))
+        self.assertEqual([s["i"] for s in steps], list(range(1, 41)))
+        self.assertTrue(all(s["n"] == 40 for s in steps))
         self.assertIn("8.27 s/it", steps[0]["line"])
         self.assertIn("3.54 s/it", steps[1]["line"])
 
     def test_the_eta_leaves_out_step_one(self):
-        """Step 1 at 8.27 s against 3.54 s after it holds the segment loads
-        (G1's numbers). After step 1 alone there is no ETA; after step 2 it is
-        10 x 3.54."""
-        steps = [s for s in self._feed(SD_SERVER_LOG) if s["phase"] == "sampling"
+        """Step 1 measured 8.27 s against 3.54 s after it: it holds the segment
+        loads. After step 1 alone there is no ETA; after step 2 it is 38 x 3.54."""
+        steps = [s for s in self._feed(SD_SERVER_LOG_G1) if s["phase"] == "sampling"
                  and s["i"]]
         self.assertIsNone(steps[0]["eta_s"])
-        self.assertAlmostEqual(steps[1]["eta_s"], 10 * 3.54, places=1)
+        self.assertAlmostEqual(steps[1]["eta_s"], 38 * 3.54, places=1)
         self.assertEqual(steps[-1]["eta_s"], 0.0)
 
     def test_the_streamed_dit_bars_do_not_move_the_step(self):
         """A `#` bar inside sampling is a segment load, not a phase."""
         parser = crow_core.SdProgress()
-        parser.feed(_sd_line("I", "generating image: 1/1 - seed 7", "image.cpp:866")
-                    + _sd_bar(3, 12, "3.54s/it"))
-        said = parser.feed(_sd_bar(9, 9, "6.10GB/s", "#", False))
+        parser.feed(b"[INFO   ] image.cpp:861  - generating image: 1/1 - seed 7\n"
+                    b"\r  |=>   | 3/40 - 3.54s/it\x1b[K")
+        said = parser.feed(b"\r  |#####| 9/9 - 6.10GB/s\x1b[K\n")
         self.assertEqual(said, [])
-        self.assertEqual((parser.phase, parser.i, parser.n), ("sampling", 3, 12))
+        self.assertEqual((parser.phase, parser.i, parser.n), ("sampling", 3, 40))
 
     def test_decoding_counts_the_tiles(self):
-        tiles = [s for s in self._feed(SD_SERVER_LOG) if s["phase"] == "decoding"
+        tiles = [s for s in self._feed(SD_SERVER_LOG_G1) if s["phase"] == "decoding"
                  and s["i"]]
-        self.assertEqual(tiles[0]["n"], 144)
+        self.assertEqual(tiles[0]["n"], 220)
         self.assertIn("decoding (VAE)", tiles[0]["line"])
 
     def test_the_end_says_the_logs_time(self):
-        last = self._feed(SD_SERVER_LOG)[-1]
+        last = self._feed(SD_SERVER_LOG_G1)[-1]
         self.assertEqual(last["phase"], "saved")
-        self.assertIn("74.50", last["line"])
+        self.assertIn("174.50", last["line"])
 
     def test_any_cut_gives_the_same_states(self):
         """The file is read while the server writes it: a read ends anywhere,
         inside a bar or inside a UTF-8 sequence."""
-        whole = self._feed(SD_SERVER_LOG)
+        whole = self._feed(SD_SERVER_LOG_G1)
         for step in (1, 7, 61, 997):
-            self.assertEqual(self._feed(SD_SERVER_LOG, step), whole, step)
+            self.assertEqual(self._feed(SD_SERVER_LOG_G1, step), whole, step)
 
     def test_a_cut_line_waits_and_never_raises(self):
         parser = crow_core.SdProgress()
-        cut = SD_SERVER_LOG[:SD_SERVER_LOG.index(b"get_learned_condition") + 5]
+        cut = SD_SERVER_LOG_G1[:SD_SERVER_LOG_G1.index(b"get_learned_condition") + 5]
         parser.feed(cut)
         self.assertEqual(parser.phase, "encoding")
         self.assertEqual(parser.line, "encoding prompt (CPU)")
 
     def test_an_unknown_line_changes_nothing(self):
-        """Also 2f88688's shape: that build cannot load Ming-Image (#404)."""
         parser = crow_core.SdProgress()
-        parser.feed(SD_SERVER_LOG[:SD_SERVER_LOG.index(b"generating image")])
+        parser.feed(SD_SERVER_LOG_G1[:SD_SERVER_LOG_G1.index(b"generating image")])
         before = parser.state()
-        said = parser.feed(_sd_line("I", "a line nobody wrote a rule for", "x.cpp:1")
-                           + b"garbage without a level\n"
-                           + b"[ERROR  ] ggml - ggml_backend_cuda_buffer_type_alloc_buffer:"
-                           b" allocating 416.00 MiB on device 0: cudaMalloc failed:"
-                           b" out of memory\n")
+        said = parser.feed(b"[INFO   ] something.cpp:1 - a line nobody wrote a rule for\n"
+                           b"garbage without a level\n")
         self.assertEqual(said, [])
         self.assertEqual(parser.state(), before)
 
@@ -28456,36 +28537,23 @@ class SdProgressReadsTheServersConsoleTests(unittest.TestCase):
         """sd-server3.log: `| 2/25 - 3.56s/it^[[K[VERBOSE] ggml_runner...` --
         a bar and a log line share one physical line, so ESC[K separates."""
         parser = crow_core.SdProgress()
-        parser.feed(_sd_line("I", "generating image: 1/1 - seed 7", "image.cpp:866")
-                    + _sd_bar(2, 12, "3.54s/it")
-                    + _sd_line("E", "CUDA error: out of memory", "ggml"))
+        parser.feed(b"[INFO   ] image.cpp:861  - generating image: 1/1 - seed 7\n"
+                    b"\r  |==>   | 2/40 - 3.54s/it\x1b[K[ERROR  ] ggml_cuda.cpp:1 - "
+                    b"CUDA error: out of memory\n")
         self.assertEqual((parser.phase, parser.error),
-                         ("error", "ggml: CUDA error: out of memory"))
+                         ("error", "CUDA error: out of memory"))
 
-    def test_an_error_line_is_held_with_its_text_without_its_origin(self):
+    def test_an_error_line_is_held_with_its_text(self):
         parser = crow_core.SdProgress()
-        said = parser.feed(_sd_line("E", "sampling for image 1/1 failed after 3.43s",
-                                    "image.cpp:904"))
+        said = parser.feed(b"[ERROR  ] ggml_cuda.cpp:1 - CUDA error: out of memory\n")
         self.assertEqual(said[-1]["phase"], "error")
-        self.assertEqual(parser.error, "sampling for image 1/1 failed after 3.43s")
-
-    def test_the_line_shape_is_2f016e8s(self):
-        """#404: one letter in brackets, the origin after ` --- ` at the end,
-        ggml's lines without one; a ` --- ` inside a message stays in it."""
-        match = crow_core._SD_LOG.match
-        self.assertEqual(match("[I] generate_image 2048x2048 --- image.cpp:814").groups(),
-                         ("I", "generate_image 2048x2048"))
-        self.assertEqual(match("[E] ggml: alloc_tensor_range: failed").groups(),
-                         ("E", "ggml: alloc_tensor_range: failed"))
-        self.assertEqual(match("[V] split prompt \"a --- b\" --- hf_tokenizer.cpp:738")
-                         .groups(), ("V", "split prompt \"a --- b\""))
-        self.assertIsNone(match("[INFO   ] image.cpp:809  - generate_image 2752x1536"))
+        self.assertEqual(parser.error, "CUDA error: out of memory")
 
     def test_a_new_job_starts_from_loading(self):
         """The log is one file across jobs; a warm-up's end is not ours."""
         parser = crow_core.SdProgress()
-        parser.feed(SD_SERVER_LOG)
-        parser.feed(_sd_line("I", "generate_image 256x256", "image.cpp:814"))
+        parser.feed(SD_SERVER_LOG_G1)
+        parser.feed(b"[INFO   ] image.cpp:809  - generate_image 1376x768\n")
         self.assertEqual((parser.phase, parser.i, parser.error), ("loading", None, None))
 
 
@@ -28518,67 +28586,41 @@ class ImageHeadersAndSizesTests(unittest.TestCase):
         self.assertEqual(crow_core.image_dimensions(gif), (640, 480))
         self.assertIsNone(crow_core.image_dimensions(self._write("a.txt", b"hello")))
 
-    def test_the_sizes_are_ming_images_2048_table(self):
-        """#404: ASPECT_RATIO_2048 (inclusionAI/Ming-Image @ 3515cd7b1e
-        bailingmm_utils.py), every side a multiple of 16 as sd.cpp needs,
-        1:1 the default; 12 steps."""
-        self.assertEqual(crow_core.IMAGE_SIZES, {
-            "1:1": (2048, 2048), "4:3": (2432, 1824), "3:4": (1824, 2432),
-            "3:2": (2496, 1664), "2:3": (1664, 2496), "16:9": (2560, 1440),
-            "9:16": (1440, 2560)})
-        self.assertTrue(all(w % 16 == 0 and h % 16 == 0
-                            for w, h in crow_core.IMAGE_SIZES.values()))
-        self.assertEqual(crow_core.IMAGE_DEFAULT_ASPECT, "1:1")
-        self.assertEqual(crow_core.IMAGE_STEPS, 12)
+    def test_the_stage_one_size_is_the_pipelines(self):
+        """diffusers calculate_dimensions(1024*1024, ratio): 16:9 -> 1376x768,
+        the size E3 was measured at."""
+        self.assertEqual(crow_core.one_megapixel(2752 / 1536), (1376, 768))
+        self.assertEqual(crow_core.one_megapixel(1.0), (1024, 1024))
+
+    def test_a_shape_snaps_to_the_nearest_row_of_the_table(self):
+        self.assertEqual(crow_core.snap_aspect(2752, 1536), "16:9")
+        self.assertEqual(crow_core.snap_aspect(1920, 1080), "16:9")
+        self.assertEqual(crow_core.snap_aspect(1000, 1010), "1:1")
+        self.assertEqual(crow_core.snap_aspect(1200, 800), "3:2")
+        self.assertEqual(crow_core.snap_aspect(800, 1200), "2:3")
+        self.assertEqual(crow_core.snap_aspect(1024, 768), "4:3")
+        self.assertEqual(crow_core.snap_aspect(720, 1280), "9:16")
 
 
 class TheImageToolsAreDeclaredTests(unittest.TestCase):
-    """generate_image stands in the shipped table, runs unasked only where
-    executing does, and never answers from the repeat cache; edit_image is
-    not offered while the image model cannot edit (#404)."""
+    """Both tools stand in the shipped table, run unasked only where
+    executing does, and never answer from the repeat cache."""
 
     def test_declared_built_in_classed_and_never_cached(self):
         builtin = [t["function"]["name"] for t in crow_core.BUILTIN_TOOLS]
-        self.assertIn("generate_image", builtin)
-        self.assertIn("generate_image", crow_core.TOOL_IMPL)
-        self.assertEqual(crow_core.TOOL_CLASS["generate_image"], "executing")
-        self.assertIn("generate_image", crow_core.NEVER_CACHED)
+        for name in ("generate_image", "edit_image"):
+            self.assertIn(name, builtin)
+            self.assertIn(name, crow_core.TOOL_IMPL)
+            self.assertEqual(crow_core.TOOL_CLASS[name], "executing")
+            self.assertIn(name, crow_core.NEVER_CACHED)
 
-    def test_edit_image_is_not_offered_but_still_answers(self):
-        """#404: sd.cpp's Ming-Image support is text-to-image only (PR #2063).
-        No declaration in any tool list; a call from an older conversation
-        still finds the tool and its one sentence, and asks no approval for a
-        tool that does nothing."""
-        self.assertNotIn("edit_image", [t["function"]["name"] for t in crow_core.TOOLS])
-        self.assertNotIn("edit_image", json.dumps(crow_core.BUILTIN_TOOLS))
-        self.assertIs(crow_core.TOOL_IMPL["edit_image"], crow_core.tool_edit_image)
-        self.assertIn("edit_image", crow_core.RETIRED_TOOLS)
-        self.assertEqual(crow_core.TOOL_CLASS["edit_image"], "reading")
-        for mode in crow_core.MODES:
-            self.assertFalse(crow_core.needs_approval("edit_image", mode), mode)
-
-    def test_the_description_is_mings_caption_rgba_rule_and_sizes(self):
-        spec = next(t["function"] for t in crow_core.TOOLS
-                    if t["function"]["name"] == "generate_image")
-        text = spec["description"]
-        self.assertIn("<working root>/images/", text)
-        self.assertIn("Ming-Image 0.1 Design", text)
-        for part in ("canvas_settings", "layers", "background to topmost",
-                     "cx: 0.500, cy: 0.500, w: 1.000, h: 1.000", "verbatim, exactly once",
-                     "`transparent`", "never write an RGBA phrase yourself",
-                     "new pictures only"):
-            self.assertIn(part, text)
-        self.assertNotIn("Qwen", json.dumps(spec))
-        props = spec["parameters"]["properties"]
-        self.assertEqual(set(props), {"prompt", "aspect_ratio", "transparent", "seed"})
-        self.assertEqual(props["transparent"]["type"], "boolean")
-        self.assertEqual(spec["parameters"]["required"], ["prompt"])
-        sizes = props["aspect_ratio"]["description"]
-        for key in crow_core.IMAGE_SIZES:
-            self.assertIn(key, sizes)
-        for key in ("1:1", "4:3", "3:2", "16:9"):
-            self.assertIn("%dx%d" % crow_core.IMAGE_SIZES[key], sizes)
-        self.assertIn("default", sizes)
+    def test_the_descriptions_say_where_files_go_and_what_stage_two_needs(self):
+        text = {t["function"]["name"]: t["function"]["description"]
+                for t in crow_core.TOOLS}
+        for name in ("generate_image", "edit_image"):
+            self.assertIn("<working root>/images/", text[name])
+        self.assertIn("description", text["edit_image"])
+        self.assertIn("whole FINAL", text["edit_image"])
 
     def test_the_seam_has_the_two_events(self):
         self.assertTrue(callable(crow_core.TurnEvents.tool_progress))
@@ -28606,14 +28648,12 @@ class TheImageToolsAreDeclaredTests(unittest.TestCase):
 class GenerateImageRunsOnTheImageServerTests(_ImageServerCase):
     """The whole path of one generate_image call against the fake server."""
 
-    def test_the_request_is_ming_images(self):
-        """#404: the card's 2048x2048 by default, 12 Euler steps, txt_cfg 1.0."""
+    def test_the_request_is_the_measured_one(self):
         said = crow_core.tool_generate_image("a crow on a nest", seed=7)
         self.assertFalse(said.startswith("error:"), said)
         body = self.fake.bodies[0]
-        self.assertEqual((body["width"], body["height"], body["seed"]), (2048, 2048, 7))
-        self.assertEqual(body["prompt"], "a crow on a nest")
-        self.assertEqual(body["sample_params"], {"sample_steps": 12,
+        self.assertEqual((body["width"], body["height"], body["seed"]), (2752, 1536, 7))
+        self.assertEqual(body["sample_params"], {"sample_steps": 40,
                                                  "sample_method": "euler",
                                                  "guidance": {"txt_cfg": 1.0}})
         self.assertNotIn("vae_tiling_params", body)
@@ -28622,7 +28662,7 @@ class GenerateImageRunsOnTheImageServerTests(_ImageServerCase):
     def test_progress_first_has_the_size_then_the_logs_phases(self):
         crow_core.tool_generate_image("a crow on a nest", aspect_ratio="9:16", seed=1)
         first = self.states[0]
-        self.assertEqual((first["width"], first["height"]), (1440, 2560))
+        self.assertEqual((first["width"], first["height"]), (1536, 2752))
         self.assertIn(first["phase"], ("queued", "loading"))
         self.assertEqual(set(first), {"job", "kind", "phase", "stage", "i", "n",
                                       "eta_s", "line", "width", "height"})
@@ -28639,12 +28679,11 @@ class GenerateImageRunsOnTheImageServerTests(_ImageServerCase):
         self.assertEqual(len(names), 1)
         self.assertRegex(names[0], r"^\d{8}-\d{6}-a-crow-on-a-nest\.png$")
         path = os.path.join(folder, names[0])
-        self.assertEqual(crow_core.image_dimensions(path), (2048, 2048))
+        self.assertEqual(crow_core.image_dimensions(path), (2752, 1536))
         self.assertIn("images/" + names[0], said)
-        self.assertIn("2048x2048", said)
+        self.assertIn("2752x1536", said)
         self.assertIn("seed 7", said)
         self.assertIn("{:,} bytes".format(os.path.getsize(path)), said)
-        self.assertTrue(said.endswith(crow_core.IMAGE_HANDED), said)
         self.assertEqual(self.states[-1]["phase"], "saved")
         self.assertEqual(self.states[-1]["line"], path)
         made = crow_core.take_announced_images()
@@ -28653,15 +28692,6 @@ class GenerateImageRunsOnTheImageServerTests(_ImageServerCase):
         ride = crow_core.take_image_ride()
         self.assertEqual(len(ride), 1)
         self.assertTrue(ride[0]["image_url"]["url"].startswith("data:image/png;base64,"))
-
-    def test_a_structured_caption_names_the_file_by_its_layers(self):
-        caption = json.dumps({"canvas_settings": {"aspect_ratio": "1:1"}, "layers": [
-            {"description": "a pale blue background"},
-            {"description": "the headline 'Crow paints'"}]})
-        crow_core.tool_generate_image(caption, seed=7)
-        names = os.listdir(os.path.join(self.work, "images"))
-        self.assertRegex(names[0], r"^\d{8}-\d{6}-the-headline-crow-paints-a-pale-blue\.png$")
-        self.assertEqual(self.fake.bodies[0]["prompt"], caption)
 
     def test_a_second_picture_never_overwrites_the_first(self):
         first = crow_core._save_image(b"one", "same words")
@@ -28676,113 +28706,130 @@ class GenerateImageRunsOnTheImageServerTests(_ImageServerCase):
         self.assertEqual(self.fake.bodies, [])
 
 
-# #404: a 4x2 RGBA picture, written here and not with crow_core's encoder:
-# transparent black, opaque red, blue at alpha 128, opaque green; then a row
-# that is transparent throughout.
-_RGBA_ROWS = (bytes([0, 0, 0, 0, 255, 0, 0, 255, 0, 0, 255, 128, 0, 255, 0, 255]),
-              bytes(16))
+class EditImageRunsInTwoStagesTests(_ImageServerCase):
+    """B5, robin's choice: the edit at ~1 MP, then img2img to the full size
+    with the description and no references -- in one call."""
 
+    def test_stage_one_edits_at_one_megapixel_with_the_references(self):
+        src = self.picture("night.png", 2752, 1536)
+        said = crow_core.tool_edit_image([src], "make it daytime",
+                                         "a crow on a nest in bright daylight")
+        self.assertFalse(said.startswith("error:"), said)
+        first = self.fake.bodies[0]
+        self.assertEqual((first["width"], first["height"]), (1376, 768))
+        self.assertEqual(first["prompt"], "make it daytime")
+        self.assertEqual(first["ref_image_args"], "vae_input_max_pixels=1048576")
+        self.assertEqual(first["image_preprocess"], [
+            "target=ref,index=0,mode=stretch,width=1376,height=768,filter=lanczos"])
+        self.assertEqual(len(first["ref_images"]), 1)
+        self.assertTrue(first["ref_images"][0].startswith("data:image/png;base64,"))
+        self.assertNotIn("init_image", first)
 
-def _rgba_png(rows=_RGBA_ROWS) -> bytes:
-    import zlib
-
-    def chunk(kind, body):
-        return (len(body).to_bytes(4, "big") + kind + body
-                + (zlib.crc32(kind + body) & 0xFFFFFFFF).to_bytes(4, "big"))
-
-    width, height = len(rows[0]) // 4, len(rows)
-    head = width.to_bytes(4, "big") + height.to_bytes(4, "big") + bytes([8, 6, 0, 0, 0])
-    raw = b"".join(b"\x00" + r for r in rows)
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", head)
-            + chunk(b"IDAT", zlib.compress(raw, 1)) + chunk(b"IEND", b""))
-
-
-class ATransparentPictureTests(_ImageServerCase):
-    """#404: `transparent` puts Ming-Image's RGBA phrase first, the PNG on disk
-    keeps its alpha, and the model's look gets a copy flattened onto white --
-    both vision paths drop alpha instead of compositing it."""
-
-    def setUp(self):
-        super().setUp()
-        self.fake.png = lambda body: _rgba_png()
-
-    def _ride_pixels(self):
+    def test_stage_two_refines_the_stage_one_picture_without_references(self):
         import base64
-        ride = crow_core.take_image_ride()
-        self.assertEqual(len(ride), 1)
-        url = ride[0]["image_url"]["url"]
-        self.assertTrue(url.startswith("data:image/png;base64,"), url[:40])
-        return crow_core._png_pixels(base64.b64decode(url.split(",", 1)[1]))
+        src = self.picture("night.png", 2752, 1536)
+        crow_core.tool_edit_image([src], "make it daytime",
+                                  "a crow on a nest in bright daylight")
+        second = self.fake.bodies[1]
+        self.assertEqual((second["width"], second["height"]), (2752, 1536))
+        self.assertEqual(second["prompt"], "a crow on a nest in bright daylight")
+        self.assertEqual(second["strength"], 0.25)
+        self.assertNotIn("ref_images", second)
+        self.assertNotIn("ref_image_args", second)
+        self.assertEqual(second["image_preprocess"],
+                         "target=init,mode=stretch,width=2752,height=1536,filter=lanczos")
+        init = base64.b64decode(second["init_image"].split(",", 1)[1])
+        self.assertEqual(struct.unpack(">II", init[16:24]), (1376, 768),
+                         "stage 2 must start from stage 1's picture")
+        self.assertEqual(second["seed"], self.fake.bodies[0]["seed"])
 
-    def test_the_phrase_goes_first_once(self):
-        crow_core.tool_generate_image("a crow sticker", transparent=True, seed=7)
-        self.assertEqual(self.fake.bodies[0]["prompt"],
-                         "RGBA, 4-channel, transparent background\na crow sticker")
-        crow_core.tool_generate_image(
-            "RGBA, 4-channel, transparent background\na crow sticker",
-            transparent=True, seed=7)
-        self.assertEqual(self.fake.bodies[1]["prompt"],
-                         "RGBA, 4-channel, transparent background\na crow sticker")
-        crow_core.tool_generate_image("a crow sticker", transparent="false", seed=7)
-        self.assertEqual(self.fake.bodies[2]["prompt"], "a crow sticker")
+    def test_one_job_two_stages_final_size_throughout(self):
+        src = self.picture("night.png", 2752, 1536)
+        said = crow_core.tool_edit_image([src], "make it daytime", "a daylight crow")
+        self.assertEqual({s["job"] for s in self.states}, {self.states[0]["job"]})
+        self.assertTrue(all((s["width"], s["height"]) == (2752, 1536)
+                            and s["kind"] == "edit" for s in self.states))
+        stages = [s["stage"] for s in self.states]
+        self.assertEqual(stages[0], "1/2")
+        self.assertEqual(stages[-1], "2/2")
+        one = [s["phase"] for s in self.states if s["stage"] == "1/2"]
+        two = [s["phase"] for s in self.states if s["stage"] == "2/2"]
+        self.assertIn("sampling", one)
+        self.assertNotIn("saved", one, "stage 1's end is not the picture")
+        self.assertIn("refining", two)
+        self.assertNotIn("sampling", two)
+        self.assertRegex(said, r"stage 1 edit at 1376x768: [\d.]+ s, stage 2 refine "
+                               r"at 2752x1536: [\d.]+ s")
+        self.assertIn("2752x1536", said)
 
-    def test_a_word_that_is_no_boolean_is_refused_before_the_server(self):
-        said = crow_core.tool_generate_image("a crow", transparent="maybe")
-        self.assertTrue(said.startswith("error: transparent must be true or false"), said)
+    def test_the_default_shape_is_the_last_images_snapped(self):
+        a = self.picture("a.png", 1920, 1080)
+        b = self.picture("b.png", 1000, 1010)
+        crow_core.tool_edit_image([a, b], "merge them", "two crows side by side")
+        self.assertEqual((self.fake.bodies[1]["width"], self.fake.bodies[1]["height"]),
+                         (2048, 2048))
+        self.assertEqual((self.fake.bodies[0]["width"], self.fake.bodies[0]["height"]),
+                         (1024, 1024))
+        self.assertEqual(self.fake.bodies[0]["image_preprocess"], [
+            "target=ref,index=0,mode=stretch,width=1376,height=768,filter=lanczos",
+            "target=ref,index=1,mode=stretch,width=1024,height=1024,filter=lanczos"])
+
+    def test_an_asked_shape_wins(self):
+        a = self.picture("a.png", 1920, 1080)
+        crow_core.tool_edit_image([a], "turn it", "a tall crow", aspect_ratio="9:16")
+        self.assertEqual((self.fake.bodies[1]["width"], self.fake.bodies[1]["height"]),
+                         (1536, 2752))
+
+    def test_a_picture_outside_the_working_area_is_refused(self):
+        outside = os.path.join(self.dir, "elsewhere.png")
+        with open(outside, "wb") as fh:
+            fh.write(_gray_png(64, 36))
+        said = crow_core.tool_edit_image([outside], "x", "y")
+        self.assertTrue(said.startswith("error:"), said)
+        self.assertIn("outside the working area", said)
+        self.assertEqual(self.fake.bodies, [], "nothing may leave for the server")
+
+    def test_an_outside_path_the_user_released_is_read(self):
+        outside = os.path.join(self.dir, "released")
+        os.makedirs(outside)
+        path = os.path.join(outside, "ok.png")
+        with open(path, "wb") as fh:
+            fh.write(_gray_png(64, 36))
+        scope = ("outside", os.path.normcase(outside))
+        crow_core._ALLOWED.add(scope)
+        self.addCleanup(crow_core._ALLOWED.discard, scope)
+        said = crow_core.tool_edit_image([path], "x", "y")
+        self.assertFalse(said.startswith("error:"), said)
+
+    def test_a_release_that_holds_the_working_area_releases_nothing(self):
+        """The store on robin's machine holds ("outside", "/"), read out of
+        shell text; "at or below /" would be every file on the disk."""
+        outside = os.path.join(self.dir, "elsewhere.png")
+        with open(outside, "wb") as fh:
+            fh.write(_gray_png(64, 36))
+        for broad in (os.path.normcase(os.path.abspath(os.sep)),
+                      os.path.normcase(self.dir)):
+            scope = ("outside", broad)
+            crow_core._ALLOWED.add(scope)
+            self.addCleanup(crow_core._ALLOWED.discard, scope)
+        said = crow_core.tool_edit_image([outside], "x", "y")
+        self.assertIn("outside the working area", said)
         self.assertEqual(self.fake.bodies, [])
 
-    def test_the_file_keeps_alpha_and_the_model_sees_it_on_white(self):
-        said = crow_core.tool_generate_image("a crow sticker", transparent="true", seed=7)
-        names = os.listdir(os.path.join(self.work, "images"))
-        self.assertRegex(names[0], r"-a-crow-sticker\.png$", "the phrase names no file")
-        with open(os.path.join(self.work, "images", names[0]), "rb") as fh:
-            self.assertEqual(fh.read(), _rgba_png(), "the file is the server's PNG")
-        self.assertIn(", transparent background, seed 7.", said)
-        self.assertTrue(said.endswith(crow_core.IMAGE_HANDED_FLAT), said)
-        width, height, colour, _channels, rows = self._ride_pixels()
-        self.assertEqual((width, height, colour), (4, 2, 2))
-        self.assertEqual(bytes(rows[0]), bytes([255, 255, 255, 255, 0, 0,
-                                                127, 127, 255, 0, 255, 0]))
-        self.assertEqual(bytes(rows[1]), b"\xff" * 12)
-
-    def test_without_transparent_the_file_rides_as_it_is(self):
-        said = crow_core.tool_generate_image("a crow sticker", seed=7)
-        self.assertTrue(said.endswith(crow_core.IMAGE_HANDED), said)
-        self.assertEqual(self._ride_pixels()[2], 6)
-
-    def test_the_flattening_reads_every_size_of_the_table(self):
-        """The 4:3 picture is 17.7 MB of RGBA scanlines, over the capture
-        decoder's 16 MiB budget."""
-        w, h = max(crow_core.IMAGE_SIZES.values(), key=lambda s: s[0] * s[1])
-        self.assertGreater((w * 4 + 1) * h, crow_core._PNG_DECODE_BUDGET)
-        self.assertGreaterEqual(crow_core._FLATTEN_BUDGET, (w * 4 + 1) * h)
-        self.assertIsNone(crow_core._flatten_on_white(_gray_png(8, 8)),
-                          "a picture without alpha is not re-encoded")
-
-
-class EditImageIsNotAvailableTests(_ImageServerCase):
-    """#404: Ming-Image in sd-server makes new pictures only. A call that comes
-    anyway is one sentence, and nothing is read, started or sent."""
-
-    def test_a_call_answers_one_sentence_and_sends_nothing(self):
-        src = self.picture("night.png", 64, 36)
-        with mock.patch.object(crow_core, "image_server_start",
-                               side_effect=AssertionError("the server was started")):
-            said = crow_core.tool_edit_image([src], "make it daytime", "a daylight crow")
-        self.assertEqual(said, crow_core.EDIT_UNAVAILABLE)
-        self.assertEqual(said, "error: edit_image is not available: Ming-Image in "
-                               "sd-server makes new pictures only -- call "
-                               "generate_image with the whole new picture instead.")
+    def test_a_text_file_named_png_is_refused(self):
+        fake = os.path.join(self.work, "notes.png")
+        with open(fake, "w", encoding="utf-8") as fh:
+            fh.write("not a picture")
+        said = crow_core.tool_edit_image(["notes.png"], "x", "y")
+        self.assertTrue(said.startswith("error:"), said)
+        self.assertIn("its bytes are", said)
         self.assertEqual(self.fake.bodies, [])
-        self.assertEqual(self.states, [])
-        self.assertEqual(crow_core.take_announced_images(), [])
-        self.assertIsNone(crow_core.take_image_ride())
 
-    def test_any_arguments_get_the_same_sentence(self):
-        for args, kwargs in (((), {}), ((["a.png"],), {"aspect_ratio": "16:9"}),
-                             ((), {"images": "a.png,b.png", "instruction": "x"})):
-            self.assertEqual(crow_core.tool_edit_image(*args, **kwargs),
-                             crow_core.EDIT_UNAVAILABLE)
+    def test_an_empty_description_is_refused(self):
+        src = self.picture("a.png", 64, 36)
+        said = crow_core.tool_edit_image([src], "make it day", "")
+        self.assertIn("describe the whole final image", said)
+        self.assertEqual(self.fake.bodies, [])
 
 
 class AnImageJobThatDoesNotFinishSaysWhyTests(_ImageServerCase):
@@ -28812,7 +28859,7 @@ class AnImageJobThatDoesNotFinishSaysWhyTests(_ImageServerCase):
         self.fake.mode = "die"
         said = crow_core.tool_generate_image("a crow", seed=3)
         self.assertTrue(said.startswith("error: the image server stopped answering"), said)
-        self.assertIn("loading 905/905 tensors", said, "the log's last lines are the evidence")
+        self.assertIn("loading 38/40 tensors", said, "the log's last lines are the evidence")
         self.assertEqual(self.states[-1]["phase"], "error")
 
     def test_a_job_that_never_ends_is_ended_by_the_clock(self):
@@ -28839,9 +28886,7 @@ class AnImageJobThatDoesNotFinishSaysWhyTests(_ImageServerCase):
                                return_value=os.path.join(self.dir, "sd-server")):
             why = crow_core.image_tools_unavailable()
         self.assertIn(crow_core.IMAGE_MODEL_DIR_ENV, why)
-        self.assertIn("diffusion_models", why)
-        self.assertIn("Ming-Image 0.1 Design", why)
-        self.assertIn("the ming-image-0.1-design folder", why)
+        self.assertIn("transformer", why)
 
     def test_the_machines_operating_point_is_not_this_cases(self):
         """#392: the gate asks this case's config dir and no serve on 8099.
@@ -28867,91 +28912,61 @@ class AnImageJobThatDoesNotFinishSaysWhyTests(_ImageServerCase):
         self.assertIn(crow_core.IMAGE_MODEL_DIR_ENV, why, "a GLM serve on 8099 is the machine's")
 
 
-# #320: an out-of-memory job's lines -- the texts of the Windows run D
-# (sd-server-8097.log, 2026-09-28) in sd-server 2f016e8's line shape (#404):
-# ggml d25b121 ggml-cuda.cu:901, ggml-alloc.c:1134, model_manager.cpp:570,
-# diffusion_engine.cpp:2960, image.cpp:904. Built, not recorded.
-SD_SERVER_LOG_OOM = b"".join([
-    _sd_line("I", "generate_image 2048x2048", "image.cpp:814"),
-    _sd_line("E", "ggml_backend_cuda_buffer_type_alloc_buffer: allocating 416.00 MiB "
-             "on device 0: cudaMalloc failed: out of memory", "ggml"),
-    _sd_line("E", "alloc_tensor_range: failed to allocate CUDA0 buffer of size "
-             "436208640", "ggml"),
-    _sd_line("E", "model manager alloc compute params backend buffer failed, "
-             "num_tensors = 9", "model_manager.cpp:570"),
-    _sd_line("E", "Diffusion model sampling failed", "diffusion_engine.cpp:2960"),
-    _sd_line("E", "sampling for image 1/1 failed after 3.43s", "image.cpp:904"),
-])
-# The same run's earlier job: pinned host memory refused (GGML_LOG_DEBUG, which
-# sd.cpp logs as verbose; a fallback), then a CPU buffer that could not be
-# allocated (ggml-backend.cpp:2453).
-SD_SERVER_LOG_HOST_ALLOC = b"".join([
-    _sd_line("I", "generate_image 2048x2048", "image.cpp:814"),
-    _sd_line("V", "ggml_cuda_host_malloc: failed to allocate 416.00 MiB of pinned "
-             "memory: resource already mapped", "ggml"),
-    _sd_line("E", "ggml_backend_cpu_buffer_type_alloc_buffer: failed to allocate "
-             "buffer of size 436208640", "ggml"),
-    _sd_line("E", "sampling for image 1/1 failed after 2.30s", "image.cpp:904"),
-])
+# #320: sd-server's own lines from the Windows run D (sd-server-8097.log,
+# 2026-09-28), the job's start and its out-of-memory end.
+SD_SERVER_LOG_OOM = (
+    b"[INFO   ] image.cpp:809  - generate_image 2752x1536\n"
+    b"[ERROR  ] ggml - ggml_backend_cuda_buffer_type_alloc_buffer: allocating "
+    b"416.00 MiB on device 0: cudaMalloc failed: out of memory\n"
+    b"[ERROR  ] ggml - alloc_tensor_range: failed to allocate CUDA0 buffer of "
+    b"size 436208640\n"
+    b"[ERROR  ] model_manager.cpp:565  - model manager alloc compute params "
+    b"backend buffer failed, num_tensors = 9\n"
+    b"[ERROR  ] diffusion_engine.cpp:2719 - Diffusion model sampling failed\n"
+    b"[ERROR  ] image.cpp:902  - sampling for image 1/1 failed after 3.43s\n")
+# The same run's earlier job: pinned host memory refused (VERBOSE, a
+# fallback), then a CPU buffer that could not be allocated.
+SD_SERVER_LOG_HOST_ALLOC = (
+    b"[INFO   ] image.cpp:809  - generate_image 2752x1536\n"
+    b"[VERBOSE] ggml - ggml_cuda_host_malloc: failed to allocate 416.00 MiB of "
+    b"pinned memory: resource already mapped\n"
+    b"[ERROR  ] ggml - ggml_backend_cpu_buffer_type_alloc_buffer: failed to "
+    b"allocate buffer of size 436208640\n"
+    b"[ERROR  ] image.cpp:902  - sampling for image 1/1 failed after 2.30s\n")
 
 
 class TheImageServerArgvTests(unittest.TestCase):
-    """#404: #400's argv for Ming-Image 0.1 Design on sd-server 2f016e8, and
-    #320's Windows `--mmap` after it, unchanged. $CROW_IMAGE_WEIGHT_TYPE adds
-    `--type` and nothing else."""
+    """#320. Windows adds `--mmap` (the commit limit under WDDM); the Linux
+    argv is the one measured beside the 27B, unchanged."""
 
-    MODEL = os.path.join("M", "ming-image-0.1-design")
+    MODEL = os.path.join("M", "qwen-image-2.1")
 
-    def argv(self, windows: bool, weight_type: "str | None" = None) -> "list[str]":
-        env = {crow_core.IMAGE_WEIGHT_TYPE_ENV: weight_type} if weight_type is not None else {}
+    def argv(self, windows: bool) -> "list[str]":
         with mock.patch.object(crow_platform, "IS_WINDOWS", windows), \
-                mock.patch.dict(os.environ, env), \
                 mock.patch.object(crow_core, "image_server_binary",
                                   return_value="SD"), \
                 mock.patch.object(crow_core, "image_model_dir",
                                   return_value=self.MODEL):
-            if weight_type is None:
-                os.environ.pop(crow_core.IMAGE_WEIGHT_TYPE_ENV, None)
             return crow_core.image_server_command(8097)
 
     def linux_argv(self) -> "list[str]":
         m = self.MODEL
-        return ["SD",
-                "--diffusion-model",
-                os.path.join(m, "diffusion_models", "ming_image_0.1_design_bf16.safetensors"),
-                "--llm",
-                os.path.join(m, "text_encoders", "ming_image_0.1_ling_mini_2.0_bf16.safetensors"),
-                "--vae", os.path.join(m, "vae", "ming_image_vae_bf16.safetensors"),
-                "--tokenizer", os.path.join(m, "mllm", "tokenizer.json"),
-                "--backend", "te=cpu", "--flash-attn", "off,diffusion=on",
-                "--max-vram", "7", "--vae-tiling",
+        return ["SD", "--diffusion-model",
+                os.path.join(m, "transformer",
+                             "diffusion_pytorch_model.safetensors.index.json"),
+                "--llm", os.path.join(m, "text_encoder_sdcli",
+                                      "model.safetensors.index.json"),
+                "--vae", os.path.join(m, "vae", "diffusion_pytorch_model.safetensors"),
+                "--backend", "te=cpu", "--diffusion-fa", "--max-vram", "7",
+                "--vae-tiling",
+                "--model-args", "qwen_image_2_1_prefix_cache_type=q8_0",
                 "--listen-port", "8097", "-v"]
 
     def test_windows_adds_mmap_and_nothing_else(self):
         self.assertEqual(self.argv(True), self.linux_argv() + ["--mmap"])
 
-    def test_the_linux_argv_is_the_contracts(self):
+    def test_the_linux_argv_is_the_measured_one(self):
         self.assertEqual(self.argv(False), self.linux_argv())
-
-    def test_no_qwen_flag_is_left(self):
-        argv = self.argv(False)
-        self.assertNotIn("--diffusion-fa", argv, "deprecated at 2f016e8")
-        self.assertNotIn("--model-args", argv, "qwen_image_2_1_prefix_cache_type is Qwen's")
-
-    def test_the_model_files_are_the_argvs(self):
-        """image_tools_unavailable checks exactly the files the argv names."""
-        argv = self.argv(False)
-        files = crow_core._image_model_files(self.MODEL)
-        self.assertEqual(files, [argv[argv.index(flag) + 1] for flag in
-                                 ("--diffusion-model", "--llm", "--vae", "--tokenizer")])
-
-    def test_the_weight_type_appends_type_and_nothing_else(self):
-        """NOT MEASURED fallback: unset or empty is the contract argv."""
-        self.assertEqual(self.argv(False, "q8_0"), self.linux_argv() + ["--type", "q8_0"])
-        self.assertEqual(self.argv(True, " q8_0 "),
-                         self.linux_argv() + ["--mmap", "--type", "q8_0"])
-        self.assertEqual(self.argv(False, ""), self.linux_argv())
-        self.assertEqual(self.argv(False, "  "), self.linux_argv())
 
     def test_the_platform_layer_decides(self):
         """crow_core appends what crow_platform says; it does not branch on
@@ -29062,7 +29077,7 @@ class TheImageServerRunsInItsOwnFolderTests(unittest.TestCase):
         self.assertEqual(crow_core._image_server_probe(timeout=2.0), "HTTP 503")
 
     def test_a_relative_model_dir_is_resolved_where_crow_started(self):
-        rel = os.path.join("rel", "ming-image-0.1-design")
+        rel = os.path.join("rel", "qwen-image-2.1")
         with mock.patch.dict(os.environ, {crow_core.IMAGE_MODEL_DIR_ENV: rel}):
             self.assertEqual(crow_core.image_model_dir(), os.path.abspath(rel))
         for rooted in ("/elsewhere/q", "C:\\models\\q"):
@@ -29090,7 +29105,7 @@ class AnOutOfMemoryJobSaysSoTests(_ImageServerCase):
         said = crow_core.tool_generate_image("a crow", seed=3)
         self.assertTrue(said.startswith(
             "error: the image job failed: the image server ran out of GPU "
-            "memory: [E] ggml: ggml_backend_cuda_buffer_type_alloc_buffer: "
+            "memory: [ERROR  ] ggml - ggml_backend_cuda_buffer_type_alloc_buffer: "
             "allocating 416.00 MiB on device 0: cudaMalloc failed: out of memory"),
             said)
         self.assertNotIn("999.00", said)
@@ -29103,22 +29118,21 @@ class AnOutOfMemoryJobSaysSoTests(_ImageServerCase):
         said = crow_core.tool_generate_image("a crow", seed=3)
         self.assertEqual(said.splitlines()[0],
                          "error: the image job failed: the image server ran out "
-                         "of memory: [E] ggml: "
+                         "of memory: [ERROR  ] ggml - "
                          "ggml_backend_cpu_buffer_type_alloc_buffer: failed to "
                          "allocate buffer of size 436208640")
 
     def test_a_pinned_memory_refusal_alone_is_named(self):
         """Logged VERBOSE, so it counts only when no ERROR line names a cause."""
-        self.fake.lines = [x for x in (
-            _sd_line("I", "generate_image 2048x2048", "image.cpp:814")
-            + _sd_line("V", "ggml_cuda_host_malloc: failed to allocate 416.00 MiB of "
-                       "pinned memory: resource already mapped", "ggml")
-            + _sd_line("E", "sampling for image 1/1 failed after 2.30s", "image.cpp:904")
-        ).split(b"\n") if x]
+        self.fake.lines = [
+            b"[INFO   ] image.cpp:809  - generate_image 2752x1536",
+            b"[VERBOSE] ggml - ggml_cuda_host_malloc: failed to allocate 416.00 "
+            b"MiB of pinned memory: resource already mapped",
+            b"[ERROR  ] image.cpp:902  - sampling for image 1/1 failed after 2.30s"]
         said = crow_core.tool_generate_image("a crow", seed=3)
         self.assertEqual(said.splitlines()[0],
                          "error: the image job failed: the image server could not "
-                         "allocate pinned host memory: [V] ggml: "
+                         "allocate pinned host memory: [VERBOSE] ggml - "
                          "ggml_cuda_host_malloc: failed to allocate 416.00 MiB of "
                          "pinned memory: resource already mapped")
 
@@ -29163,8 +29177,8 @@ class TheImageToolsReachTheTurnsEventsTests(TurnLoopCase):
             self.addCleanup(patcher.stop)
         self.events = _ImageRecorder()
 
-    def _generate(self, **extra):
-        args = json.dumps(dict({"prompt": "a crow on a nest", "seed": 7}, **extra))
+    def _generate(self):
+        args = json.dumps({"prompt": "a crow on a nest", "seed": 7})
         self.serve([_call_delta("generate_image", args)])
         self.serve([{"content": "done"}])
         talk = self.conversation("draw a crow")
@@ -29186,7 +29200,7 @@ class TheImageToolsReachTheTurnsEventsTests(TurnLoopCase):
         self.assertNotIn("progress", names[done:], "progress after the call closed")
         progress = [e for e in self.events.log if e[0] == "progress"]
         self.assertEqual(progress[0][1], "generate_image")
-        self.assertEqual((progress[0][2]["width"], progress[0][2]["height"]), (2048, 2048))
+        self.assertEqual((progress[0][2]["width"], progress[0][2]["height"]), (2752, 1536))
         image_event = next(e for e in self.events.log if e[0] == "image")
         self.assertTrue(image_event[1].startswith(os.path.join(self.work, "images")))
         self.assertEqual(image_event[2:], ("generate_image", progress[0][2]["job"]))
@@ -29220,27 +29234,6 @@ class TheImageToolsReachTheTurnsEventsTests(TurnLoopCase):
         self.assertNotIn(crow_core.IMAGE_HANDED, tool["content"])
         self.assertIn("image", [e[0] for e in self.events.log])
         self.assertNotIn("tool_failed", [e[0] for e in self.events.log])
-
-    def test_a_blind_server_drops_the_flattening_sentence_too(self):
-        """#404: a transparent picture says its look is flattened onto white;
-        with no look at all that sentence would be a false one."""
-        crow_core.refuse_images.return_value = crow_core.BLIND_SERVER_HINT
-        self.fake.png = lambda body: _rgba_png()
-        talk = self._generate(transparent=True)
-        tool = next(m for m in talk.payload() if m["role"] == "tool")
-        self.assertIsInstance(tool["content"], str)
-        self.assertIn("transparent background", tool["content"])
-        self.assertIn("not shown to you", tool["content"])
-        self.assertNotIn("flattened onto white", tool["content"])
-
-    def test_a_transparent_picture_reaches_the_model_on_white(self):
-        self.fake.png = lambda body: _rgba_png()
-        talk = self._generate(transparent=True)
-        tool = next(m for m in talk.payload() if m["role"] == "tool")
-        self.assertTrue(tool["content"][0]["text"].endswith(crow_core.IMAGE_HANDED_FLAT))
-        import base64
-        url = tool["content"][1]["image_url"]["url"]
-        self.assertEqual(crow_core._png_pixels(base64.b64decode(url.split(",", 1)[1]))[2], 2)
 
 
 class ImageNotesKeepFactsNeverPixelsTests(unittest.TestCase):

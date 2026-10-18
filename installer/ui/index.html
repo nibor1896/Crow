@@ -125,8 +125,8 @@ button.sec:hover{color:var(--soft)}
     'flash-next': '200k context. Needs 64 GB RAM.',
     '27b': '128k context. Great speed.',
     'glm53-flash': '200k context. The big MoE, experts streamed from NVMe.',
-    'image-stack': '27B with Ming-Image 0.1 Design.',
-    'media-stack': '9B with Ming-Image 0.1 Design and LTX-2.5 video. Windows.'
+    'image-stack': '27B with Qwen-Image 2.1.',
+    'media-stack': '9B with Qwen-Image 2.1 and LTX-2.5 video. Windows.'
   };
 
   var S = {
@@ -179,8 +179,6 @@ button.sec:hover{color:var(--soft)}
         id: p.id, title: p.menu.title, files: p.files, derived: p.bytes.derived, disk: p.bytes.disk, gated: gated,
         // #340: a video runtime is unpacked after the downloads (step "runtime")
         runtime: !!(p.video_server && p.video_server.runtime && Object.keys(p.video_server.runtime).length),
-        // a point with derived files waits for the convert step; none has one since #403
-        converts: (p.derived || []).length > 0,
         licence: shown
       };
     });
@@ -321,17 +319,16 @@ button.sec:hover{color:var(--soft)}
     var js = jobsWhere(function (j) { return j.points.indexOf(id) >= 0; });
     var err = js.map(function (j) { return S.files[j.id] && S.files[j.id].error ? j : null; }).filter(Boolean)[0];
     if (err) return row({ title: title(id), desc: S.files[err.id].error, dcls: 'bad', cls: 'err', tail: retry(err.id) });
-    var cv = (point(id) || {}).converts;
-    if (cv && step('convert').status === 'failed')
+    if (id === 'image-stack' && step('convert').status === 'failed')
       return row({ title: title(id), desc: step('convert').detail, dcls: 'bad', cls: 'err', tail: retry('convert') });
     var rt = (point(id) || {}).runtime;
     if (rt && step('runtime').status === 'failed')
       return row({ title: title(id), desc: step('runtime').detail, dcls: 'bad', cls: 'err', tail: retry('runtime') });
     var total = sum(js.map(function (j) { return j.bytes; })), done = sum(js.map(jobDone));
     var all = js.length > 0 && js.every(function (j) { return S.files[j.id] && S.files[j.id].verified; });
-    if (all && cv && step('convert').status !== 'ok') {
+    if (all && id === 'image-stack' && step('convert').status !== 'ok') {
       return row({ title: title(id), desc: step('convert').status === 'running'
-        ? 'Converting the downloaded files.' : 'Downloaded. The conversion comes next.' });
+        ? 'Preparing the text encoder.' : 'Downloaded. The text encoder comes next.' });
     }
     if (all && rt && step('runtime').status !== 'ok') {
       return row({ title: title(id), desc: step('runtime').status === 'running'

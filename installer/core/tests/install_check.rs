@@ -33,13 +33,13 @@ fn world() -> World {
     let models = tmp.path().join("models");
     fs::create_dir_all(root.join("bin")).unwrap();
     fs::create_dir_all(models.join("m")).unwrap();
-    fs::create_dir_all(models.join("img/derived")).unwrap();
+    fs::create_dir_all(models.join("qi/text_encoder_sdcli")).unwrap();
     fs::write(root.join("bin/serve.exe"), b"MZ").unwrap();
     fs::write(root.join("bin/sd-server.exe"), b"MZ").unwrap();
     fs::write(models.join("m/a.cnq"), b"container").unwrap();
     fs::write(models.join("m/tok.json"), b"{\"t\": 1}").unwrap();
-    fs::write(models.join("img/derived/model-1.safetensors"), b"shard1").unwrap();
-    fs::write(models.join("img/derived/index.json"), b"{}").unwrap();
+    fs::write(models.join("qi/text_encoder_sdcli/model-1.safetensors"), b"shard1").unwrap();
+    fs::write(models.join("qi/text_encoder_sdcli/index.json"), b"{}").unwrap();
     World { _tmp: tmp, root, models }
 }
 
@@ -59,7 +59,7 @@ fn plan_json(w: &World, serve: &Path, image: Option<&Path>) -> String {
     {{"id": "te-1", "dest": "{te1}", "bytes": 5, "sha256": "{te_sha}"}}
   ],
   "derived": [
-    {{"id": "derived", "dest": "{sd}", "inputs": ["te-1"], "outputs": [
+    {{"id": "sdcli", "dest": "{sd}", "inputs": ["te-1"], "outputs": [
       {{"dest": "{sd1}", "bytes": 6, "sha256": null}},
       {{"dest": "{sdi}", "bytes": 2, "sha256": "{sdi_sha}"}}
     ]}}
@@ -69,10 +69,10 @@ fn plan_json(w: &World, serve: &Path, image: Option<&Path>) -> String {
         root = js(&w.root),
         cnq = js(&w.models.join("m/a.cnq")),
         tok = js(&w.models.join("m/tok.json")),
-        te1 = js(&w.models.join("img/input/model-1.safetensors")),
-        sd = js(&w.models.join("img/derived")),
-        sd1 = js(&w.models.join("img/derived/model-1.safetensors")),
-        sdi = js(&w.models.join("img/derived/index.json")),
+        te1 = js(&w.models.join("qi/text_encoder/model-1.safetensors")),
+        sd = js(&w.models.join("qi/text_encoder_sdcli")),
+        sd1 = js(&w.models.join("qi/text_encoder_sdcli/model-1.safetensors")),
+        sdi = js(&w.models.join("qi/text_encoder_sdcli/index.json")),
         cnq_sha = sha_lower(b"container"),
         tok_sha = sha_lower(b"{\"t\": 1}").to_uppercase(),
         te_sha = sha_lower(b"shard"),
@@ -101,7 +101,7 @@ fn the_plan_json_parses() {
 
 #[test]
 fn a_complete_point_passes_and_a_consumed_input_is_not_asked_for() {
-    // the input (te-1) was deleted by the convert step; its output is what counts
+    // text_encoder/ (te-1) was deleted by the convert step; its output is what counts
     let w = world();
     check::check_files(&plan(&w), &|_id: &str| false).unwrap();
 }
@@ -136,11 +136,11 @@ fn sha256_is_checked_only_for_files_the_run_has_not_verified() {
 #[test]
 fn a_derived_output_is_checked_by_size_and_by_sha_when_pinned() {
     let w = world();
-    fs::write(w.models.join("img/derived/index.json"), b"[]").unwrap();
+    fs::write(w.models.join("qi/text_encoder_sdcli/index.json"), b"[]").unwrap();
     let err = check::check_files(&plan(&w), &|_id: &str| true).unwrap_err();
     assert!(err.contains("index.json"), "{err}");
     let w = world();
-    fs::remove_file(w.models.join("img/derived/model-1.safetensors")).unwrap();
+    fs::remove_file(w.models.join("qi/text_encoder_sdcli/model-1.safetensors")).unwrap();
     let err = check::check_files(&plan(&w), &|_id: &str| true).unwrap_err();
     assert!(err.contains("model-1.safetensors"), "{err}");
 }

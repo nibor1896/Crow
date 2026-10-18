@@ -336,12 +336,9 @@ def plan_point(stack: dict, point_id: str, install: str, models: str,
     spec = point.get("image_server")
     if spec:
         image = {
-            # #404: $CROW_IMAGE_WEIGHT_TYPE's `--type` tail, the one
-            # crow_core.image_server_command appends (NOT MEASURED; [] unset).
             "argv": [r(_binary(spec, point_id, "image server"))]
                     + [r(a) for a in spec.get("argv") or []]
-                    + [r(a) for a in (spec.get("argv_platform") or {}).get(PLATFORM_KEY) or []]
-                    + crow_core.image_weight_type_args(),
+                    + [r(a) for a in (spec.get("argv_platform") or {}).get(PLATFORM_KEY) or []],
             "port": int(spec.get("port") or 8097),
             "readiness": spec.get("readiness") or {"path": "/", "status": 200},
         }
@@ -440,9 +437,8 @@ def plan_json(stack: dict, point_id: str, install: str, models: str) -> dict:
     installer checks exactly what a start would use. `env` is the point's own
     keys only (the inherited environment is not part of the plan). `files` are
     the point's stack.json files with dest resolved; `derived` names the files
-    built on the machine (none since #400: Ming-Image's files are used as
-    published; Qwen-Image 2.1 had text_encoder_sdcli/), with the input ids
-    they consume and their outputs.
+    built on the machine (the Image Stack's text_encoder_sdcli/), with the
+    input ids they consume and their outputs.
     """
     plan = plan_point(stack, point_id, install, models)
     point = next(p for p in stack["points"] if p.get("id") == point_id)
@@ -1093,8 +1089,8 @@ class Boot:
                 why = self._wait([("serve", serve), ("sd-server", image)],
                                  plan["image"]["port"], plan["image"]["readiness"],
                                  IMAGE_TIMEOUT_S, True,
-                                 "%s Fetching the paint brushes (%s)..."
-                                 % (self.style.icon("brush"), crow_core.IMAGE_MODEL_SHORT))
+                                 "%s Fetching the paint brushes (Qwen-Image)..."
+                                 % self.style.icon("brush"))
         except KeyboardInterrupt:
             why = "cancelled"
         except OSError as exc:

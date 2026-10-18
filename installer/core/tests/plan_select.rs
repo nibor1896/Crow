@@ -12,10 +12,9 @@ const ENGINE_PKG: u64 = 310_000_000;
 /// config.json + vocabulary.txt + tokenizer.json + model.bin of faster-whisper-small.
 const WHISPER: u64 = 486_212_372;
 const PKGS: u64 = CROW_PKG + ENGINE_PKG;
-/// #403: Ming-Image 0.1 Design's five files (DiT, text encoder, VAE from
-/// Comfy-Org/Ming-Image; tokenizer.json and LICENSE from inclusionAI), 45.87 GiB.
-const MING: u64 = 49_253_655_382;
-const IMAGE_STACK: u64 = 68_038_321_004;
+/// The upstream text_encoder/ (index + 4 shards), deleted after te_rename.
+const TEXT_ENCODER: u64 = 17_534_407_283;
+const SDCLI: u64 = 17_534_419_188;
 
 fn packages() -> Packages {
     Packages {
@@ -80,68 +79,27 @@ fn twenty_seven_b_alone() {
 }
 
 #[test]
-fn image_stack_alone_fetches_ming_image_as_published() {
+fn image_stack_alone_derives_sdcli_and_drops_the_text_encoder() {
     let p = plan_for(&["image-stack"]);
-    assert_eq!(p.jobs.len(), 2 + 4 + 12);
-    assert_eq!(p.download_bytes, PKGS + WHISPER + IMAGE_STACK);
+    assert_eq!(p.jobs.len(), 2 + 4 + 17);
+    assert_eq!(p.download_bytes, PKGS + WHISPER + 51_900_384_939);
     assert_eq!(p.download_bytes, PKGS + WHISPER + point_files("image-stack"));
-    let ming: u64 = p.jobs.iter().filter(|j| j.id.starts_with("mi-")).map(|j| j.bytes).sum();
-    assert_eq!(ming, MING);
-    // nothing is converted: what stays on disk is what was downloaded
-    assert!(p.derived.is_empty());
-    assert_eq!(p.disk_bytes, p.download_bytes);
-}
-
-/// #403: `RealSteps::convert` refuses since its one converter (Qwen-Image 2.1's
-/// text-encoder rename) went with Qwen-Image, so no shipped point may derive a
-/// file: the run would stop at the convert step.
-#[test]
-fn no_shipped_point_derives_a_file() {
-    let s = Stack::embedded();
-    assert!(s.derived.is_empty(), "{:?}", s.derived.iter().map(|d| d.id.as_str()).collect::<Vec<_>>());
-    for pt in &s.points {
-        assert!(pt.derived.is_empty(), "{} derives {:?}", pt.id, pt.derived);
-    }
-    let all: Vec<&str> = s.points.iter().map(|p| p.id.as_str()).collect();
-    assert!(plan_for(&all).derived.is_empty());
-}
-
-/// The generic derived arithmetic (#196 phase 2), on a synthetic entry now that
-/// the real stack has none: the outputs count on disk, the inputs the convert
-/// step deletes do not.
-fn with_derived(bytes: u64) -> Stack {
-    let mut doc = Stack::embedded().raw.clone();
-    doc["derived"] = serde_json::json!([{
-        "id": "mi-derived", "tool": "tools/derive.py",
-        "argv": ["${MODELS}/ming-image-0.1-design/vae", "${MODELS}/ming-image-0.1-design/vae_derived"],
-        "inputs": ["mi-vae"], "dest": "${MODELS}/ming-image-0.1-design/vae_derived",
-        "outputs": [{"path": "vae.safetensors", "bytes": bytes, "sha256": null}], "bytes": bytes
-    }]);
-    let pt = doc["points"].as_array_mut().unwrap().iter_mut().find(|p| p["id"] == "image-stack").unwrap();
-    pt["derived"] = serde_json::json!(["mi-derived"]);
-    Stack::parse(&doc.to_string()).unwrap()
-}
-
-#[test]
-fn a_derived_entry_adds_its_outputs_and_drops_its_inputs() {
-    let s = with_derived(300_000_000);
-    let root = default_root();
-    let p = plan(&s, &sel(&["27b", "image-stack"], &root), &root.join("models"), &packages()).unwrap();
     assert_eq!(p.derived.len(), 1);
     let d = &p.derived[0];
-    assert_eq!((d.id.as_str(), d.bytes), ("mi-derived", 300_000_000));
+    assert_eq!(d.id, "qi-text-encoder-sdcli");
+    assert_eq!(d.bytes, SDCLI);
+    assert_eq!(d.bytes, Stack::embedded().point("image-stack").unwrap().bytes.derived);
     assert_eq!(d.points, vec!["image-stack".to_string()]);
-    assert_eq!(d.inputs, vec!["mi-vae".to_string()]);
-    assert_eq!(d.dest, root.join("models").join("ming-image-0.1-design").join("vae_derived"));
-    // download + derived - the input deleted after conversion (mi-vae, 253,816,696 B)
-    assert_eq!(p.disk_bytes, p.download_bytes + 300_000_000 - 253_816_696);
-    assert!(plan(&s, &sel(&["27b"], &root), &root.join("models"), &packages()).unwrap().derived.is_empty());
+    assert_eq!(d.dest, default_root().join("models").join("qwen-image-2.1").join("text_encoder_sdcli"));
+    // download + derived - the upstream text_encoder/ deleted after conversion
+    assert_eq!(p.disk_bytes, p.download_bytes + SDCLI - TEXT_ENCODER);
+    assert_eq!(p.disk_bytes, PKGS + WHISPER + 51_900_384_939 + 11_905);
 }
 
 #[test]
 fn twenty_seven_b_and_image_stack_share_the_27b_files() {
     let p = plan_for(&["27b", "image-stack"]);
-    assert_eq!(p.jobs.len(), 2 + 4 + 12, "the seven 27B files are fetched once");
+    assert_eq!(p.jobs.len(), 2 + 4 + 17, "the seven 27B files are fetched once");
     assert_eq!(p.download_bytes, PKGS + WHISPER + point_files("image-stack"));
     let mut seen = std::collections::HashSet::new();
     assert!(p.jobs.iter().all(|j| seen.insert(j.id.clone())), "no id twice: {:?}", ids(&p));
@@ -149,9 +107,9 @@ fn twenty_seven_b_and_image_stack_share_the_27b_files() {
         let j = p.jobs.iter().find(|j| j.id == id).unwrap();
         assert_eq!(j.points, vec!["27b".to_string(), "image-stack".to_string()], "{id}");
     }
-    let mi = p.jobs.iter().find(|j| j.id == "mi-vae").unwrap();
-    assert_eq!(mi.points, vec!["image-stack".to_string()]);
-    assert_eq!(p.disk_bytes, p.download_bytes);
+    let qi = p.jobs.iter().find(|j| j.id == "qi-vae").unwrap();
+    assert_eq!(qi.points, vec!["image-stack".to_string()]);
+    assert_eq!(p.disk_bytes, p.download_bytes + SDCLI - TEXT_ENCODER);
 }
 
 #[test]
@@ -164,10 +122,10 @@ fn image_stack_alone_lists_only_itself_on_the_27b_files() {
 #[test]
 fn all_three() {
     let p = plan_for(&["image-stack", "flash-next", "27b"]);
-    assert_eq!(p.jobs.len(), 2 + 4 + 9 + 12);
-    assert_eq!(p.download_bytes, PKGS + WHISPER + 105_644_572_922 + IMAGE_STACK);
+    assert_eq!(p.jobs.len(), 2 + 4 + 9 + 17);
+    assert_eq!(p.download_bytes, PKGS + WHISPER + 105_644_572_922 + 51_900_384_939);
     assert_eq!(p.download_bytes, PKGS + WHISPER + point_files("flash-next") + point_files("image-stack"));
-    assert_eq!(p.disk_bytes, p.download_bytes);
+    assert_eq!(p.disk_bytes, p.download_bytes + SDCLI - TEXT_ENCODER);
     let sum: u64 = p.jobs.iter().map(|j| j.bytes).sum();
     assert_eq!(sum, p.download_bytes);
     // points are listed in stack.json order, not selection order
@@ -230,13 +188,12 @@ fn dest_resolution_with_a_non_default_install_and_models_root() {
     let under = |root: &Path, parts: &[&str]| parts.iter().fold(root.to_path_buf(), |p, x| p.join(x));
     assert_eq!(dest("27b-cnq"), under(&models, &["Qwen3.8-27B-CNQ4.5", "Qwen3.8-27B-CNQ4.5.cnq"]));
     assert_eq!(
-        dest("mi-diffusion"),
-        under(&models, &["ming-image-0.1-design", "diffusion_models", "ming_image_0.1_design_bf16.safetensors"])
+        dest("qi-transformer-1"),
+        under(&models, &["qwen-image-2.1", "transformer", "diffusion_pytorch_model-00001-of-00002.safetensors"])
     );
-    assert_eq!(dest("mi-tokenizer"), under(&models, &["ming-image-0.1-design", "mllm", "tokenizer.json"]));
     // ${INSTALL}, not ${MODELS}: crow_voice.py loads <crow>/models/whisper-small
     assert_eq!(dest("whisper-model"), under(&install, &["models", "whisper-small", "model.bin"]));
-    assert!(p.derived.is_empty());
+    assert_eq!(p.derived[0].dest, under(&models, &["qwen-image-2.1", "text_encoder_sdcli"]));
 }
 
 #[test]
@@ -251,19 +208,12 @@ fn urls_are_pinned_and_local_rel_is_repo_path() {
     );
     assert_eq!(cnq.local_rel, "nibor1896/Qwen3.8-Flash-Next-CNQ4.5-M/Qwen3.8-Flash-Next-CNQ4.5-M.cnq");
     assert_eq!(cnq.sha256, "7c058e555667b1c3d8f7d804d4a3393ba3664161dd307305718d85e4f33646b7");
-    let te = job("mi-text-encoder");
+    let qi = job("qi-text-encoder-1");
     assert_eq!(
-        te.url,
-        "https://huggingface.co/Comfy-Org/Ming-Image/resolve/93804ff3747517a318969c5f61b25a57daefe09f/text_encoders/ming_image_0.1_ling_mini_2.0_bf16.safetensors"
+        qi.url,
+        "https://huggingface.co/Qwen/Qwen-Image-2.1/resolve/d26bb61231c349cf6b7896fa83353113880e1ba3/text_encoder/model-00001-of-00004.safetensors"
     );
-    assert_eq!(te.local_rel, "Comfy-Org/Ming-Image/text_encoders/ming_image_0.1_ling_mini_2.0_bf16.safetensors");
-    assert_eq!(te.sha256, "7eccad21934f2e6d9103b5c589a448082e89f7b5b73a6b9c6d0332be7de26c1e");
-    let tok = job("mi-tokenizer");
-    assert_eq!(
-        tok.url,
-        "https://huggingface.co/inclusionAI/Ming-Image-0.1-Design/resolve/c57c49689d12ef7d4e24a170014f1dc43d3ce258/mllm/tokenizer.json"
-    );
-    assert_eq!(tok.local_rel, "inclusionAI/Ming-Image-0.1-Design/mllm/tokenizer.json");
+    assert_eq!(qi.local_rel, "Qwen/Qwen-Image-2.1/text_encoder/model-00001-of-00004.safetensors");
     let w = job("whisper-tokenizer");
     assert_eq!(
         w.url,
@@ -358,7 +308,7 @@ fn glm_point_plans_its_published_container_from_our_repo() {
 fn embedded_stack_parses_with_its_crow_files() {
     let s = Stack::embedded();
     assert_eq!(s.points.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["flash-next", "27b", "glm53-flash", "image-stack", "media-stack"]);
-    assert_eq!(s.files.len(), 37);
+    assert_eq!(s.files.len(), 42);
     assert_eq!(s.crow_files.len(), 4);
     assert_eq!(s.crow_files.iter().map(|f| f.bytes).sum::<u64>(), WHISPER);
     assert!(Stack::parse("{").is_err());
@@ -374,12 +324,12 @@ fn an_upstream_file_is_fetched_from_its_host_and_a_gate_rides_on_the_job() {
     let mut doc = Stack::embedded().raw.clone();
     for f in doc["files"].as_array_mut().unwrap() {
         match f["id"].as_str().unwrap() {
-            "mi-license" => f["host"] = "github".into(),
-            "mi-vae" => {
+            "qi-license" => f["host"] = "github".into(),
+            "qi-vae" => {
                 f["host"] = "github-release".into();
                 f["tag"] = "v0.38.0".into();
             }
-            "mi-diffusion" => f["gated"] = true.into(),
+            "qi-transformer-1" => f["gated"] = true.into(),
             _ => {}
         }
     }
@@ -387,21 +337,21 @@ fn an_upstream_file_is_fetched_from_its_host_and_a_gate_rides_on_the_job() {
     let root = default_root();
     let p = plan(&s, &sel(&["image-stack"], &root), &root.join("models"), &packages()).expect("plan");
     let job = |id: &str| p.jobs.iter().find(|j| j.id == id).unwrap().clone();
-    let (lic, vae, t1, t2) = (job("mi-license"), job("mi-vae"), job("mi-diffusion"), job("mi-text-encoder"));
+    let (lic, vae, t1, t2) = (job("qi-license"), job("qi-vae"), job("qi-transformer-1"), job("qi-transformer-2"));
     let f = |id: &str| s.file(id).unwrap().clone();
-    assert_eq!(lic.url, format!("https://raw.githubusercontent.com/inclusionAI/Ming-Image-0.1-Design/{}/{}", f("mi-license").revision.unwrap(), f("mi-license").path));
-    assert_eq!(vae.url, format!("https://github.com/Comfy-Org/Ming-Image/releases/download/v0.38.0/{}", f("mi-vae").path));
-    assert!(t1.url.starts_with("https://huggingface.co/Comfy-Org/Ming-Image/resolve/"), "{}", t1.url);
+    assert_eq!(lic.url, format!("https://raw.githubusercontent.com/Qwen/Qwen-Image-2.1/{}/{}", f("qi-license").revision.unwrap(), f("qi-license").path));
+    assert_eq!(vae.url, format!("https://github.com/Qwen/Qwen-Image-2.1/releases/download/v0.38.0/{}", f("qi-vae").path));
+    assert!(t1.url.starts_with("https://huggingface.co/Qwen/Qwen-Image-2.1/resolve/"), "{}", t1.url);
     assert!(t2.url.starts_with("https://huggingface.co/"), "{}", t2.url);
-    assert_eq!((f("mi-diffusion").gated, f("mi-text-encoder").gated, f("mi-vae").gated), (true, false, false));
-    assert_eq!(vae.local_rel, format!("Comfy-Org/Ming-Image/{}", f("mi-vae").path));
+    assert_eq!((f("qi-transformer-1").gated, f("qi-transformer-2").gated, f("qi-vae").gated), (true, false, false));
+    assert_eq!(vae.local_rel, format!("Qwen/Qwen-Image-2.1/{}", f("qi-vae").path));
 }
 
 #[test]
 fn an_unpacked_runtime_counts_on_disk_and_its_deleted_archive_does_not() {
     // #340: the archive is deleted once unpacked, like a convert input.
     let mut doc = Stack::embedded().raw.clone();
-    let mut file = doc["files"].as_array().unwrap().iter().find(|f| f["id"] == "mi-vae").unwrap().clone();
+    let mut file = doc["files"].as_array().unwrap().iter().find(|f| f["id"] == "qi-vae").unwrap().clone();
     file["id"] = "comfyui-portable".into();
     file["role"] = "runtime".into();
     file["bytes"] = 1_994_326_521u64.into();

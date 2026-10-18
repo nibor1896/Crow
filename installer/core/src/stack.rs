@@ -162,8 +162,8 @@ pub struct Derived {
     pub id: String,
     pub tool: String,
     pub argv: Vec<String>,
-    /// File ids consumed; the installer deletes them after the conversion (#196).
-    /// No shipped point derives a file since #403 (Ming-Image loads as published).
+    /// File ids consumed; the installer deletes them after the conversion (#196:
+    /// `text_encoder/` goes once `text_encoder_sdcli/` is built).
     pub inputs: Vec<String>,
     pub dest: String,
     pub outputs: Vec<DerivedOutput>,

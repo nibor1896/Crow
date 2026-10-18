@@ -183,28 +183,14 @@ class ThePlaceholdersResolveFromTheStackTests(BootCase):
         argv = plan["image"]["argv"]
         self.assertEqual(argv[0], os.path.join(self.install, "bin", SD_SERVER))
         self.assertIn("te=cpu", argv, "a value without a placeholder is passed as written")
-        self.assertIn(os.path.join(self.models, "ming-image-0.1-design", "text_encoders",
-                                   "ming_image_0.1_ling_mini_2.0_bf16.safetensors"), argv)
+        self.assertIn(os.path.join(self.models, "qwen-image-2.1", "text_encoder_sdcli",
+                                   "model.safetensors.index.json"), argv)
         self.assertEqual(argv[argv.index("--listen-port") + 1], "8097")
         self.assertEqual("--mmap" in argv, crow_platform.IS_WINDOWS,
                          "argv_platform is this platform's")
         self.assertEqual(plan["image"]["port"], 8097)
         self.assertEqual(plan["crow_env"], {"CROW_IMAGE_MODEL_DIR":
-                                            os.path.join(self.models, "ming-image-0.1-design")})
-
-    def test_the_image_weight_type_is_crow_cores_tail(self):
-        """#404: $CROW_IMAGE_WEIGHT_TYPE appends `--type <value>` to stack.json's
-        sd-server line, exactly as crow_core.image_server_command does (NOT
-        MEASURED); unset, the line is stack.json's."""
-        with mock.patch.dict(os.environ, {crow_core.IMAGE_WEIGHT_TYPE_ENV: "q8_0"}):
-            typed = crow_boot.plan_point(STACK, "image-stack", self.install, self.models)
-        with mock.patch.dict(os.environ, {crow_core.IMAGE_WEIGHT_TYPE_ENV: ""}):
-            plain = crow_boot.plan_point(STACK, "image-stack", self.install, self.models)
-        self.assertEqual(typed["image"]["argv"], plain["image"]["argv"] + ["--type", "q8_0"])
-        self.assertNotIn("--type", plain["image"]["argv"])
-        self.assertEqual(crow_boot.missing_files(typed, self.install, self.models),
-                         crow_boot.missing_files(plain, self.install, self.models),
-                         "a weight type is not a file")
+                                            os.path.join(self.models, "qwen-image-2.1")})
 
     def test_an_unknown_point_is_a_setup_error(self):
         with self.assertRaises(crow_boot.SetupError):
@@ -407,7 +393,7 @@ class StartCrowTests(BootCase):
         self.assertTrue(argv[1].endswith("crow_gui.py"))
         self.assertEqual(argv[2:], ["--base-url", "http://127.0.0.1:8099/v1"])
         self.assertEqual(kw["env"]["CROW_IMAGE_MODEL_DIR"],
-                         os.path.join(self.models, "ming-image-0.1-design"))
+                         os.path.join(self.models, "qwen-image-2.1"))
 
     def test_with_a_llama_server_it_opens_the_window_on_its_port_and_names_it(self):
         scan = lambda: [("6001", "llama-server.exe -m D:/m/Qwen3.8-27B-UD-Q4_K_XL.gguf --port 8082")]  # noqa: E731
@@ -926,21 +912,22 @@ class ThePlanAsJsonTests(BootCase):
         self.assertEqual(doc["derived"], [])
         self.assertNotIn("${", json.dumps(doc), "a placeholder was left unresolved")
 
-    def test_the_image_stack_carries_sd_server_and_its_files_as_published(self):
-        """#400/#404: Ming-Image's four files are used as published -- nothing
-        is derived on the machine, and every file sd-server reads is one the
-        installer fetches and checks."""
+    def test_the_image_stack_carries_sd_server_and_the_derived_encoder(self):
         doc = crow_boot.plan_json(STACK, "image-stack", self.install, self.models)
         plan = crow_boot.plan_point(STACK, "image-stack", self.install, self.models)
         self.assertEqual(doc["image"]["binary"], os.path.join(self.install, "bin", SD_SERVER))
         self.assertEqual(doc["image"]["argv"], plan["image"]["argv"][1:])
         self.assertEqual(doc["image"]["port"], 8097)
         self.assertEqual(doc["crow_env"], plan["crow_env"])
-        self.assertEqual(doc["derived"], [])
-        argv = doc["image"]["argv"]
-        fetched = {f["dest"] for f in doc["files"]}
-        for flag in ("--diffusion-model", "--llm", "--vae", "--tokenizer"):
-            self.assertIn(argv[argv.index(flag) + 1], fetched, flag)
+        (derived,) = doc["derived"]
+        sdcli = os.path.join(self.models, "qwen-image-2.1", "text_encoder_sdcli")
+        self.assertEqual(derived["dest"], sdcli)
+        self.assertIn("qi-text-encoder-1", derived["inputs"])
+        index = os.path.join(sdcli, "model.safetensors.index.json")
+        self.assertIn(index, [o["dest"] for o in derived["outputs"]])
+        # sd-server's --llm is one of those outputs: the check verifies what it loads
+        llm = doc["image"]["argv"][doc["image"]["argv"].index("--llm") + 1]
+        self.assertEqual(llm, index)
 
     def test_main_prints_only_the_json_and_honours_install_root_and_models(self):
         code, out, err = self.run_main(["--install-root", self.install, "--models", self.models,

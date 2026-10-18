@@ -172,7 +172,7 @@ fn verdict_table_ram_vram_disk() {
     assert_eq!(r.hard_block, None);
     assert_eq!(blocked(&r.blocked), vec![("flash-next", why), ("27b", why), ("glm53-flash", why), ("image-stack", why), ("media-stack", why)]);
 
-    // 50 GB free: the 27B fits (17.5 GiB), Flash-Next (98.4 GiB) and the image stack (63.4 GiB, #403) do not
+    // 50 GB free: the 27B fits (17.5 GiB), Flash-Next (98.4 GiB) and the image stack (64.7 GiB peak) do not
     let mut f = robins_machine();
     f.disk_free_bytes = 50_000_000_000;
     assert_eq!(
@@ -180,8 +180,8 @@ fn verdict_table_ram_vram_disk() {
         vec![
             ("flash-next", "Needs 99 GB free disk. This drive has 46 GB free."),
             ("glm53-flash", "Needs 117 GB free disk. This drive has 46 GB free."),
-            ("image-stack", "Needs 64 GB free disk. This drive has 46 GB free."),
-            ("media-stack", "Needs 99 GB free disk. This drive has 46 GB free."),
+            ("image-stack", "Needs 65 GB free disk. This drive has 46 GB free."),
+            ("media-stack", "Needs 100 GB free disk. This drive has 46 GB free."),
         ]
     );
 
@@ -191,9 +191,9 @@ fn verdict_table_ram_vram_disk() {
     assert_eq!(
         blocked(&verdicts(&f, &s).blocked),
         vec![
-            ("flash-next", "Needs 99 GB free disk. This drive has 63 GB free."),
-            ("glm53-flash", "Needs 117 GB free disk. This drive has 63 GB free."),
-            ("media-stack", "Needs 99 GB free disk. This drive has 63 GB free."),
+            ("flash-next", "Needs 99 GB free disk. This drive has 64 GB free."),
+            ("glm53-flash", "Needs 117 GB free disk. This drive has 64 GB free."),
+            ("media-stack", "Needs 100 GB free disk. This drive has 64 GB free."),
         ]
     );
 
@@ -207,7 +207,7 @@ fn verdict_table_ram_vram_disk() {
             ("flash-next", "Needs 64 GB RAM. This machine has 16 GB."),
             ("27b", "Needs 18 GB free disk. This drive has 10 GB free."),
             ("glm53-flash", "Needs 64 GB RAM. This machine has 16 GB."),
-            ("image-stack", "Needs 64 GB free disk. This drive has 10 GB free."),
+            ("image-stack", "Needs 65 GB free disk. This drive has 10 GB free."),
             ("media-stack", "Needs 64 GB RAM. This machine has 16 GB."),
         ]
     );

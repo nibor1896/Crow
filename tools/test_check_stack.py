@@ -47,25 +47,6 @@ def pending_hotset(doc):
     return f
 
 
-def derived_entry(doc):
-    """A derived file on the image stack: the real manifest has none since
-    Ming-Image loads as published (#403; Qwen-Image 2.1's text_encoder_sdcli/
-    was the last). The checks for derived entries stay under test with this one,
-    which is valid on its own: the reference and sum cases that use it are red
-    for their own reason only."""
-    d = {"id": "mi-derived", "tool": "tools/derive.py",
-         "argv": ["${MODELS}/ming-image-0.1-design/vae", "${MODELS}/ming-image-0.1-design/vae_derived"],
-         "inputs": ["mi-vae"], "dest": "${MODELS}/ming-image-0.1-design/vae_derived",
-         "outputs": [{"path": "vae.safetensors", "bytes": 100, "sha256": None}], "bytes": 100}
-    doc["derived"].append(d)
-    pt = point(doc, "image-stack")
-    pt["derived"].append(d["id"])
-    for k in ("derived", "disk"):
-        pt["bytes"][k] += d["bytes"]
-    pt["preflight"]["disk_bytes"] += d["bytes"]
-    return d
-
-
 class Base(unittest.TestCase):
     def setUp(self):
         self.doc = copy.deepcopy(REAL)
@@ -113,32 +94,12 @@ class Schema(Base):
     def test_a_licence_shown_at_install_names_what_it_covers(self):
         # #340: the selection screen says "<covers>: <name>"; it used to say
         # "Qwen-Image weights" for every licence it showed.
-        del self.doc["licenses"]["ltx-2.x-community"]["covers"]
-        self.red("schema", "licence ltx-2.x-community is shown at install but names nothing it covers")
+        del self.doc["licenses"]["qwen-research"]["covers"]
+        self.red("schema", "licence qwen-research is shown at install but names nothing it covers")
 
     def test_non_commercial_licence_hidden(self):
-        # #403: no licence of the real manifest is non-commercial since the
-        # Qwen Research Licence went with Qwen-Image 2.1, so the case makes one.
-        self.assertFalse([k for k, v in REAL["licenses"].items() if v["non_commercial"]])
-        self.doc["licenses"]["mit-inclusionai"]["non_commercial"] = True
-        self.red("schema", "licence mit-inclusionai is non-commercial but not shown at install")
-
-    def test_the_ming_image_licences_are_mit_with_inclusionais_text(self):
-        # #403: the weights come from Comfy-Org's repackage, which has no
-        # licence file; both entries carry inclusionAI's LICENSE.
-        for name in ("mit-inclusionai", "mit-comfy-org"):
-            lic = REAL["licenses"][name]
-            self.assertEqual((lic["name"], lic["non_commercial"], lic["text_file"]),
-                             ("MIT License", False, "mi-license"), name)
-        self.assertEqual({f["id"]: f["license"] for f in REAL["files"] if f["id"].startswith("mi-")}, {
-            "mi-diffusion": "mit-comfy-org", "mi-text-encoder": "mit-comfy-org", "mi-vae": "mit-comfy-org",
-            "mi-tokenizer": "mit-inclusionai", "mi-license": "mit-inclusionai"})
-        self.assertNotIn("qwen-research", REAL["licenses"])
-
-    def test_a_derived_entry_alone_is_green(self):
-        derived_entry(self.doc)
-        r = C.run(self.doc)
-        self.assertEqual(r.failed, 0, "\n".join(r.lines))
+        self.doc["licenses"]["qwen-research"]["show_at_install"] = False
+        self.red("schema", "not shown at install")
 
     def test_missing_point(self):
         self.doc["points"] = [p for p in self.doc["points"] if p["id"] != "27b"]
@@ -158,33 +119,33 @@ class UpstreamHosts(Base):
         self.assertFalse([ln for ln in r.lines if ln.startswith("  FAIL") and "schema" in ln], r.lines)
 
     def test_a_github_raw_file_and_a_release_asset_are_valid(self):
-        file_(self.doc, "mi-license")["host"] = "github"
-        f = file_(self.doc, "mi-vae")
+        file_(self.doc, "qi-license")["host"] = "github"
+        f = file_(self.doc, "qi-vae")
         f["host"], f["tag"] = "github-release", "v0.38.0"
         self.green_schema()
 
     def test_a_gated_hugging_face_file_is_valid(self):
-        file_(self.doc, "mi-vae")["gated"] = True
+        file_(self.doc, "qi-vae")["gated"] = True
         self.green_schema()
 
     def test_unknown_host(self):
-        file_(self.doc, "mi-vae")["host"] = "gitlab"
+        file_(self.doc, "qi-vae")["host"] = "gitlab"
         self.red("schema", "host 'gitlab'")
 
     def test_a_release_asset_needs_its_tag(self):
-        file_(self.doc, "mi-vae")["host"] = "github-release"
+        file_(self.doc, "qi-vae")["host"] = "github-release"
         self.red("schema", "github-release needs a tag")
 
     def test_a_tag_belongs_to_a_release_asset_only(self):
-        file_(self.doc, "mi-vae")["tag"] = "v1"
+        file_(self.doc, "qi-vae")["tag"] = "v1"
         self.red("schema", "tag only with host github-release")
 
     def test_gated_is_true_or_absent(self):
-        file_(self.doc, "mi-vae")["gated"] = "yes"
+        file_(self.doc, "qi-vae")["gated"] = "yes"
         self.red("schema", "gated must be true")
 
     def test_only_hugging_face_has_a_gate(self):
-        f = file_(self.doc, "mi-vae")
+        f = file_(self.doc, "qi-vae")
         f["host"], f["gated"] = "github", True
         self.red("schema", "gated only on host huggingface")
 
@@ -216,7 +177,7 @@ class Paths(Base):
         self.red("placeholders and paths", "/_what")
 
     def test_unknown_placeholder(self):
-        file_(self.doc, "mi-vae")["dest"] = "${HOME}/vae.safetensors"
+        file_(self.doc, "qi-vae")["dest"] = "${HOME}/vae.safetensors"
         self.red("placeholders and paths", "${HOME}")
 
     def test_user_name(self):
@@ -254,9 +215,8 @@ class References(Base):
         self.red("references", "27b-ghost")
 
     def test_derived_input_missing_from_point(self):
-        derived_entry(self.doc)
-        point(self.doc, "image-stack")["files"].remove("mi-vae")
-        self.red("references", "without its input mi-vae")
+        point(self.doc, "image-stack")["files"].remove("qi-text-encoder-3")
+        self.red("references", "without its input qi-text-encoder-3")
 
 
 class Sums(Base):
@@ -270,7 +230,7 @@ class Sums(Base):
         self.red("byte sums", "preflight.disk_bytes")
 
     def test_derived_outputs(self):
-        derived_entry(self.doc)["outputs"][0]["bytes"] += 7
+        self.doc["derived"][0]["outputs"][0]["bytes"] += 7
         self.red("byte sums", "outputs sum to")
 
 
@@ -295,7 +255,7 @@ class Wiring(Base):
     def test_sd_server_path_not_installed(self):
         argv = point(self.doc, "image-stack")["image_server"]["argv"]
         i = argv.index("--llm") + 1
-        argv[i] = argv[i].replace("/text_encoders/", "/text_encoders_missing/")
+        argv[i] = argv[i].replace("text_encoder_sdcli", "text_encoder_missing")
         self.red("engine wiring", "neither installed nor derived")
 
     def test_port_mismatch(self):
@@ -396,12 +356,9 @@ class ImageServerArgvDrift(unittest.TestCase):
         import crow_platform
         server = point(REAL, "image-stack")["image_server"]
         models = os.path.join("M", "models")
-        model_dir = os.path.join(models, "ming-image-0.1-design")
+        model_dir = os.path.join(models, "qwen-image-2.1")
         for plat, extra in server["argv_platform"].items():
-            # The owner's fallback knob (#404) appends --type to Crow's argv and
-            # never to the manifest's; a machine that sets it must not turn this red.
             with self.subTest(platform=plat), \
-                    mock.patch.dict(os.environ, {"CROW_IMAGE_WEIGHT_TYPE": ""}), \
                     mock.patch.object(crow_core, "image_model_dir", return_value=model_dir), \
                     mock.patch.object(crow_core, "image_server_binary", return_value="sd-server"), \
                     mock.patch.object(crow_platform, "image_server_platform_args", return_value=list(extra)):
@@ -565,9 +522,8 @@ class TheWindowsLine(Base):
             "27b": "128k context. Great speed, coding and vision.",
             # #365: written with the point, not yet approved by the owner.
             "glm53-flash": "200k context. The big MoE, experts streamed from NVMe.",
-            # #403: the Ming-Image swap, worded as the docs (#400); not yet approved by the owner.
-            "image-stack": "27B with Ming-Image 0.1 Design. Create pictures.",
-            "media-stack": "Qwen3.5-9B with Ming-Image 0.1 Design and LTX-2.5. Create pictures and videos.",
+            "image-stack": "27B with Qwen-Image 2.1. Create pictures.",
+            "media-stack": "Qwen3.5-9B with Qwen-Image 2.1 and LTX-2.5. Create pictures and videos.",
         })
 
     def test_a_point_without_one(self):

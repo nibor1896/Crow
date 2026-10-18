@@ -1,7 +1,7 @@
 //! crowsetup-core: everything CrowSetup.exe does, without a window (#196 phase 2).
 //!
 //! Owners (parallel crew): T1 `fetch`, `state`, `verify`; T2 `stack`, `plan`,
-//! `preflight`; T3 `layout`, `python`, `check`, `finish`; T4 `run`.
+//! `preflight`; T3 `layout`, `python`, `convert`, `check`, `finish`; T4 `run`.
 //! `api` is the shared contract and changes only through the lead.
 
 pub mod api;
@@ -15,6 +15,7 @@ pub mod preflight;
 pub mod stack;
 
 pub mod check;
+pub mod convert;
 pub mod finish;
 pub mod layout;
 pub mod python;

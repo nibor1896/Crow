@@ -190,7 +190,7 @@ Flash-Next and the 27B. It overrides crow-nest#151's rule of no manifest entry b
 
 ## Media Stack — pictures and short videos (Windows)
 
-One card, three engines, never all at once (#340). A language model talks; Ming-Image 0.1 Design
+One card, three engines, never all at once (#340). A language model talks; Qwen-Image 2.1
 makes pictures; LTX-2.5 turns a still into a clip (`animate_image`). Windows only for now,
 because ComfyUI publishes its portable runtime for Windows only. CrowSetup installs it as the
 point `media-stack`.
@@ -200,13 +200,12 @@ point `media-stack`.
 | Language model | `Qwen3.5-9B-Q8_0.gguf` with `mmproj-F16.gguf` on llama-server, port 8099, one slot |
 | Context | `-c 65536` — **not measured** for the 9B: crow-nest's dense default, until a run measures its VRAM beside sd-server |
 | Start | the boot window's fill assumes 15 s — **not measured**, the 27B GGUF line's figure |
-| Pictures | Ming-Image 0.1 Design on sd-server with `--max-vram 7`, not started by the boot menu: Crow's window warms it when it opens (#300), else the first image call starts it. Files in `ming-image-0.1-design/` (45.87 GiB): the BF16 DiT, Ling-mini-2.0 text encoder and VAE from [Comfy-Org/Ming-Image](https://huggingface.co/Comfy-Org/Ming-Image) @ `93804ff3`, `mllm/tokenizer.json` and `LICENSE` from [inclusionAI/Ming-Image-0.1-Design](https://huggingface.co/inclusionAI/Ming-Image-0.1-Design) @ `c57c4968`; loaded as published, no conversion (#403) |
-| Licence | Ming-Image: MIT (inclusionAI; Comfy-Org's repackage is MIT too). LTX-2.5: LTX-2.x Community License. The 9B: Apache-2.0 |
+| Pictures | Qwen-Image 2.1 on sd-server with `--max-vram 7`, not started by the boot menu: Crow's window warms it when it opens (#300), else the first image call starts it |
 | Clips | LTX-2.5 distilled int8 on ComfyUI v0.38.0 portable, port 8188, started on the first `animate_image` and ended after the clip |
 | Mode switch | `use_mode`: for a clip, sd-server and the language model leave the card and ComfyUI starts; afterwards ComfyUI ends and the language model starts again from the boot's plan — also after an error, a stop or the 30-minute timeout |
 | Clip sizes | 1080p (1920x1088) or 1440p (2560x1408), 1 to 20 s at 24 fps; 4K is not offered |
 | Host RAM | 64 GB, CrowSetup's preflight |
-| Disk | 105,788,176,090 B: 101,403,587,815 B downloaded from the original sources, 4,384,588,275 B for the unpacked ComfyUI runtime |
+| Disk | 107,184,659,213 B: 85,265,651,750 B downloaded from the original sources, 21,919,007,463 B derived |
 | Source of truth | [`../manifests/stack.json`](../manifests/stack.json), point `media-stack` |
 
 ### Numbers (#340 Phase 0)
@@ -263,7 +262,7 @@ no cuts" from all three texts and part of the negative sound list from two. Peak
 | open | |
 |---|---|
 | the 9B's start and its context of 65,536 | the figures above are a borrowed start and a default; one run (2026-10-03): back 8 s after ComfyUI ended |
-| the 9B's VRAM beside sd-server at `--max-vram 7` | one run (2026-10-03, with Qwen-Image 2.1): peak 21,864 of 32,579 MiB while making pictures. Beside Ming-Image 0.1 Design: not measured (45.87 GiB of host weights against 29.05 GiB, #400) |
+| the 9B's VRAM beside sd-server at `--max-vram 7` | one run (2026-10-03): peak 21,864 of 32,579 MiB while making pictures |
 | ComfyUI's boot time | `VIDEO_BOOT_WAIT` 300 s is an assumption; one run (2026-10-03): answering 16 s after the card was free |
 | the mode switch's own time | one run (2026-10-03), a 5 s clip: card free 11:14:53, ComfyUI up 11:15:09, rendered in 73.3 s, the 9B back 11:16:32 |
 | ComfyUI finding the LTX files through `extra_model_paths.yaml` | Phase 0 had them in `ComfyUI/models`; the file's format rests on ComfyUI's `utils/extra_config.py` |

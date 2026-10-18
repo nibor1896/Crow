@@ -198,25 +198,24 @@ edge gives no crop. Decode plus detection: 0.03–0.23 s per render.
 
 ### `generate_image` and `edit_image` (#300, #308, #311)
 
-`generate_image(prompt, aspect_ratio="1:1", seed=None, transparent=False)` makes a new picture with Ming-Image 0.1 Design on a resident `sd-server` (#400; it replaced Qwen-Image 2.1).
-`edit_image(images, instruction, description, aspect_ratio=None)` is **not available on Ming-Image**: stable-diffusion.cpp's Ming-Image support is text-to-image only (PR #2063). While the image model is Ming-Image the tool is not offered, and a call answers with one sentence saying so. `animate_image` (LTX-2.5, Media Stack) is unaffected.
-
-**Not measured:** seconds per picture and peak host RAM or VRAM of Ming-Image on this machine. Every timing and memory figure below was taken with Qwen-Image 2.1.
+`generate_image(prompt, aspect_ratio="16:9", seed=None)` makes a new picture.
+`edit_image(images, instruction, description, aspect_ratio=None)` changes 1–10 pictures.
+Both use Qwen-Image 2.1 on a resident `sd-server`.
 
 | | |
 |---|---|
 | class | `executing`: they start a process, hold the GPU for minutes and write a file. Never answered from the repeat cache |
-| server | `sd-server` (stable-diffusion.cpp `2f016e8`, tag `master-970-2f016e8`, #402) from `<install>/bin`, on `127.0.0.1:8097`. Linux builds it with `tools/build-sd-server.sh` or `install.sh --build-image-server` ([Linux](../user-guide/linux.md#image-server)); the Windows package carries `sd-server.exe` when it was packed with `pack-release.ps1 -SdBuildDir` ([Install](../user-guide/install.md#image-server-windows)). Without it both tools answer `the image server is not installed`. It starts on the first call if nothing answers `GET /sdcpp/v1/capabilities` and then stays loaded. Its working directory is `<state>/image-server`, an empty folder, never the window's (#324): sd-server walks it on every capabilities probe (`--lora-model-dir` defaults to `.`). A 5xx on capabilities ends the start at once with the server's `EXCEPTION_WHAT` text; no answer at all is waited for up to 180 s. Linux adds `LD_LIBRARY_PATH=<data>/cuda/lib`. It is detached, in its own user scope like `llama-server`, and stopped when Crow exits (by handle; a server someone else started is used, never stopped). `crow_core.image_server_warm()` starts it and sends a 256×256, 1-step job so the first real job does not pay the weight load |
-| argv | `--diffusion-model <M>/diffusion_models/ming_image_0.1_design_bf16.safetensors --llm <M>/text_encoders/ming_image_0.1_ling_mini_2.0_bf16.safetensors --vae <M>/vae/ming_image_vae_bf16.safetensors --tokenizer <M>/mllm/tokenizer.json --backend te=cpu --flash-attn off,diffusion=on --max-vram 7 --vae-tiling --listen-port 8097 -v`. `--backend te=cpu`, `--max-vram 7` and `--vae-tiling` are the co-residence line beside the 27B that was measured with Qwen-Image 2.1; `--flash-attn off,diffusion=on` is the stated replacement of `--diffusion-fa`, which is deprecated at the new pin; `--tokenizer` is required for Ming-Image (stable-diffusion.cpp `docs/ming_image.md`). Windows: + `--mmap` (#320): under WDDM every CUDA allocation also counts against the system commit limit, and without it sd-server needs ~37 GB of commit beside serve's 26.7 GB (no pagefile, limit 64,901 MB); with it the job completed in 237.7 s at 51,149 MB commit (measured with Qwen-Image 2.1; Ming-Image's commit is not measured) |
-| model | `M` = `$CROW_IMAGE_MODEL_DIR`, else `<models_dir()>/ming-image-0.1-design`. On a Linux install `models_dir()` is a link to one text model's tree, so the variable is how a models root elsewhere is found. The files are listed below the table |
-| licence | MIT. [`inclusionAI/Ming-Image-0.1-Design`](https://huggingface.co/inclusionAI/Ming-Image-0.1-Design) `LICENSE` ("Copyright (c) 2026 inclusionAI") covers the weights and the code; [`Comfy-Org/Ming-Image`](https://huggingface.co/Comfy-Org/Ming-Image) is a repackage of it with `license: mit`. Crow ships no weights: CrowSetup fetches the files from these two repos, and the `LICENSE` lands in the model folder. Qwen-Image 2.1 was under the Qwen Research License (research and evaluation only) |
+| server | `sd-server` (stable-diffusion.cpp 2f88688) from `<install>/bin`, on `127.0.0.1:8097`. Linux builds it with `tools/build-sd-server.sh` or `install.sh --build-image-server` ([Linux](../user-guide/linux.md#image-server)); the Windows package carries `sd-server.exe` when it was packed with `pack-release.ps1 -SdBuildDir` ([Install](../user-guide/install.md#image-server-windows)). Without it both tools answer `the image server is not installed`. It starts on the first call if nothing answers `GET /sdcpp/v1/capabilities` and then stays loaded. Its working directory is `<state>/image-server`, an empty folder, never the window's (#324): sd-server walks it on every capabilities probe (`--lora-model-dir` defaults to `.`). A 5xx on capabilities ends the start at once with the server's `EXCEPTION_WHAT` text; no answer at all is waited for up to 180 s. Linux adds `LD_LIBRARY_PATH=<data>/cuda/lib`. It is detached, in its own user scope like `llama-server`, and stopped when Crow exits (by handle; a server someone else started is used, never stopped). `crow_core.image_server_warm()` starts it and sends a 256×256, 1-step job so the first real job does not pay the weight load |
+| argv | `--diffusion-model <M>/transformer/…index.json --llm <M>/text_encoder_sdcli/…index.json --vae <M>/vae/…safetensors --backend te=cpu --diffusion-fa --max-vram 7 --vae-tiling --model-args qwen_image_2_1_prefix_cache_type=q8_0 --listen-port 8097 -v`. Windows: + `--mmap` (#320): under WDDM every CUDA allocation also counts against the system commit limit, and without it sd-server needs ~37 GB of commit beside serve's 26.7 GB (no pagefile, limit 64,901 MB); with it the job completed in 237.7 s at 51,149 MB commit |
+| model | `M` = `$CROW_IMAGE_MODEL_DIR`, else `<models_dir()>/qwen-image-2.1`. On a Linux install `models_dir()` is a link to one text model's tree, so the variable is how a models root elsewhere is found |
+| licence | [`Qwen/Qwen-Image-2.1`](https://huggingface.co/Qwen/Qwen-Image-2.1): Qwen Research License Agreement (release date 2026-09-20): research and evaluation only; commercial use needs a separate licence from Qwen (model-business@notice.qwencloud.com), sections 2a/2b of its `LICENSE` |
 | log | the server's stdout and stderr in `<log_dir>/sd-server-8097.log`, rewritten per start, the previous one kept as `.prev.log` |
-| API | `POST /sdcpp/v1/img_gen` (202 + job id), then `GET /sdcpp/v1/jobs/{id}` every 0.5 s until `completed`, `failed` or `cancelled`. Body: `prompt`, `width`, `height`, `seed`, `sample_params {sample_steps 12, euler, txt_cfg 1.0}`. `vae_tiling_params` is never sent |
-| sizes | `aspect_ratio` picks a row; all are multiples of 16, as stable-diffusion.cpp requires. From the 2048 level of `ASPECT_RATIO_2048` in `inclusionAI/Ming-Image` (`bailingmm_utils.py`): 1:1 2048×2048 (default, the model card's size), 4:3 2432×1824, 3:4 1824×2432, 3:2 2496×1664, 2:3 1664×2496, 16:9 2560×1440, 9:16 1440×2560 |
-| `transparent` | boolean, default false. True puts exactly one fixed phrase from the model README, `RGBA, 4-channel, transparent background`, at the very beginning of the prompt. The output stays a PNG, which keeps the alpha channel. Not yet checked: whether the corners come out transparent (PREREG item 3, #400) |
-| prompt | the tool description tells the chat model to write the prompt as the structured caption of Ming-Image's released rewriter system prompt (`assets/t2i_rewriter_system_prompt.txt` in `inclusionAI/Ming-Image`, MIT): `canvas_settings` and `layers` from the background to the topmost overlay, every rendered string quoted verbatim exactly once, and `aspect_ratio` matching the chosen size. The model card names `qwen3.8-27B` as a prompt enhancer; in the Image Stack the chat model is Crow's 27B |
-| `edit_image` | not available on Ming-Image (see above). The two-stage edit it ran on Qwen-Image 2.1 is described under the Qwen-Image 2.1 heading below |
-| memory | **not measured.** The five files are 49,253,655,382 B (45.87 GiB). Qwen-Image 2.1's `sd-server.log` printed `total params memory size = 29751.86MB`, which the engine computes as bytes / 1024 / 1024 (`src/pipeline/diffusion_engine.cpp:1324` at `2f88688`): 29.05 GiB, so Ming-Image's weights are about 17 GiB larger. With the text encoder on the CPU (`--backend te=cpu`) its 34.16 GiB stays in host RAM. This machine: 63.38 GiB RAM, commit limit 103.38 GiB, RTX 5090 32,607 MiB. The owner's first run decides (PREREG, #400) |
+| API | `POST /sdcpp/v1/img_gen` (202 + job id), then `GET /sdcpp/v1/jobs/{id}` every 0.5 s until `completed`, `failed` or `cancelled`. Body: `prompt`, `width`, `height`, `seed`, `sample_params {sample_steps 40, euler, txt_cfg 1.0}`. `vae_tiling_params` is never sent |
+| sizes | the model card's table: 1:1 2048×2048, 4:3 2400×1792, 3:4 1792×2400, 3:2 2528×1696, 2:3 1696×2528, 16:9 2752×1536 (default), 9:16 1536×2752 |
+| edit, stage 1 | the edit at ~1 MP. Each reference is resized by the server (`image_preprocess` `target=ref,index=k,mode=stretch,width,height,filter=lanczos`) to diffusers' `calculate_dimensions(1024², its ratio)` rounded to /32. The output uses the target shape's 1 MP size (16:9 → 1376×768). `ref_image_args` is `vae_input_max_pixels=1048576` and the prompt is `instruction` |
+| edit, stage 2 | img2img at the full size with **no references**: `init_image` = the stage-1 PNG (the server stretches it: `target=init,mode=stretch,…,filter=lanczos`), `strength` 0.25, prompt = `description`. The model sees only this text and that picture, so `description` has to describe the whole final image |
+| edit shape | `aspect_ratio`, else the last image's width:height snapped to the nearest table row (by log ratio). Sizes come from the file header (PNG, JPEG, WebP, GIF); Crow has no Pillow |
+| inputs | `read_image`'s checks (working-area path, the `IMAGE_TYPES` table, 32 MiB) plus magic bytes. A path outside the working area is refused unless the user named it or released it with "always". A release that contains the working area itself (`/`, `/home`) releases nothing here |
 | output | `<root>/images/<YYYYmmdd-HHMMSS>-<slug>.png`, created exclusively and never overwritten (`-2`, `-3`, …). The result names the path, W×H, bytes, seconds and seed (edit: both stage times), and the PNG goes on `read_image`'s ride so the model sees it. On a server without a projector the result stays a success and says the picture is not shown |
 | progress | `TurnEvents.tool_progress(name, state)` while the call runs. `state` has `job`, `kind`, `phase` (queued, loading, encoding, sampling, decoding, refining, saved, error, stopped), `stage` (`1/2`, `2/2` or empty), `i`, `n`, `eta_s`, `line`, and the final `width`/`height` from the first event. The phases come from the server's log (`SdProgress`, #308's table). ETA = remaining steps × median of the last ≤ 5 step times, step 1 excluded. After the result, `image_created(path, source, job)`. The terminal redraws its one open line with `\r` and prints `image: <path> (W×H, N KB)` |
 | stop | `sd-server` cancels only a queued job (409 while generating). Stop ends the wait, the result says the server finishes the job in the background, and nothing is saved |
@@ -224,29 +223,8 @@ edge gives no crop. Decode plus detection: 0.03–0.23 s per render.
 | notes | a chat's `image` notes keep only `path`, `name`, `w`, `h`, `bytes`, `source` and `job`, never pixels. `imgjob` notes (one per job, kept current by the window) keep `job`, `kind`, `phase`, `stage`, `w`, `h` and `line`, so a restart can show an unfinished job as interrupted. `video` notes (#340, `animate_image`'s clips, announced through `TurnEvents.video_created`) keep the same fields as `image` |
 | thread | `tool_progress` is always called on the turn's own thread: the tool polls the job and reads the log in its own loop, and the sink is thread-local, so a helper thread's `report_progress` reaches nothing |
 
-Files in the model folder `ming-image-0.1-design`. Nothing else is fetched and there is no conversion step. Revisions: `Comfy-Org/Ming-Image` @ `93804ff3747517a318969c5f61b25a57daefe09f`, `inclusionAI/Ming-Image-0.1-Design` @ `c57c49689d12ef7d4e24a170014f1dc43d3ce258`; bytes from the Hugging Face API, 2026-10-18.
-
-| path in the model folder | repo | bytes |
-|---|---|---|
-| `diffusion_models/ming_image_0.1_design_bf16.safetensors` | `Comfy-Org/Ming-Image` | 12,309,858,664 |
-| `text_encoders/ming_image_0.1_ling_mini_2.0_bf16.safetensors` | `Comfy-Org/Ming-Image` | 36,677,768,245 |
-| `vae/ming_image_vae_bf16.safetensors` | `Comfy-Org/Ming-Image` | 253,816,696 |
-| `mllm/tokenizer.json` | `inclusionAI/Ming-Image-0.1-Design` | 12,210,709 |
-| `LICENSE` | `inclusionAI/Ming-Image-0.1-Design` | 1,068 |
-
-**Measured with Qwen-Image 2.1, which Ming-Image replaced (#400).** None of the numbers in this part is Ming-Image's.
-
-Qwen-Image 2.1's `sd-server` (stable-diffusion.cpp `2f88688`, model folder `qwen-image-2.1`) ran `--diffusion-model <M>/transformer/…index.json --llm <M>/text_encoder_sdcli/…index.json --vae <M>/vae/…safetensors --backend te=cpu --diffusion-fa --max-vram 7 --vae-tiling --model-args qwen_image_2_1_prefix_cache_type=q8_0 --listen-port 8097 -v`, plus `--mmap` on Windows, with `sample_steps 40`, 16:9 (2752×1536) as the default size, and the sizes 1:1 2048×2048, 4:3 2400×1792, 3:4 1792×2400, 3:2 2528×1696, 2:3 1696×2528, 16:9 2752×1536, 9:16 1536×2752. How `edit_image` worked there (it is not available on Ming-Image):
-
-| | |
-|---|---|
-| edit, stage 1 | the edit at ~1 MP. Each reference is resized by the server (`image_preprocess` `target=ref,index=k,mode=stretch,width,height,filter=lanczos`) to diffusers' `calculate_dimensions(1024², its ratio)` rounded to /32. The output uses the target shape's 1 MP size (16:9 → 1376×768). `ref_image_args` is `vae_input_max_pixels=1048576` and the prompt is `instruction` |
-| edit, stage 2 | img2img at the full size with **no references**: `init_image` = the stage-1 PNG (the server stretches it: `target=init,mode=stretch,…,filter=lanczos`), `strength` 0.25, prompt = `description`. The model sees only this text and that picture, so `description` has to describe the whole final image |
-| edit shape | `aspect_ratio`, else the last image's width:height snapped to the nearest table row (by log ratio). Sizes come from the file header (PNG, JPEG, WebP, GIF); Crow has no Pillow |
-| inputs | `read_image`'s checks (working-area path, the `IMAGE_TYPES` table, 32 MiB) plus magic bytes. A path outside the working area is refused unless the user named it or released it with "always". A release that contains the working area itself (`/`, `/home`) releases nothing here |
-
 Measured on Linux 2026-09-27, RTX 5090 beside the 27B serve (8.15 GiB free after its load), 62 GiB host,
-sd-server 2f88688 with the Qwen-Image 2.1 argv above, 40 steps (crow-nest `decode_out/p3-img`, RESULTS.md):
+sd-server 2f88688 with the argv above, 40 steps (crow-nest `decode_out/p3-img`, RESULTS.md):
 
 | job | wall clock | result |
 |---|---|---|
@@ -259,16 +237,15 @@ sd-server 2f88688 with the Qwen-Image 2.1 argv above, 40 steps (crow-nest `decod
 
 The two-stage edit is therefore about 161 s, close to one warm generation.
 
-Windows, 2026-09-28 (#320): RTX 5090 beside the crow-nest 27B `serve.exe` (24,020 MiB after its boot), 63 GB host without a pagefile, sd-server 2f88688 with the Qwen-Image 2.1 argv above plus `--mmap`, 40 steps: generate 2752×1536 three times in a row, 235.1 s (first, loads the weights), 218.1 s, 218.5 s; 0 out-of-memory lines, card peak 31,861 MiB. Without `--mmap` all three failed in under 4 s (Windows commit limit).
+Windows, 2026-09-28 (#320): RTX 5090 beside the crow-nest 27B `serve.exe` (24,020 MiB after its boot), 63 GB host without a pagefile, sd-server 2f88688 with the argv above plus `--mmap`, 40 steps: generate 2752×1536 three times in a row, 235.1 s (first, loads the weights), 218.1 s, 218.5 s; 0 out-of-memory lines, card peak 31,861 MiB. Without `--mmap` all three failed in under 4 s (Windows commit limit).
 Both tools ran end to end in the window on 2026-09-27 (robin's live check, #308/#311): generate 162.2 s and 163.6 s, edit 109.4 s + 60.3 s at 2752×1536 (`sd-server-8097.log`); the table's numbers come from the measurement script's requests.
 One difference: B5's init was E3 upscaled beforehand (`E3-up.png`), while the tool lets the
 server stretch it (`image_preprocess`); the live edit on 2026-09-27 came out clean at 2752×1536
 this way (looked at, not measured against B5).
 
 **No negative prompt (#339).** `generate_image` sends `txt_cfg` 1.0 and no `negative_prompt`. At 1.0,
-sd-server ignores a negative prompt. Measured with Qwen-Image 2.1, not repeated with Ming-Image (its recommended
-CFG is 1.0 as well). Windows, 2026-10-07: an RTX 5090 beside the crow-nest 27B
-`serve.exe`, the Qwen-Image 2.1 argv above plus `--mmap`, 2752×1536, 40 steps, 10 prompt/seed pairs × `txt_cfg`
+sd-server ignores a negative prompt. Windows, 2026-10-07: an RTX 5090 beside the crow-nest 27B
+`serve.exe`, the argv above plus `--mmap`, 2752×1536, 40 steps, 10 prompt/seed pairs × `txt_cfg`
 {1.0, 3.0, 6.0} with the pair's object as `negative_prompt`, rated blind by the owner
 (`runs/339-negative-cfg/`, PREREG and addendum 1):
 
