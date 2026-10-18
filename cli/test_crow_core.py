@@ -44,6 +44,7 @@ import tempfile
 import threading
 import time
 import unittest
+from datetime import date, datetime, timedelta, timezone
 from unittest import mock
 import urllib.parse
 import urllib.request
@@ -127,6 +128,8 @@ crow_core.PATHTRACER_KIT = os.path.join(_NOWHERE, "kits", "pathtracer")
 crow_core.USER_PATH = os.path.join(_NOWHERE, "USER.md")
 # #262: Crow's own log file, never the real one under the state dir.
 crow_core.LOG_FILE = os.path.join(_SANDBOX, "log", "crow.log")
+# #406: the usage ledger the dashboard reads, never the real one either.
+crow_core.USAGE_FILE = os.path.join(_NOWHERE, "usage.jsonl")
 
 # #297: NO CASE LENDS A REAL SERVE'S VRAM. render_page asks this turn's
 # local endpoint for a loan below the VRAM bound, and a turn case leaves
@@ -14995,6 +14998,213 @@ class ATurnsBillOutlivesTheCutTests(unittest.TestCase):
                          "a turn's bill became a message")
 
 
+class TheUsageLedgerTests(unittest.TestCase):
+    """#406: one dated line per finished turn, and the summary the dashboard
+    draws from it -- the grid, the three figures and the model table.
+
+    TODAY IS A WEDNESDAY on purpose: the grid ends with the Sunday of today's
+    week, so four of its days lie ahead and have to come out blank.
+    """
+
+    TODAY = date(2026, 10, 14)
+
+    def setUp(self) -> None:
+        self.dir = tempfile.mkdtemp(prefix="crow-usage-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.path = os.path.join(self.dir, "state", "usage.jsonl")
+
+    def write(self, *rows) -> None:
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with open(self.path, "w", encoding="utf-8") as fh:
+            for row in rows:
+                fh.write((row if isinstance(row, str) else json.dumps(row)) + "\n")
+
+    def row(self, ago: int, tokens: int = 100, model: str = "model-a") -> dict:
+        """A ledger line `ago` days before TODAY; a fifth of its tokens is output."""
+        day = (self.TODAY - timedelta(days=ago)).isoformat()
+        return {"v": 1, "ts": day + "T12:00:00+02:00", "day": day, "model": model,
+                "input": tokens - tokens // 5, "output": tokens // 5}
+
+    def summary(self, today: "date | None" = None) -> dict:
+        return crow_core.usage_summary(today=today or self.TODAY, path=self.path)
+
+    def a_cost(self):
+        cost = crow_core.TurnCost()
+        cost.add_round({"predicted_n": 40, "prompt_n": 1000, "_cached_tokens": 900,
+                        "predicted_ms": 2000.0, "_finish_reason": "tool_calls"})
+        cost.add_round({"predicted_n": 60, "prompt_n": 50, "_cached_tokens": 1940,
+                        "_finish_reason": "stop"})
+        return cost
+
+    def test_the_input_sums_every_round(self):
+        """Until #406 only the last round's `cached` survived, so a six-round
+        turn's input was one prompt, not six. A round without a cache figure
+        counts what it read new."""
+        cost = self.a_cost()
+        cost.add_round({"predicted_n": 5, "prompt_n": 20})
+        self.assertEqual(cost.input, (1000 + 900) + (50 + 1940) + 20)
+        bill = cost.record()
+        self.assertEqual(bill["input"], 3910)
+        self.assertEqual(bill["decoded"], 105)
+        # `cached` stays what it was: a statement about the last prefix.
+        self.assertEqual((bill["cached"], bill["cached_of"]), (1940, 1990))
+        self.assertEqual(crow_core.clean_timings([bill])[0]["input"], 3910)
+
+    def test_one_line_per_append_with_its_keys(self):
+        bill = self.a_cost().record()
+        when = datetime(2026, 10, 18, 9, 12, 44, 512000)
+        self.assertTrue(crow_core.usage_append(bill, "Qwen3.8-27B", path=self.path, now=when))
+        self.assertTrue(crow_core.usage_append(bill, "", path=self.path, now=when))
+        with open(self.path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        self.assertEqual(len(lines), 2)
+        first, second = (json.loads(text) for text in lines)
+        self.assertEqual(first["v"], 1)
+        self.assertRegex(first["ts"], r"^2026-10-18T09:12:44[+-]\d\d:\d\d$")
+        self.assertEqual(first["day"], "2026-10-18")
+        self.assertEqual(first["model"], "Qwen3.8-27B")
+        self.assertEqual((first["input"], first["output"]), (3890, 100))
+        kept = crow_core.clean_timings([bill])[0]
+        for name in kept:
+            self.assertEqual(first[name], kept[name], name)
+        self.assertEqual(second["model"], "unknown")
+
+    def test_an_unwritable_path_is_false_and_raises_nothing(self):
+        blocker = os.path.join(self.dir, "a-file")
+        with open(blocker, "w", encoding="utf-8") as fh:
+            fh.write("x")
+        bill = self.a_cost().record()
+        # The folder cannot be made (a file is in its place), the path is a
+        # folder, and there is no record at all.
+        self.assertFalse(crow_core.usage_append(
+            bill, "m", path=os.path.join(blocker, "usage.jsonl")))
+        self.assertFalse(crow_core.usage_append(bill, "m", path=self.dir))
+        self.assertFalse(crow_core.usage_append(None, "m", path=self.path))
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_a_turn_at_0130_lands_on_the_day_before(self):
+        self.assertEqual(crow_core.usage_day(datetime(2026, 10, 18, 1, 30)),
+                         date(2026, 10, 17))
+        self.assertEqual(crow_core.usage_day(datetime(2026, 10, 18, 3, 59, 59)),
+                         date(2026, 10, 17))
+        self.assertEqual(crow_core.usage_day(datetime(2026, 10, 18, 4, 0)),
+                         date(2026, 10, 18))
+        crow_core.usage_append(self.a_cost().record(), "m", path=self.path,
+                               now=datetime(2026, 10, 18, 1, 30))
+        with open(self.path, encoding="utf-8") as fh:
+            line = json.loads(fh.readline())
+        self.assertEqual(line["day"], "2026-10-17")
+        self.assertTrue(line["ts"].startswith("2026-10-18T01:30:00"), line["ts"])
+
+    def test_the_grid_is_53_weeks_monday_first_with_the_future_blank(self):
+        # A line dated after today -- a clock that was wrong -- draws nothing.
+        self.write(self.row(0, 500), self.row(-2, 900))
+        got = self.summary()
+        days = got["days"]
+        self.assertEqual(len(days), 371)
+        self.assertEqual(got["today"], "2026-10-14")
+        first, last = (date.fromisoformat(days[i]["day"]) for i in (0, -1))
+        self.assertEqual((first.weekday(), last.weekday()), (0, 6))
+        self.assertEqual(last, date(2026, 10, 18))
+        self.assertEqual(last - first, timedelta(days=370))
+        ahead = [d for d in days if d["future"]]
+        self.assertEqual([d["day"] for d in ahead],
+                         ["2026-10-15", "2026-10-16", "2026-10-17", "2026-10-18"])
+        self.assertTrue(all(d["tokens"] == 0 and d["level"] == 0 for d in ahead))
+        self.assertEqual(days[-5], {"day": "2026-10-14", "tokens": 500,
+                                    "level": 1, "future": False})
+        # On a Sunday the grid ends with today and nothing lies ahead.
+        sunday = self.summary(date(2026, 10, 18))["days"]
+        self.assertEqual(sunday[-1]["day"], "2026-10-18")
+        self.assertFalse(any(d["future"] for d in sunday))
+
+    def test_the_shades_are_the_quartiles_of_the_days_with_tokens(self):
+        """Eight days of 10..80: sorted, q1 = [2] = 30, q2 = [4] = 50, q3 = [6]
+        = 70. A day outside the grid and one after today shift nothing."""
+        self.write(*(self.row(ago, tokens=10 * (8 - ago)) for ago in range(8)),
+                   self.row(8, tokens=0), self.row(400, tokens=10 ** 9),
+                   self.row(-1, tokens=10 ** 9))
+        days = {d["day"]: d for d in self.summary()["days"]}
+        levels = {d["tokens"]: d["level"] for d in days.values() if d["tokens"]}
+        self.assertEqual(levels, {10: 1, 20: 1, 30: 1, 40: 2, 50: 2, 60: 3, 70: 3, 80: 4})
+        self.assertEqual(days[(self.TODAY - timedelta(days=8)).isoformat()]["level"], 0)
+
+    def test_the_streak_counts_from_yesterday_while_today_is_empty(self):
+        self.write(self.row(1), self.row(2), self.row(3), self.row(5))
+        self.assertEqual(self.summary()["streak"], 3)
+        self.write(self.row(0), self.row(1), self.row(2), self.row(3), self.row(5))
+        self.assertEqual(self.summary()["streak"], 4)
+        # Yesterday empty as well: the streak is over.
+        self.write(self.row(2), self.row(3))
+        self.assertEqual(self.summary()["streak"], 0)
+        # A line without tokens is no activity.
+        self.write(self.row(0, tokens=0), self.row(1))
+        self.assertEqual(self.summary()["streak"], 1)
+
+    def test_the_longest_run_is_over_the_whole_ledger(self):
+        # Four days in a row long before the grid, two inside it, today alone.
+        self.write(*(self.row(500 + i) for i in range(4)),
+                   self.row(10), self.row(11), self.row(0))
+        got = self.summary()
+        self.assertEqual((got["streak"], got["longest"]), (1, 4))
+        self.assertEqual(got["first"], (self.TODAY - timedelta(days=503)).isoformat())
+
+    def test_the_year_and_the_month_include_today(self):
+        self.write(self.row(0, 1), self.row(29, 10), self.row(30, 100),
+                   self.row(364, 1000), self.row(365, 10000), self.row(-1, 100000))
+        got = self.summary()
+        self.assertEqual(got["month_tokens"], 11)
+        self.assertEqual(got["year_tokens"], 1111)
+        self.assertEqual(got["active_days"], 4)
+
+    def test_the_model_table_is_the_last_30_days_largest_first(self):
+        self.write(self.row(0, 300, "model-b"), self.row(0, 100, "model-b"),
+                   self.row(3, 200, "model-b"), self.row(1, 500, "model-a"),
+                   self.row(30, 99999, "model-c"), self.row(2, 0, "model-d"))
+        got = self.summary()
+        self.assertEqual(got["month_tokens"], 1100)
+        self.assertEqual(got["models"], [
+            {"model": "model-b", "days": 2, "tokens": 600, "share": 600 / 1100},
+            {"model": "model-a", "days": 1, "tokens": 500, "share": 500 / 1100}])
+
+    def test_damaged_and_foreign_lines_are_skipped(self):
+        good = self.row(0, 100)
+        self.write("not json", '{"v": 1, "day": "2026-10-1', "[1, 2]", "",
+                   {**good, "v": 2}, {**good, "v": True}, {**good, "day": "yesterday"},
+                   {**good, "day": "2026-13-45"}, {**good, "input": "100"},
+                   {**good, "output": -5}, {**good, "model": None}, good)
+        got = self.summary()
+        self.assertEqual((got["month_tokens"], got["first"]), (100, "2026-10-14"))
+        self.assertEqual([m["model"] for m in got["models"]], ["model-a"])
+        # A line a crash cut short costs itself, not the next append as well.
+        with open(self.path, "a", encoding="utf-8") as fh:
+            fh.write('{"v": 1, "da')
+        self.assertTrue(crow_core.usage_append(self.a_cost().record(), "model-a",
+                                               path=self.path,
+                                               now=datetime(2026, 10, 14, 12, 0)))
+        self.assertEqual(self.summary()["month_tokens"], 100 + 3890 + 100)
+
+    def test_a_missing_ledger_is_the_all_zero_shape(self):
+        got = self.summary()
+        self.assertEqual(list(got), ["today", "days", "year_tokens", "month_tokens",
+                                     "streak", "longest", "active_days", "models",
+                                     "first"])
+        self.assertEqual(len(got["days"]), 371)
+        self.assertTrue(all(d["tokens"] == 0 and d["level"] == 0 for d in got["days"]))
+        self.assertEqual({k: got[k] for k in list(got)[2:]},
+                         {"year_tokens": 0, "month_tokens": 0, "streak": 0, "longest": 0,
+                          "active_days": 0, "models": [], "first": None})
+
+    def test_an_aware_moment_is_dated_by_this_machines_clock(self):
+        """The day follows the local wall clock, never the offset a caller
+        happened to carry: the same instant written twice is one day."""
+        # 03:00 at UTC-12 is the day before by its own clock; on any machine
+        # east of UTC-12 it is mid-afternoon or later of the 18th.
+        instant = datetime(2026, 10, 18, 3, 0, tzinfo=timezone(timedelta(hours=-12)))
+        self.assertEqual(crow_core.usage_day(instant),
+                         crow_core.usage_day(instant.astimezone().replace(tzinfo=None)))
+
+
 class MarksKeepTheirPlaceInTheChatTests(unittest.TestCase):
     """#173. Eine Marke im Verlauf -- die Rollover-Notiz, `Memory updated`, ein
     Moduswechsel -- ist WEDER eine Nachricht NOCH reine Bildschirmausgabe.
@@ -27894,6 +28104,17 @@ class TheClaudeCliTurnTests(unittest.TestCase):
         self.assertGreater(window, 0)
         self.assertEqual((result.context_tokens, result.n_ctx), (31700, window))
         self.assertIn(("ctx", 31700, window), heard.said)
+
+    def test_a_claude_turn_records_its_input_and_its_output(self):
+        """#406: the recorded turn's three messages, each its input, cache
+        writes and cache reads, add up to what the result event reports for
+        the whole turn (6 + 25,433 + 99,555); `decoded` is the output tokens,
+        211 + 3 + 164 = 378, the result's own 378."""
+        _c, _heard, result = self.turn(model="haiku")
+        bill = result.cost.record()
+        self.assertEqual(bill["rounds"], 3)
+        self.assertEqual(bill["input"], 6 + 25433 + 99555)
+        self.assertEqual(bill["decoded"], 378)
 
     def test_the_reported_window_wins_over_the_table(self):
         """modelUsage[<init.model>].contextWindow, measured 1000000 for haiku."""
