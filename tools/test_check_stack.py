@@ -398,7 +398,10 @@ class ImageServerArgvDrift(unittest.TestCase):
         models = os.path.join("M", "models")
         model_dir = os.path.join(models, "ming-image-0.1-design")
         for plat, extra in server["argv_platform"].items():
+            # The owner's fallback knob (#404) appends --type to Crow's argv and
+            # never to the manifest's; a machine that sets it must not turn this red.
             with self.subTest(platform=plat), \
+                    mock.patch.dict(os.environ, {"CROW_IMAGE_WEIGHT_TYPE": ""}), \
                     mock.patch.object(crow_core, "image_model_dir", return_value=model_dir), \
                     mock.patch.object(crow_core, "image_server_binary", return_value="sd-server"), \
                     mock.patch.object(crow_platform, "image_server_platform_args", return_value=list(extra)):

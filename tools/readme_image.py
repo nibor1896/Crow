@@ -109,7 +109,7 @@ TOOLS = [
  ("Web", "web_search · fetch_url"),
  ("Browser", "render_page"),
  ("Vision", "read_image · judge"),
- ("Images", "generate_image · edit_image · animate_image"),
+ ("Images", "generate_image · animate_image"),
  ("Memory", "memory · skill · session_search"),
  ("Goals", "goal_set · goal_step"),
  ("Subagents", "delegate · subtasks · collect"),

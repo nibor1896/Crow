@@ -102,9 +102,9 @@ There is no Start-menu entry: the last step prints the two start lines instead.
 
 ### Image server (Windows)
 
-`generate_image` and `edit_image` need `sd-server.exe` in `<install>\bin`. The package carries
+`generate_image` needs `sd-server.exe` in `<install>\bin`. The package carries
 it only when it was packed with `-SdBuildDir`; without it the pack prints
-`image server: none` and both tools answer `the image server is not installed`. Build it on
+`image server: none` and the tool answers `the image server is not installed`. Build it on
 Windows from the Linux builder's pin, with the same CUDA 13 toolkit as `llama-server.exe`; both
 import `cublas64_13.dll`/`cublasLt64_13.dll`, which the package does not carry
 ([NVIDIA libraries](#nvidia-libraries)):
@@ -244,7 +244,7 @@ warned about; none of them stops the install.
 | `--tailscale` | also print what is still missing for the phone over HTTPS: the install line (`sudo pacman -S tailscale` on Arch, else kb/1031's script), `systemctl enable --now tailscaled`, `tailscale up`, Enable HTTPS, the `tailscale serve` line, the phone app. Reads `tailscale status --json` only; never runs sudo |
 | `--pathtracer` | also switch on the `voxel-diorama` skill: path-traced voxel scenes with `kits/pathtracer` (shipped in every install). Verifies the bundle against `kit.json`, reports the esbuild `build_bundle` would use — see [Voxel kit](voxel-kit.md) |
 | `--build-engine` | build `llama-server` now instead of printing the line (~20 minutes) |
-| `--build-image-server` | build `sd-server` + `sd-cli` for `generate_image`/`edit_image` (~3 minutes with the engine's CUDA toolkit) — see [Linux](linux.md#image-server) |
+| `--build-image-server` | build `sd-server` + `sd-cli` for `generate_image` (3 min 10 s at the previous pin `2f88688`; not measured at `2f016e8`) — see [Linux](linux.md#image-server) |
 | `--no-desktop` | no `.desktop` entry, no icons, no Hyprland rule |
 | `--no-engine` | do not look for the engine at all |
 | `--to DIR` | install root, same as `CROW_HOME=DIR` |
