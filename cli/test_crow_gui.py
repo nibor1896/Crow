@@ -7202,6 +7202,17 @@ class TheTraceFoldsFinishedRoundsTests(unittest.TestCase):
         self.assertIn('<div class="tb" id="\'+id+\'" hidden></div>', frame)
         self.assertIn('head.setAttribute("aria-expanded", String(!tb.hidden))', frame)
 
+    def test_the_label_and_the_count_share_one_baseline(self):
+        """The owner, 2026-10-18: "Trace" and "31 tool calls · 33 rounds" sat
+        at different heights. The count is 11.5 px mono beside the label, so
+        centring the two boxes leaves their text offset; they share the
+        baseline and only the caret is centred."""
+        CLOSE = chr(125)
+        head = self.css[self.css.index(".trh{"):]
+        self.assertIn("align-items:baseline", head[:head.index(CLOSE)])
+        caret = self.css[self.css.index(".trh svg{"):]
+        self.assertIn("align-self:center", caret[:caret.index(CLOSE)])
+
 
 class ADismissedToolRowStaysDismissedTests(ApiCase):
     """#131. robin, after rebooting the window: the calls he had deleted were

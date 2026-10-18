@@ -2448,9 +2448,10 @@ details.rollcard pre.rtp{max-height:220px;overflow:auto;white-space:pre-wrap;
 .trace:hover{border-color:var(--line)}
 .trace[hidden],.trace .segs[hidden],.trace .leg[hidden],.trace .tb[hidden],
 .subref[hidden]{display:none}
-.trh{display:flex;align-items:center;gap:8px;width:100%;padding:0;border:0;
+.trh{display:flex;align-items:baseline;gap:8px;width:100%;padding:0;border:0;
   background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
-.trh svg{width:14px;height:14px;color:var(--dim);flex:none;transition:transform .12s ease}
+.trh svg{width:14px;height:14px;color:var(--dim);flex:none;align-self:center;
+  transition:transform .12s ease}
 .trh[aria-expanded="true"] svg{transform:rotate(90deg)}
 .trh .tl{font-weight:600;color:var(--text)}
 .trh .tn{font-size:11.5px;color:var(--dim)}
