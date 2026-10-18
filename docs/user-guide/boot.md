@@ -65,8 +65,8 @@ python cli\crow_boot.py
    5  ⚡ Qwen3.8-27B                            128k context — great speed, awesome for coding & vision
    6  ⚡ Qwen3.8-27B · text only                128k context — text only, without the vision tower
    7  🐋 GLM-5.3-Flash                          200k context — the big MoE, experts streamed from NVMe
-   8  🎨 Image Stack                            27B + Qwen-Image 2.1 — create AWESOME pictures
-   9  🎬 Media Stack                            9B + Qwen-Image 2.1 + LTX-2.5 — pictures and short videos
+   8  🎨 Image Stack                            27B + Ming-Image 0.1 Design — create AWESOME pictures
+   9  🎬 Media Stack                            9B + Ming-Image 0.1 Design + LTX-2.5 — pictures and short videos
 
   Optional (llama.cpp)
   10  🦙 Qwen3.8-27B (optional)                 llama.cpp, port 8082
@@ -85,7 +85,7 @@ python cli\crow_boot.py
 | Qwen3.8-27B | starts `serve` with the 27B container at 131,072 context (`CROW_CONTEXT`; 200k waits for an 8-bit KV cache in crow-nest) |
 | Qwen3.8-27B · text only | the 27B without the vision tower, at the base's 131,072 context (#397: `CROW_VIT=0`, no `CROW_VIT_MMPROJ`, no `CROW_CONTEXT` of its own). The ~1 GiB of VRAM the tower frees is not used by the dense model. **Not measured** |
 | GLM-5.3-Flash | starts `serve` with the GLM-5.3-Flash container (200k context) and crow-nest's `arm4.env` operating set plus the three prefill-reuse switches `CROW_GLM_SMALL_PROMPT`, `CROW_GLM_ANSWER_REUSE`, `CROW_GLM_PREFIX_ANCHOR` (#365, 2026-10-12; needs crow-nest v0.12.0 or later, pinned v0.13.2) |
-| Image Stack | starts the 27B at 65,536 context (room for Qwen-Image beside it), then `sd-server` with Qwen-Image 2.1 once `serve` is ready |
+| Image Stack | starts the 27B at 65,536 context (room for the image model beside it: measured with Qwen-Image 2.1, **not measured** with Ming-Image), then `sd-server` with Ming-Image 0.1 Design once `serve` is ready. `edit_image` is not available on Ming-Image ([tools](../reference/tools.md#generate_image-and-edit_image-300-308-311)) |
 | Media Stack | Windows only. Starts `llama-server` with Qwen3.5-9B Q8_0 and its projector on 8099 at 65,536 context. Crow's window warms `sd-server` when it opens; ComfyUI (LTX-2.5) starts on the first `animate_image`; for a clip the language model leaves the card and comes back afterwards ([operating points](../operating-points.md#media-stack--pictures-and-short-videos-windows)) |
 | *(optional)* lines | a llama.cpp line from `manifests/operating-point.json` (ports 8081/8082/8083), started like Crow's own `start_server`: ready when `/props` answers, 600 s. Drawn dimmed; plain consoles show only the tag |
 | Stop the running point | ends every model server the process scan sees (`serve`, `sd-server`, `llama-server`, ComfyUI), waits until each is torn down, removes the contract file |

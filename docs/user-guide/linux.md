@@ -160,27 +160,30 @@ abort (upstream #28403, #25060).
 bash tools/build-sd-server.sh
 ```
 
-`generate_image` and `edit_image` run on `sd-server` (see [tools](../reference/tools.md#generate_image-and-edit_image-300-308-311)).
-It is built like the engine, into `$CROW_HOME/bin`: stable-diffusion.cpp pin `2f88688`
-(tag `master-920-2f88688`, the tree the image tools were measured on), `SD_CUDA=ON`, `sm_120`,
+`generate_image` runs on `sd-server` (see [tools](../reference/tools.md#generate_image-and-edit_image-300-308-311)); `edit_image` is not available on Ming-Image.
+It is built like the engine, into `$CROW_HOME/bin`: stable-diffusion.cpp pin `2f016e8`
+(tag `master-970-2f016e8`: Ming-Image 0.1 Design support from PR #2063, #401), `SD_CUDA=ON`, `sm_120`,
 with the engine's CUDA 13.3 prefix and cmake/ninja. Without that prefix it downloads the same
 ~970 MB first. The web UI is left out (`SD_SERVER_BUILD_FRONTEND=OFF`): building it needs
 `pnpm` and the network, and Crow uses only the HTTP API.
 
 | | |
 |---|---|
-| time | 3 min 10 s for the full build (`JOBS=8`, 24 cores), 1.4 s for a re-run that changes nothing |
-| disk | ~1 GB: the build directory ~510 MB, the two binaries 110 MB each; ~0.3 GB more for the source |
-| check | `ldd` resolves `libcudart`, `libcublas`, `libcublasLt` `.so.13` into `$CROW_HOME/cuda/lib`; both binaries report `version master-920-2f88688, commit 2f88688` |
+| time | measured at the previous pin `2f88688`: 3 min 10 s for the full build (`JOBS=8`, 24 cores), 1.4 s for a re-run that changes nothing. **Not measured** at `2f016e8` |
+| disk | measured at `2f88688`: ~1 GB, the build directory ~510 MB, the two binaries 110 MB each; ~0.3 GB more for the source. **Not measured** at `2f016e8` |
+| check | `ldd` resolves `libcudart`, `libcublas`, `libcublasLt` `.so.13` into `$CROW_HOME/cuda/lib`; both binaries report the pin's version and commit (`master-970-2f016e8`, `2f016e8`; `2f88688` read `version master-920-2f88688, commit 2f88688`). The build at the new pin has not been run |
 | `SD_SRC_DIR=<tree>` | build an existing checkout of the pin; it is verified and left untouched |
 | `JOBS=8` / `CLEAN=1` | as for the engine |
 
 An `sd-cli` or `sd-server` of another commit already in `bin/` is kept as
-`sd-cli-<commit>`, never deleted. The model is separate: Qwen-Image 2.1 is read from
-`$CROW_IMAGE_MODEL_DIR`, else `<models>/qwen-image-2.1`, else `qwen-image-2.1` beside the tree
+`sd-cli-<commit>`, never deleted. The model is separate: Ming-Image 0.1 Design is read from
+`$CROW_IMAGE_MODEL_DIR`, else `<models>/ming-image-0.1-design`, else `ming-image-0.1-design` beside the tree
 `<install>/models` links to. `install.sh --build-image-server` says which one it found.
-The weights come from [`Qwen/Qwen-Image-2.1`](https://huggingface.co/Qwen/Qwen-Image-2.1) and are
-not downloaded by Crow. Licence: Qwen Research License Agreement (release date 2026-09-20): research and evaluation only; commercial use needs a separate licence from Qwen (model-business@notice.qwencloud.com), sections 2a/2b of its `LICENSE`.
+The five files (45.87 GiB, listed in [tools](../reference/tools.md#generate_image-and-edit_image-300-308-311)) come from
+[`Comfy-Org/Ming-Image`](https://huggingface.co/Comfy-Org/Ming-Image) and
+[`inclusionAI/Ming-Image-0.1-Design`](https://huggingface.co/inclusionAI/Ming-Image-0.1-Design) as published, with no
+conversion step, and are not downloaded by this script. Licence: MIT (`LICENSE` of `inclusionAI/Ming-Image-0.1-Design`, "Copyright (c) 2026 inclusionAI");
+the previous image model, Qwen-Image 2.1, was under the Qwen Research License (research and evaluation only).
 
 ---
 
@@ -353,7 +356,7 @@ the background sat at 7.4 GiB under the old `MemoryHigh=7G` for 10 min 47 s, loa
 `MemoryMax`. A job a command leaves in the background stays in that command's scope; the next
 tool result starts with a `note:` when that job was killed at its ceiling or has been stalled on
 memory for at least 50 % of the last 60 s (`memory.pressure` `full avg60`). A heavy job that
-really needs more (Qwen-Image's load needs ~31 GB) needs a larger ceiling at GUI launch:
+really needs more (Qwen-Image 2.1's load needed ~31 GB, 2026-09-27; Ming-Image's is not measured and its weights are 45.87 GiB) needs a larger ceiling at GUI launch:
 `CROW_COMMAND_MEMORY_MAX=40G`.
 
 Without `systemd-run` both run as before, bounded by their clocks and capture caps only;
