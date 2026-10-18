@@ -179,8 +179,11 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(cost["share"], 82.0)
         self.assertEqual((cost["tokens"], cost["n_ctx"]), (6100, 200000))
         self.assertTrue(cost["sub"].startswith("⑂ 1 subtask"))
+        # #406: `input` is the usage ledger's count; TURN_STATS never sends it to
+        # the page, so a cost message recorded today would not carry it either.
         self.assertLessEqual(set(crow_core.TurnCost().record()) - {"seeds", "leg_seeds"}
-                             - {"decode_rate", "prefill_rate", "cached", "cached_of", "finish"},
+                             - {"decode_rate", "prefill_rate", "cached", "cached_of", "finish"}
+                             - {"input"},
                              set(cost["stats"]))
 
     def test_the_goal_ends_complete(self):
