@@ -63,12 +63,12 @@
   {
    "name": "tool_generate_image",
    "kind": "def",
-   "why": "#300 phase 3. The only place that talks to the image server and owns the handle that stops it. A second copy would start a second sd-server beside the first, and 29.8 GB of weights would sit in RAM twice."
+   "why": "#300 phase 3. The only place that talks to the image server and owns the handle that stops it. A second copy would start a second sd-server beside the first, and the image model's weights would sit in RAM twice (Ming-Image 0.1 Design, #404: 45.87 GiB of files). It is also the one place that puts the RGBA phrase in front of a transparent prompt and flattens that picture onto white for the model's look (#404)."
   },
   {
    "name": "tool_edit_image",
    "kind": "def",
-   "why": "#300 phase 3. The two-stage edit robin chose on the pictures (1 MP edit, then img2img at full size). A second copy would drift back to a 4 MP edit, which measured grainy (E1, E2)."
+   "why": "#404. Answers that Ming-Image in sd-server makes new pictures only; the tool is no longer declared to the model. A second copy would bring back an edit path that has no engine under it (sd.cpp's Ming support is text-to-image only, PR #2063) and fail minutes into a job."
   },
   {
    "name": "tool_animate_image",

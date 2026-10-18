@@ -50,7 +50,7 @@ class PlanTests(unittest.TestCase):
         for k in range(1, len(M.PAIRS) + 1):
             with self.subTest(pairs=k):
                 jobs = M.plan(ids(k))
-                bad, _ = M.validate_plan(jobs, ids(k), check_tool=False)
+                bad, _ = M.validate_plan(jobs, ids(k))
                 self.assertEqual(bad, [])
                 cfgs = [j["cfg"] for j in jobs]
                 self.assertTrue(all(a != b for a, b in zip(cfgs, cfgs[1:])), cfgs)
@@ -75,7 +75,7 @@ class PlanTests(unittest.TestCase):
         tight = [(pid, cfg) for pid in M.PRIMARY for cfg in M.ARMS]   # pair by pair
         jobs = [{"seq": n, "pair": pid, "cfg": cfg, "body": M.arm_body(M.PAIR_BY_ID[pid], cfg)}
                 for n, (pid, cfg) in enumerate(tight, 1)]
-        bad, _ = M.validate_plan(jobs, M.PRIMARY, check_tool=False)
+        bad, _ = M.validate_plan(jobs, M.PRIMARY)
         self.assertTrue(any("conditioning cache" in b for b in bad), bad)
 
     def test_one_job_per_pair_and_arm_thirty_in_the_primary_round(self):
@@ -86,10 +86,15 @@ class PlanTests(unittest.TestCase):
 
 
 class BodyTests(unittest.TestCase):
-    def test_the_1_0_arm_is_the_body_generate_image_sends_today(self):
-        for pair in M.PAIRS:
-            with self.subTest(pair=pair.id):
-                self.assertEqual(M.arm_body(pair, M.BASELINE), M.tool_body(pair))
+    def test_the_series_does_not_run_on_another_image_model(self):
+        """#404: #339 measured Qwen-Image 2.1; on Ming-Image the same request
+        would measure a model nobody pre-registered."""
+        self.assertNotEqual(M.core.IMAGE_MODEL_NAME, M.MEASURED_MODEL)
+        with mock.patch.object(M, "gather_facts",
+                               side_effect=AssertionError("the preflight ran")),                 contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(M.main(["run"]), 3)
+        self.assertIn("REFUSED: #339 measured qwen-image-2.1", said.getvalue())
+        self.assertIn(M.core.IMAGE_MODEL_LABEL, said.getvalue())
 
     def test_the_1_0_arm_is_the_ticket_size_steps_and_sampler_without_a_negative(self):
         body = M.arm_body(M.PAIR_BY_ID["P01"], M.BASELINE)
@@ -110,20 +115,20 @@ class BodyTests(unittest.TestCase):
                 rest["sample_params"]["guidance"]["txt_cfg"] = 1.0
                 self.assertEqual(rest, M.arm_body(pair, M.BASELINE))
 
-    def test_validation_catches_a_baseline_that_drifted_from_the_tool(self):
+    def test_validation_catches_a_baseline_that_drifted_from_the_measured_request(self):
         jobs = M.plan(["P01"])
         for j in jobs:
             if j["cfg"] == M.BASELINE:
                 j["body"]["sample_params"]["sample_steps"] = 30
         bad, _ = M.validate_plan(jobs, ["P01"])
-        self.assertTrue(any("not the body tool_generate_image sends" in b for b in bad), bad)
+        self.assertTrue(any("not the body #339 measured" in b for b in bad), bad)
 
     def test_validation_catches_a_negative_prompt_on_the_baseline(self):
         jobs = M.plan(["P01"])
         for j in jobs:
             if j["cfg"] == M.BASELINE:
                 j["body"]["negative_prompt"] = "boats"
-        bad, _ = M.validate_plan(jobs, ["P01"], check_tool=False)
+        bad, _ = M.validate_plan(jobs, ["P01"])
         self.assertTrue(any("carries a negative_prompt" in b for b in bad), bad)
 
     def test_no_prompt_names_its_excluded_object_and_seeds_are_distinct(self):
@@ -181,15 +186,17 @@ class PngTests(unittest.TestCase):
 
 class LogTests(unittest.TestCase):
     def test_server_time_cache_hits_and_out_of_memory_lines(self):
+        # #404: sd-server 2f016e8's line shape (src/core/util.cpp sd_log_dispatch,
+        # examples/common/log.cpp log_print), built from its format strings.
         lines = [
-            "[INFO   ] image.cpp:900 - generate_image 2752x1536",
-            "[INFO   ] conditioning_cache.h:91 - conditioning cache hit",
-            "[VERBOSE] ggml - ggml_cuda_host_malloc: failed to allocate 416.00 MiB of "
+            "[I] generate_image 2752x1536 --- image.cpp:814",
+            "[I] conditioning cache hit --- conditioning_cache.h:91",
+            "[V] ggml: ggml_cuda_host_malloc: failed to allocate 416.00 MiB of "
             "pinned memory: resource already mapped",
-            "[ERROR  ] ggml - ggml_backend_cuda_buffer_type_alloc_buffer: allocating "
+            "[E] ggml: ggml_backend_cuda_buffer_type_alloc_buffer: allocating "
             "416.00 MiB on device 0: cudaMalloc failed: out of memory",
-            "[VERBOSE] ggml - something failed to allocate quietly",
-            "[INFO   ] image.cpp:1045 - generate_image completed in 361.25s",
+            "[V] ggml: something failed to allocate quietly",
+            "[I] generate_image completed in 361.25s --- image.cpp:1050",
         ]
         got = M.log_facts(lines)
         self.assertEqual(got["server_s"], 361.25)
@@ -199,7 +206,7 @@ class LogTests(unittest.TestCase):
         self.assertEqual(len(got["pinned"]), 1)
 
     def test_a_clean_job_has_no_out_of_memory_line(self):
-        got = M.log_facts(["[INFO   ] image.cpp:1045 - generate_image completed in 218.1s"])
+        got = M.log_facts(["[I] generate_image completed in 218.1s --- image.cpp:1050"])
         self.assertEqual((got["oom"], got["pinned"], got["cache_hits"]), ([], [], 0))
 
 

@@ -11,6 +11,15 @@ tool's own submit-and-poll path, to the running sd-server.
 The criteria, the pairs, the order, the output layout and the blind protocol are
 fixed in runs/339-negative-cfg/PREREG.md, written before the first picture.
 
+THE SERIES IS QWEN-IMAGE 2.1'S (#404). #339 measured Qwen-Image 2.1 on sd-server
+2f88688 and kept the negative prompt off. Since #404 Crow's image model is
+Ming-Image 0.1 Design, and tool_generate_image sends another request (2048x2048, 12
+steps). So the 1.0 body is pinned here to the request #339 measured
+(TICKET_SIZE, TICKET_STEPS) instead of read from crow_core, `run` refuses while the
+image model is not MEASURED_MODEL, and plan / selftest / seal / score keep working
+on the recorded rounds. A negative-prompt question on Ming-Image is a new ticket
+with its own PREREG.
+
     python tools/measure_negative_cfg.py plan       (or --dry-run) the planned requests,
                                                     validated; no server, no GPU
     python tools/measure_negative_cfg.py selftest   (or --selftest) plan + a dress rehearsal
@@ -61,9 +70,12 @@ TICKET = 339
 RUN_ROOT = os.path.join(REPO, "runs", "339-negative-cfg")
 PREREG = os.path.join(RUN_ROOT, "PREREG.md")
 
-# The ticket's measurement: 2752x1536 (16:9), three txt_cfg values.
+# The ticket's measurement: 2752x1536 (16:9), 40 Euler steps, three txt_cfg values --
+# Qwen-Image 2.1's request in crow_core until #404, pinned here since.
 ASPECT = "16:9"
 TICKET_SIZE = (2752, 1536)
+TICKET_STEPS = 40
+MEASURED_MODEL = "qwen-image-2.1"
 ARMS = (1.0, 3.0, 6.0)
 BASELINE = 1.0
 GUIDED = (3.0, 6.0)
@@ -209,11 +221,14 @@ def append_row(out: str, row: dict) -> None:
 # ---------------------------------------------------------------- the plan --
 
 def baseline_body(pair: Pair) -> dict:
-    """The body tool_generate_image sends for (prompt, 16:9, seed) today
-    (cli/crow_core.py tool_generate_image -> _run_image_job)."""
-    width, height = core.IMAGE_SIZES[ASPECT]
+    """The body tool_generate_image sent for (prompt, 16:9, seed) while #339 ran
+    (Qwen-Image 2.1: cli/crow_core.py tool_generate_image -> _run_image_job at
+    8b45ab6), pinned since #404 moved the tool to Ming-Image."""
+    width, height = TICKET_SIZE
     return {"prompt": pair.prompt, "width": width, "height": height,
-            "seed": pair.seed, "sample_params": core._image_sample_params()}
+            "seed": pair.seed, "sample_params": {
+                "sample_steps": TICKET_STEPS, "sample_method": "euler",
+                "guidance": {"txt_cfg": BASELINE}}}
 
 
 def arm_body(pair: Pair, cfg: float) -> dict:
@@ -225,26 +240,6 @@ def arm_body(pair: Pair, cfg: float) -> dict:
     body["sample_params"]["guidance"]["txt_cfg"] = float(cfg)
     body["negative_prompt"] = pair.exclude
     return body
-
-
-def tool_body(pair: Pair) -> dict:
-    """The body tool_generate_image builds for this pair, caught before it is sent.
-
-    _image_start (progress, server start) and _run_image_job (the request) are
-    replaced for this one call, so nothing reaches a server."""
-    seen = []
-
-    def catch(body, base, refine=False):
-        seen.append(copy.deepcopy(body))
-        return None, 0.0, "error: caught by measure_negative_cfg"
-
-    base = {"job": "img-plan", "kind": "generate", "stage": "", "width": 0, "height": 0}
-    with mock.patch.object(core, "_image_start", lambda *a, **k: (base, None)), \
-            mock.patch.object(core, "_run_image_job", catch):
-        core.tool_generate_image(pair.prompt, aspect_ratio=ASPECT, seed=pair.seed)
-    if len(seen) != 1:
-        raise RuntimeError("tool_generate_image sent %d bodies, expected 1" % len(seen))
-    return seen[0]
 
 
 def schedule(pair_ids) -> "list[tuple[str, float]]":
@@ -269,7 +264,7 @@ def plan(pair_ids) -> "list[dict]":
     return jobs
 
 
-def validate_plan(jobs, pair_ids, check_tool: bool = True) -> "tuple[list[str], list[str]]":
+def validate_plan(jobs, pair_ids) -> "tuple[list[str], list[str]]":
     """(problems, notes). A problem forbids the run; a note is recorded with it."""
     ids = list(pair_ids)
     bad, notes = [], []
@@ -296,8 +291,8 @@ def validate_plan(jobs, pair_ids, check_tool: bool = True) -> "tuple[list[str], 
         if (body.get("width"), body.get("height")) != TICKET_SIZE:
             bad.append("job %d is %sx%s, the ticket measures %dx%d"
                        % ((j["seq"], body.get("width"), body.get("height")) + TICKET_SIZE))
-        if sp.get("sample_steps") != 40 or sp.get("sample_method") != "euler":
-            bad.append("job %d is not 40 euler steps: %s" % (j["seq"], sp))
+        if sp.get("sample_steps") != TICKET_STEPS or sp.get("sample_method") != "euler":
+            bad.append("job %d is not %d euler steps: %s" % (j["seq"], TICKET_STEPS, sp))
         if (sp.get("guidance") or {}).get("txt_cfg") != j["cfg"]:
             bad.append("job %d sends txt_cfg %s, planned %g"
                        % (j["seq"], (sp.get("guidance") or {}).get("txt_cfg"), j["cfg"]))
@@ -306,9 +301,9 @@ def validate_plan(jobs, pair_ids, check_tool: bool = True) -> "tuple[list[str], 
         if j["cfg"] == BASELINE:
             if "negative_prompt" in body:
                 bad.append("job %d (txt_cfg 1.0) carries a negative_prompt" % j["seq"])
-            if check_tool and body != tool_body(pair):
-                bad.append("job %d (%s, txt_cfg 1.0) is not the body tool_generate_image "
-                           "sends today" % (j["seq"], pair.id))
+            if body != baseline_body(pair):
+                bad.append("job %d (%s, txt_cfg 1.0) is not the body #339 measured"
+                           % (j["seq"], pair.id))
         else:
             if body.get("negative_prompt") != pair.exclude:
                 bad.append("job %d sends negative_prompt %r, planned %r"
@@ -407,7 +402,8 @@ def log_facts(lines) -> dict:
     hits, and its out-of-memory lines -- crow_core's markers and level rule
     (_image_oom_cause): a `cudaMalloc failed: out of memory` or `failed to
     allocate` line counts unless a level other than ERROR stands before it; a
-    pinned-host-memory refusal is listed apart."""
+    pinned-host-memory refusal is listed apart. The line shape is crow_core's
+    _SD_LOG, sd-server 2f016e8's since #404."""
     server_s, hits, oom, pinned = None, 0, [], []
     for line in lines or []:
         hit = _COMPLETED.search(line)
@@ -417,7 +413,7 @@ def log_facts(lines) -> dict:
             hits += 1
         level = core._SD_LOG.match(line)
         if any(m in line for m in core._SD_OOM_MARKS) and not (
-                level and level.group(1) != "ERROR"):
+                level and level.group(1) != core._SD_ERROR):
             oom.append(line)
         elif any(m in line for m in core._SD_PINNED_MARKS):
             pinned.append(line)
@@ -1062,16 +1058,16 @@ class StubSdServer:
                     stub.bodies.append(body)
                     n = len(stub.bodies)
                     job = "job-%d" % n
-                    stub._log("[INFO   ] stub.cpp:1  - generate_image %dx%d"
+                    stub._log("[I] generate_image %dx%d --- stub.cpp:1"
                               % (body["width"], body["height"]))
                     if n in stub.fail:
-                        stub._log("[ERROR  ] ggml - ggml_backend_cuda_buffer_type_alloc_buffer:"
+                        stub._log("[E] ggml: ggml_backend_cuda_buffer_type_alloc_buffer:"
                                   " allocating 416.00 MiB on device 0: cudaMalloc failed:"
                                   " out of memory")
                         stub.jobs[job] = {"status": "failed", "error": {
                             "message": "generate_image returned no results"}}
                     else:
-                        stub._log("[INFO   ] stub.cpp:2  - generate_image completed in 0.01s")
+                        stub._log("[I] generate_image completed in 0.01s --- stub.cpp:2")
                         guidance = body["sample_params"]["guidance"]["txt_cfg"]
                         png = tiny_png("Negative prompt: %s, CFG scale: %g"
                                        % (body.get("negative_prompt", ""), guidance),
@@ -1165,7 +1161,7 @@ def selftest(say=print) -> int:
     checks += 1
     for k in range(1, len(PAIRS) + 1):
         ids = [p.id for p in PAIRS[:k]]
-        assert not validate_plan(plan(ids), ids, check_tool=False)[0], k
+        assert not validate_plan(plan(ids), ids)[0], k
     checks += 1
     png = tiny_png("CFG scale: 6")
     assert b"tEXt" in png and b"tEXt" not in strip_png_text(png)
@@ -1233,8 +1229,8 @@ def cmd_plan(pair_ids, as_json: bool) -> int:
             print("note: %s" % note)
         for problem in bad:
             print("PROBLEM: %s" % problem)
-        print("plan: %s" % ("INVALID" if bad else "valid -- the 1.0 bodies equal what "
-                            "tool_generate_image sends today"))
+        print("plan: %s" % ("INVALID" if bad else "valid -- the 1.0 bodies are the "
+                            "request #339 measured"))
     return 2 if bad else 0
 
 
@@ -1263,6 +1259,11 @@ def cmd_run(a) -> int:
         for problem in bad:
             print("PROBLEM: %s" % problem)
         return 2
+    if core.IMAGE_MODEL_NAME != MEASURED_MODEL:
+        print("REFUSED: #339 measured %s; Crow's image model is %s since #404, so this "
+              "series cannot run again -- a negative prompt on it is a new ticket with "
+              "its own PREREG" % (MEASURED_MODEL, core.IMAGE_MODEL_LABEL))
+        return 3
     sd_log = a.sd_log or default_sd_log()
     facts = gather_facts(sd_log)
     refused = check_preflight(facts)

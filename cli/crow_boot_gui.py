@@ -457,7 +457,7 @@ class Controller:
             elif env.get("CROW_VIT_MMPROJ"):
                 bits.append("vision on")
             if plan["image"]:
-                bits.append("Qwen-Image on port %d" % plan["image"]["port"])
+                bits.append("%s on port %d" % (crow_core.IMAGE_MODEL_SHORT, plan["image"]["port"]))
         detail = "Running on port %s." % port
         if bits:
             rest = ", ".join(bits)
@@ -535,7 +535,7 @@ class Controller:
             view["say"] = "Flying to the nest. %d s" % int(elapsed)
             detail = usual_text(starting.get("id"))
             if starting.get("stage") == "sd-server":
-                detail = "Fetching the paint brushes (Qwen-Image)."
+                detail = "Fetching the paint brushes (%s)." % crow_core.IMAGE_MODEL_SHORT
             view["picker"] = self._picker(entries, starting.get("id"), enabled=False, detail=detail)
             view["bar"] = {"text": "You can close this window. The model keeps loading.",
                            "button": {"label": "Cancel", "act": "cancel", "kind": "chip", "enabled": True}}
