@@ -5,6 +5,11 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+### Changed
+
+- **A slimmer title bar** (`7692995`, 2026-10-18). The bar is 36 px high instead of 46, its buttons 28 px with 14 px icons, and a toggle that is on shows it by its colour alone, without a tile behind it. The chat head, the session list and the composer have less padding; the type size is unchanged. The phone keeps its 32 px buttons. Checked live.
+- **Turn statistics folded by default** (`7692995`, 2026-10-18). After a turn, one faint line beside the copy button gives the decode rate, the decoded tokens and the wait; a click unfolds the full strip (Decode, Prefill, Cache, Rounds, Waited, Delegated). A cut-off turn still says so without unfolding. Checked live.
+
 ## 4.1.0 — 2026-10-15
 
 The operating-point window picks from one field with a Vision switch (#396), Flash-Next and the 27B can start without their vision tower (#397, not measured), and the window and the terminal menu start Crow on the Claude subscription without a local model, with a sign-in for the first start (#398).
