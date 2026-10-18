@@ -5,14 +5,22 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 4.2.0 — 2026-10-18
+
+A usage dashboard opens the first start of each day and heads the Settings sheet: a year of tokens per day as a grid, the last 30 days per model (#406). The title bar is slimmer and the turn statistics fold behind one line.
+
 ### Added
 
-- **A usage dashboard on the first start of the day** (#406, 2026-10-18). On the first start of each day (a day starts at 04:00) the window comes up on an empty chat with the dashboard under the greeting and above the composer; the first message you send removes it. The same view is the new first page of Settings, **Dashboard**, with the switch "Show the dashboard on the first start of each day" (`dashboard_daily`, on by default). It shows an activity grid of the last 12 months (53 weeks, Monday on top, one square per day shaded by its tokens, a tooltip naming the day and its tokens), the tokens of the last 12 months, the tokens of the last 30 days, the current streak with the longest, the active days, and a table of tokens per model for the last 30 days (Model, Days, Tokens, Share of tokens). Tokens are input plus output. Every finished turn adds one line to `usage.jsonl` in Crow's state folder, whichever provider served it; nothing leaves the machine. The history starts with this build: older chats are not backfilled, because their saved figures carry no date and no model per turn. **Not measured:** the ledger's size (estimated at about 250 bytes a turn, 5 MB for 20,000 turns) and how long the summary takes on a large ledger (the ticket's bar is under 200 ms for 20,000 lines, fixed before any run). Not checked live.
+- **A usage dashboard on the first start of the day** (#406, `dbafb60`, `a6a7804`, `55b820a`, 2026-10-18). On the first start of each day (a day starts at 04:00) the window comes up on an empty chat with the dashboard under the greeting and above the composer; the first message you send removes it. The same view is the new first page of Settings, **Dashboard**, with the switch "Show the dashboard on the first start of each day" (`dashboard_daily`, on by default). It shows an activity grid of the last 12 months (53 weeks, Monday on top, one square per day shaded by its tokens, a tooltip naming the day and its tokens), the tokens of the last 12 months, the tokens of the last 30 days, the current streak with the longest, the active days, and a table of tokens per model for the last 30 days (Model, Days, Tokens, Share of tokens). Tokens are input plus output. Every finished turn adds one line to `usage.jsonl` in Crow's state folder, whichever provider served it; nothing leaves the machine. The history starts with this build: older chats are not backfilled, because their saved figures carry no date and no model per turn. The phone's Settings show the same page. Measured 2026-10-18 (Windows 11, Python 3.13, generated ledger): a line is about 416 bytes, and the summary of 20,000 lines (8.3 MB) takes 63.9 ms, best of 5, against the ticket's bar of 200 ms. Checked live.
 
 ### Changed
 
 - **A slimmer title bar** (`7692995`, 2026-10-18). The bar is 36 px high instead of 46, its buttons 28 px with 14 px icons, and a toggle that is on shows it by its colour alone, without a tile behind it. The chat head, the session list and the composer have less padding; the type size is unchanged. The phone keeps its 32 px buttons. Checked live.
 - **Turn statistics folded by default** (`7692995`, 2026-10-18). After a turn, one faint line beside the copy button gives the decode rate, the decoded tokens and the wait; a click unfolds the full strip (Decode, Prefill, Cache, Rounds, Waited, Delegated). A cut-off turn still says so without unfolding. Checked live.
+
+### Fixed
+
+- **The trace label and its count sit on one baseline** (`72329a7`, 2026-10-18). "Trace" and "31 tool calls · 33 rounds" were centred as two boxes of different font and size, so their text sat at different heights; the head now aligns them on the baseline.
 
 ## 4.1.0 — 2026-10-15
 
