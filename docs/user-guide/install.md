@@ -111,7 +111,7 @@ import `cublas64_13.dll`/`cublasLt64_13.dll`, which the package does not carry
 
 ```powershell
 git clone https://github.com/leejet/stable-diffusion.cpp sd.cpp; cd sd.cpp
-git checkout master-920-2f88688      # 2f886889e6e8b78738d6b87f7191f6018557c551
+git checkout master-970-2f016e8      # 2f016e8e30ab0d0051c268944ae96c0951dba4f0, Ming-Image support (#402)
 git submodule update --init ggml thirdparty/libwebp thirdparty/libwebm
 # in a shell that has run VS's vcvars64.bat (the "x64 Native Tools" prompt), same as llama.cpp
 cmake -S . -B build -G "Ninja Multi-Config" -DSD_CUDA=ON -DSD_SERVER_BUILD_FRONTEND=OFF -DCMAKE_CUDA_ARCHITECTURES=120
@@ -126,12 +126,12 @@ build does; `Ninja Multi-Config` still writes to `build\bin\Release`.
 
 | | |
 |---|---|
-| measured | 2026-09-27, VS 18 Community, CUDA 13.3.73, RTX 5090 (`sm_120`) |
-| build | 398 of 398 steps; `sd-cli.exe` 91.2 MB, `sd-server.exe` 91.4 MB |
-| check | `sd-cli.exe --version` reads `master-920-2f88688, commit 2f88688`, run from the packed `bin\` with only `System32` on `PATH` |
-| pack | 7 runtime libraries added, `msvcp140_codecvt_ids.dll` new with the image server; completeness OK |
-| beside the 27B | Windows commit limit under WDDM: sd-server starts with `--mmap` on Windows (#320); 3 of 3 images beside the crow-nest 27B serve, 218 to 235 s, card peak 31,861 MiB (2026-09-28) |
-| not yet run | the image tools from the Crow window on Windows |
+| measured | 2026-10-18, VS 18 Community (MSVC 14.51.36231), CUDA 13.3.73, RTX 5090 (`sm_120`); a compile, no weights loaded |
+| build | a 246-step ninja run over the existing 2f88688 `build\` (not a clean build), 188 s; `sd-cli.exe` 92.3 MB, `sd-server.exe` 92.5 MB |
+| check | `sd-cli.exe --version` and `sd-server.exe --version` read `master-970-2f016e8, commit 2f016e8`, run from `<install>\bin` with only `System32` on `PATH`. `dumpbin /dependents`: `cublas64_13.dll`, `cublasLt64_13.dll`, the MSVC runtime and Windows system DLLs, the same set as 2f88688 |
+| pack | not run at this pin. At 2f88688: 7 runtime libraries added, `msvcp140_codecvt_ids.dll` new with the image server; completeness OK |
+| beside the 27B | Ming-Image: not measured. Qwen-Image 2.1 at 2f88688: Windows commit limit under WDDM, so sd-server starts with `--mmap` on Windows (#320); 3 of 3 images beside the crow-nest 27B serve, 218 to 235 s, card peak 31,861 MiB (2026-09-28) |
+| not yet run | Ming-Image weights on this build (#400); the image tools from the Crow window on Windows |
 
 `pack-release.ps1` takes only `sd-server.exe` and `sd-cli.exe` from that directory and resolves
 their DLLs with `dumpbin` exactly as it does for `llama-server.exe`; a DLL already staged is not
@@ -299,7 +299,7 @@ sudo pacman -S --needed gtk3 webkit2gtk-4.1 python python-gobject
 
 | flag | |
 |---|---|
-| `--source <dir>` | as on Windows, plus: a file not at `<dir>/<repo>/<path>` is taken from `<dir>/<path under models/>` (a models tree). A folder that holds `qwen-image-2.1/text_encoder_sdcli/` complete is linked in and the convert step is skipped |
+| `--source <dir>` | as on Windows, plus: a file not at `<dir>/<repo>/<path>` is taken from `<dir>/<path under models/>` (a models tree). The Image Stack's Ming-Image files (`ming-image-0.1-design/`) are used as published: there is no convert step |
 | `--package-source <dir>` | the two `.tar.gz` packages from `<dir>/<asset>` |
 | all others | as [CrowSetup.exe](#crowsetupexe-windows) |
 
