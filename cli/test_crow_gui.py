@@ -6666,6 +6666,7 @@ class _TurnPage(unittest.TestCase):
             ("  traceLegend(calls){", "  // THE SUBTASK'S CARD"),
             ("  refBind(heads, items, taken){", "  // THE CARD'S LINE, pure"),
             ("  refParts(it, task){", "  // DRAWN AGAIN ON EVERY PUSH"),
+            ("  teleLine(st){", "  // THE TELEMETRY STRIP, drawn (again)"),
             ("  teleCells(st, del){", "  // THE COPY BUTTON"))
 
     @classmethod
@@ -6700,6 +6701,21 @@ class _TurnPage(unittest.TestCase):
 class TheTelemetryStripTests(_TurnPage):
     """#383: the bracket line under an answer becomes labelled cells that
     wrap, drawn from `stats` (#382) -- never parsed out of the line."""
+
+    def test_the_strip_is_folded_behind_one_line(self):
+        """The owner, 2026-10-18: a strip after every turn floods the chat.
+        It starts hidden; one faint line beside the copy button, cut from
+        the same cells, unfolds it."""
+        stats = [m for m in self.goal_run() if m["k"] == "cost"][0]["stats"]
+        cells = self.run_js("o.teleCells(%s, null)" % json.dumps(stats))
+        waited = [c["value"] + c["unit"] for c in cells if c["label"] == "Waited"][0]
+        self.assertEqual(self.run_js("o.teleLine(%s)" % json.dumps(stats)),
+                         "35.85 tok/s · 1,399 tok · " + waited)
+        cost = self._js("  cost(line,share,stats,cut){", "  fail(msg){")
+        self.assertIn("d.hidden=true; tele=d;", cost)
+        self.assertIn('t.setAttribute("aria-expanded","false")', cost)
+        self.assertIn("tele.hidden=!tele.hidden;", cost)
+        self.assertIn("display:none", self._rule(".cost.tele[hidden]{"))
 
     def test_the_cells_are_the_goal_runs_numbers(self):
         """The ticket's Expected result, from the fixture's own `stats`."""
@@ -10448,12 +10464,12 @@ class NothingOverhangsOrClipsTests(unittest.TestCase):
                                    r"\{visibility:hidden\}\}")
 
     def test_the_settings_sheet_starts_below_the_title_bar(self):
-        # #382 CHANGES THE FORM: the bar is 46 px, and both numbers are now the
-        # one name --barh, so they cannot drift apart again.
+        # #382 CHANGES THE FORM: one name --barh for both numbers, so they cannot
+        # drift apart again; 36 px since 2026-10-18 (46 before, too bulky).
         self.assertIn("height:var(--barh)", self._rule("#bar{"))
         self.assertIn("padding-top:var(--barh)", self._rule("#settings{position:fixed"))
         self.assertIn("padding-top:var(--barh)", self._rule("#remotedlg{position:fixed"))
-        self.assertEqual(self._px(self._rule(":root{"), "--barh"), 46)
+        self.assertEqual(self._px(self._rule(":root{"), "--barh"), 36)
 
     def test_the_level_keeps_the_space_before_its_dot(self):
         """`.lvl` ist ein Flex-Item, sein fuehrendes Leerzeichen stuende am

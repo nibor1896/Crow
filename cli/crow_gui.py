@@ -1180,11 +1180,11 @@ PAGE = r"""<!doctype html>
      mockup sets it. */
   --ui:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
   --mono:"Google Sans Code",ui-monospace,"Cascadia Mono",Consolas,monospace;
-  /* The height of the title bar and of the heads beside it (rail, code, browser), ONCE: 46 px
-     since #382, the mockup's. Matching them by arithmetic works until a font changes; matching
+  /* The height of the title bar and of the heads beside it (rail, code, browser), ONCE: 36 px
+     (46 from #382 until 2026-10-18, when the owner found the bar too bulky). Matching them by arithmetic works until a font changes; matching
      them against one number cannot drift. The heads take it as min-height, the bar as its
      height, and the settings sheet and the phone dialog start below it. */
-  --barh:46px;
+  --barh:36px;
   /* #382. THE COLUMNS' WIDTHS, READ BY THE TITLE BAR TOO. The bar has three
      zones over the three columns: rail, chat panel, side column. Each zone and
      its column read the SAME name, so the search sits on the panel's left edge.
@@ -1378,7 +1378,7 @@ body[data-code="shut"] #barr{width:auto;gap:6px}
    TWO NAMES, because only `crow` splits the O off. Setting both to the same
    value in the other two is what makes them one solid word there rather than
    a word with a hole in it. #382: the mockup's size and spacing. */
-#mark{font-weight:700;letter-spacing:.24em;font-size:12px;color:var(--mark);
+#mark{font-weight:700;letter-spacing:.24em;font-size:11px;color:var(--mark);
   padding:0 8px 0 4px;white-space:nowrap;pointer-events:none}
 #mark span{color:var(--mark-o)}
 /* #382. THE MOCKUP'S SMALL PARTS, defined once for every surface that uses
@@ -1390,7 +1390,15 @@ body[data-code="shut"] #barr{width:auto;gap:6px}
 .ib:hover{background:var(--hover);color:var(--text)}
 .ib.on{color:var(--accent);background:var(--accent-soft)}
 .ib svg{width:16px;height:16px}
+/* THE TITLE BAR A SIZE SMALLER (the owner, 2026-10-18: "zu klobig"): 28 px
+   buttons with 14 px glyphs in the 36 px bar, and a toggle that is on says so
+   by its colour alone, no tile behind it. The phone keeps 32 (REMOTE_CSS). */
+#bar .ib{width:28px;height:28px}
+#bar .ib svg{width:14px;height:14px}
+#bar .ib.on{background:transparent}
+#bar .ib.on:hover{background:var(--hover)}
 .vsep{width:1px;height:20px;background:var(--line);flex:none}
+#bar .vsep{height:16px}
 .kbd{font-family:var(--mono);font-size:10.5px;color:var(--dim);
   border:1px solid var(--line);border-radius:5px;padding:0 5px;line-height:17px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);
@@ -1415,6 +1423,7 @@ body.closing::after{content:"saving the chat and the cache...";position:fixed;
 .search{display:flex;align-items:center;height:32px;border:1px solid var(--line-soft);
   border-radius:9px;background:var(--bg);color:var(--dim);overflow:hidden;
   transition:border-color .2s,color .2s}
+#bar .search{height:28px}
 .search:hover{border-color:var(--line);color:var(--text)}
 .search:focus-within{border-color:var(--accent);color:var(--text)}
 .s-ico{display:inline-flex;align-items:center;justify-content:center;width:30px;
@@ -1896,7 +1905,7 @@ body[data-git="shut"] #git{display:none}
    nothing else -- no accent bar beside it (#385, the mockup's `.ri.on`). */
 .sess{position:relative;display:flex;flex-direction:column;gap:1px;width:100%;
   text-align:left;border:0;background:transparent;font:inherit;
-  color:var(--text-soft);padding:7px 10px;border-radius:8px;cursor:pointer}
+  color:var(--text-soft);padding:5px 10px;border-radius:8px;cursor:pointer}
 .sess:hover{background:var(--hover)}
 .sess.on{background:var(--raised);color:var(--text)}
 
@@ -2307,7 +2316,7 @@ body[data-rail="shut"] #main{margin-left:calc(var(--railshut) - 1px)}
    #panels (5) so the folder menu that drops from it is not drawn under a
    card. */
 #chathead{position:relative;z-index:7;display:flex;align-items:center;gap:8px;
-  flex-wrap:wrap;flex:none;padding:10px 24px;border-bottom:1px solid var(--line-soft)}
+  flex-wrap:wrap;flex:none;padding:7px 24px;border-bottom:1px solid var(--line-soft)}
 #chathead h1{margin:0 6px 0 0;font-size:14px;font-weight:600;color:var(--text);
   min-width:0;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #chathead .sp{flex:1 1 auto}
@@ -2421,6 +2430,15 @@ details.rollcard pre.rtp{max-height:220px;overflow:auto;white-space:pre-wrap;
 #flow > .turn.crowturn + .turn{margin-top:12px}
 .tacts{display:flex;align-items:center;gap:4px;margin-top:6px}
 .tacts .ib{width:28px;height:28px}
+/* THE FOLDED STRIP'S LINE (the owner, 2026-10-18): small and faint beside the
+   copy button; a click unfolds the strip under the row and turns the chevron. */
+.tsum{min-width:0;border:0;background:transparent;padding:2px 6px;border-radius:6px;
+  font-size:11px;color:var(--dimmer);cursor:pointer;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.tsum:hover{color:var(--dim);background:var(--hover)}
+.tsum::after{content:"›";display:inline-block;margin-left:5px;transition:transform .15s}
+.tsum[aria-expanded="true"]::after{transform:rotate(90deg)}
+.cost.tele[hidden]{display:none}
 /* #131 / #383. THE TRACE STRIP. It still holds the finished ROUNDS, folded
    (`.tb`, opened by its head); above them one segment per tool call of the
    turn in call order, coloured by kind, and a legend. */
@@ -3120,7 +3138,7 @@ code,.asktop code,#url,.cost{font-family:var(--mono)}
    #233/#256-Kartenreserve). */
 #composer{position:absolute;bottom:0;z-index:6;
   left:var(--sbw);right:var(--sbw);
-  padding:26px var(--colpad) 20px;
+  padding:22px var(--colpad) 14px;
   background:linear-gradient(to bottom,transparent,var(--bg) 26px)}
 /* -- #385: the start screen ---------------------------------------------- */
 /* AN EMPTY CHAT IS ONE CENTRED GROUP (mockup Start.dc.html): the mark and the
@@ -5405,6 +5423,16 @@ const crow = {
     b.title="Open "+it.i+" in the inspector";
     b.onclick=()=>{ if(this.inspectorShow) this.inspectorShow("subs", String(it.i)); }; },
 
+  // THE FOLDED STRIP'S ONE LINE (the owner, 2026-10-18), beside the copy
+  // button: the decode cell and the wait, taken from `teleCells` so nothing
+  // is formatted twice.
+  teleLine(st){
+    const cs=this.teleCells(st, null), out=[],
+      dec=cs.find(c=>c.label==="Decode"), wt=cs.find(c=>c.label==="Waited");
+    if(dec) out.push(dec.value+" "+dec.unit, dec.note);
+    if(wt) out.push(wt.value+wt.unit);
+    return out.filter(Boolean).join(" · "); },
+
   // THE TELEMETRY STRIP, drawn (again) from its own numbers: `stats` as the
   // push brought them, and the cards of its turn for the Delegated cell.
   teleDraw(d){
@@ -6161,24 +6189,37 @@ const crow = {
     // phone layer addresses it. A cut-off turn says so under the strip, in
     // the core's words. The line itself is drawn only where a push brought
     // no numbers (a chat remembered from before #382).
+    // FOLDED BY DEFAULT (the owner, 2026-10-18: a strip after every turn
+    // "flutet den Chat"): it waits hidden under the copy row, and the faint
+    // line beside the copy button (`teleLine`) unfolds it.
+    let tele=null;
     if(line && stats){ const d=document.createElement("div"); d.className="cost tele";
       d.setAttribute("role","group"); d.setAttribute("aria-label","Turn statistics");
       d.teleStats=stats; d.teleFrame=this.frameEl; this.teleDraw(d);
-      (this.col||flow).appendChild(d);
-      if(cut){ const w=document.createElement("div"); w.className="tcut";
-        w.textContent=cut; (this.col||flow).appendChild(w); } }
+      d.hidden=true; tele=d; }
     else if(line){ const d=document.createElement("div"); d.className="cost";
       d.textContent=line; (this.col||flow).appendChild(d); }
     // THE COPY BUTTON UNDER THE ANSWER (the owner, 2026-10-14), where a reader
     // looks for it -- live and replayed turns alike, since both end here.
-    const f=this.frameEl;
-    if(f && f.isConnected){ const a=document.createElement("div"); a.className="tacts";
-      const cp=document.createElement("button"); cp.type="button"; cp.className="ib thcopy";
-      cp.setAttribute("aria-label","Copy answer"); cp.title="Copy answer";
-      cp.innerHTML=this.turnIcon('<rect x="9" y="9" width="11" height="11" rx="2"></rect>'
-        +'<path d="M5 15V6a2 2 0 0 1 2-2h8"></path>');
-      cp.onclick=()=>this.turnCopy(f, cp);
-      a.appendChild(cp); (this.col||flow).appendChild(a); }
+    const f=this.frameEl, live=f && f.isConnected;
+    if(live || tele){ const a=document.createElement("div"); a.className="tacts";
+      if(live){ const cp=document.createElement("button"); cp.type="button";
+        cp.className="ib thcopy";
+        cp.setAttribute("aria-label","Copy answer"); cp.title="Copy answer";
+        cp.innerHTML=this.turnIcon('<rect x="9" y="9" width="11" height="11" rx="2"></rect>'
+          +'<path d="M5 15V6a2 2 0 0 1 2-2h8"></path>');
+        cp.onclick=()=>this.turnCopy(f, cp);
+        a.appendChild(cp); }
+      if(tele){ const t=document.createElement("button"); t.type="button";
+        t.className="tsum mono"; t.textContent=this.teleLine(stats);
+        t.title="Turn statistics"; t.setAttribute("aria-expanded","false");
+        t.onclick=()=>{ tele.hidden=!tele.hidden;
+          t.setAttribute("aria-expanded", String(!tele.hidden)); };
+        a.appendChild(t); }
+      (this.col||flow).appendChild(a); }
+    if(tele) (this.col||flow).appendChild(tele);
+    if(tele && cut){ const w=document.createElement("div"); w.className="tcut";
+      w.textContent=cut; (this.col||flow).appendChild(w); }
     this.bottom();
   },
 
@@ -10467,6 +10508,13 @@ REMOTE_CSS = """
    Fensterknoepfe, Zieh- und Greifzonen und der Telefonknopf selbst. */
 #wbtns,.grip,#remotetoggle{display:none !important}
 #bar{-webkit-app-region:no-drag}
+/* The phone keeps the title bar's 32 px buttons and their tile (the desktop
+   went to 28 px and flat on 2026-10-18). */
+#bar .ib{width:32px;height:32px}
+#bar .ib svg{width:16px;height:16px}
+#bar .ib.on{background:var(--accent-soft)}
+#bar .search{height:32px}
+#bar .vsep{height:20px}
 #remotepair{position:fixed;inset:0;z-index:50;display:grid;place-items:center;
   background:var(--bg);color:var(--text);padding:24px;text-align:center}
 #remotepair[hidden]{display:none}
