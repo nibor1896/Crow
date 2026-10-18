@@ -5,6 +5,15 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+### Added
+
+- **A usage dashboard on the first start of the day** (#406, 2026-10-18). On the first start of each day (a day starts at 04:00) the window comes up on an empty chat with the dashboard under the greeting and above the composer; the first message you send removes it. The same view is the new first page of Settings, **Dashboard**, with the switch "Show the dashboard on the first start of each day" (`dashboard_daily`, on by default). It shows an activity grid of the last 12 months (53 weeks, Monday on top, one square per day shaded by its tokens, a tooltip naming the day and its tokens), the tokens of the last 12 months, the tokens of the last 30 days, the current streak with the longest, the active days, and a table of tokens per model for the last 30 days (Model, Days, Tokens, Share of tokens). Tokens are input plus output. Every finished turn adds one line to `usage.jsonl` in Crow's state folder, whichever provider served it; nothing leaves the machine. The history starts with this build: older chats are not backfilled, because their saved figures carry no date and no model per turn. **Not measured:** the ledger's size (estimated at about 250 bytes a turn, 5 MB for 20,000 turns) and how long the summary takes on a large ledger (the ticket's bar is under 200 ms for 20,000 lines, fixed before any run). Not checked live.
+
+### Changed
+
+- **A slimmer title bar** (`7692995`, 2026-10-18). The bar is 36 px high instead of 46, its buttons 28 px with 14 px icons, and a toggle that is on shows it by its colour alone, without a tile behind it. The chat head, the session list and the composer have less padding; the type size is unchanged. The phone keeps its 32 px buttons. Checked live.
+- **Turn statistics folded by default** (`7692995`, 2026-10-18). After a turn, one faint line beside the copy button gives the decode rate, the decoded tokens and the wait; a click unfolds the full strip (Decode, Prefill, Cache, Rounds, Waited, Delegated). A cut-off turn still says so without unfolding. Checked live.
+
 ## 4.1.0 — 2026-10-15
 
 The operating-point window picks from one field with a Vision switch (#396), Flash-Next and the 27B can start without their vision tower (#397, not measured), and the window and the terminal menu start Crow on the Claude subscription without a local model, with a sign-in for the first start (#398).
