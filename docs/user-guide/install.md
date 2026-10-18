@@ -435,6 +435,7 @@ Nothing is installed outside the user's own directories on either platform.
 | `settings.json`, `secrets.json`, `roots.json`, `USER.md`, `skills/`, `mcp.json`, `providers.json`, `approvals.json` | `%LOCALAPPDATA%\Crow\` | `~/.config/crow/` |
 | `index.db` (session search) | `%LOCALAPPDATA%\Crow\` | `~/.local/share/crow/` |
 | `session/`, `booted.json`, `git_events.json` | `%LOCALAPPDATA%\Crow\` | `~/.local/state/crow/` |
+| `usage.jsonl` (the usage dashboard's ledger, one line per finished turn, #406) | `%LOCALAPPDATA%\Crow\` | `~/.local/state/crow/` |
 | server boot logs | `<cwd>\runs\` | `~/.local/state/crow/log/` |
 | Crow's own log, `crow.log` (rotated, 1 MiB × 4) | `%LOCALAPPDATA%\Crow\log\` | `~/.local/state/crow/log/` |
 | models | `<install>\models` | `<install>/models`, a link to the tree |

@@ -75,6 +75,7 @@ unset, which is what the specification asks for.
 | `secrets.json`, `settings.json`, `roots.json`, `USER.md`, `skills/`, `mcp.json`, `providers.json`, `approvals.json` | `~/.config/crow/` | `%LOCALAPPDATA%\Crow\` |
 | `index.db` (session search) | `~/.local/share/crow/` | `%LOCALAPPDATA%\Crow\` |
 | `session/`, `booted.json`, `git_events.json` | `~/.local/state/crow/` | `%LOCALAPPDATA%\Crow\` |
+| `usage.jsonl` (the usage dashboard's ledger, one line per finished turn, #406) | `~/.local/state/crow/` | `%LOCALAPPDATA%\Crow\` |
 | `llama-server` boot logs | `~/.local/state/crow/log/` | `<cwd>\runs\` |
 | Crow's own log, `crow.log` (rotated, 1 MiB × 4) | `~/.local/state/crow/log/` | `%LOCALAPPDATA%\Crow\log\` |
 | models | `<install>/models`, a link to the tree; `$CROW_MODELS` overrides it | `<install>\models` |
