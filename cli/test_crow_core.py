@@ -459,6 +459,76 @@ RE_ENTRY = [
 ]
 
 
+class TheLocalErrorFrameIsReadTests(unittest.TestCase):
+    """crow-nest's error-object fix (2026-10-22). A local serve that fails
+    after its 200 head -- the 503 of a VRAM allocation refused inside the
+    request -- sends one `error` frame and `[DONE]`. The frame was read for
+    remote endpoints only, so the round ended as an empty answer and its
+    reason was gone. Both shapes count: the object of a current serve, the
+    bare string of an older one."""
+
+    def _stream(self, frame, remote=False):
+        original = crow_core._post_stream
+
+        def fake(url, body, key, timeout, extra=None):
+            yield json.dumps({"choices": [{"delta": {"content": "par"}}]})
+            yield json.dumps(frame)
+
+        crow_core._post_stream = fake
+        try:
+            return crow_core.stream_reply(
+                crow_core.Conversation("SYS"), base_url="http://x/v1",
+                model="crow", api_key="k", temperature=0.0, timeout=1.0,
+                remote=remote)
+        finally:
+            crow_core._post_stream = original
+
+    def test_the_object_frame_of_a_current_serve_raises_with_code_and_words(self):
+        with self.assertRaises(crow_core.CrowError) as caught:
+            self._stream({"error": {"code": 503, "message": "out of VRAM",
+                                    "type": "unavailable_error"}})
+        self.assertIn("HTTP 503 mid-stream from crow: out of VRAM",
+                      str(caught.exception))
+
+    def test_the_string_frame_of_an_older_serve_raises_too(self):
+        with self.assertRaises(crow_core.CrowError) as caught:
+            self._stream({"error": "out of VRAM"})
+        self.assertIn("HTTP ? mid-stream from crow: out of VRAM",
+                      str(caught.exception))
+
+    def test_a_frame_without_an_error_is_still_an_answer(self):
+        """NEGATIVE CONTROL: `error: null` is no failure."""
+        reply, _reasoning, _timings = self._stream(
+            {"error": None, "choices": [{"delta": {"content": "t"},
+                                         "finish_reason": "stop"}]})
+        self.assertEqual(reply, "part")
+
+    def test_error_message_reads_both_shapes(self):
+        self.assertEqual(crow_core.error_message(
+            {"error": {"code": 409, "message": "lent"}}), "lent")
+        self.assertEqual(crow_core.error_message({"error": "lent"}), "lent")
+        self.assertEqual(crow_core.error_message({"error": {"code": 409}}), "")
+        self.assertEqual(crow_core.error_message({}), "")
+        self.assertEqual(crow_core.error_message("not a document"), "")
+
+    def test_the_judge_keeps_the_words_of_both_shapes(self):
+        """The judge read `error.message` only: a bare string raised inside
+        its parse and the verdict said nothing but the status."""
+        for body, words in ((b'{"error": "bad request"}', "bad request"),
+                            (b'{"error": {"code": 400, "message": "bad '
+                             b'request", "type": "invalid_request_error"}}',
+                             "bad request")):
+            def urlopen(request, timeout=None, body=body):
+                raise urllib.error.HTTPError(request.full_url, 400, "bad", {},
+                                             io.BytesIO(body))
+            with mock.patch.object(crow_core.urllib.request, "urlopen", urlopen):
+                with self.assertRaises(crow_core.CrowError) as caught:
+                    crow_core._judge_ask({"base_url": "http://x/v1",
+                                          "model": "crow", "remote": True},
+                                         "rate it", [])
+            self.assertEqual(str(caught.exception), "HTTP 400 " + words)
+
+
 class _BlockRecorder(crow_core.ReplyEvents):
     """Writes down the thought blocks AND the answer, in arrival order.
 
