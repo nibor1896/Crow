@@ -134,13 +134,13 @@ IMAGES_NOTE = ("RTX 5090; pictures beside the 27B, 40 steps, 2026-09-27/28; the 
                "Source: docs/")
 
 OPS = [("Flash-Next, Windows", "Qwen3.8-Flash-Next CNQ4.5-M, 200k", "40‡", "crow-nest"),
-       ("Flash-Next, Linux", "Qwen3.8-Flash-Next CNQ4.5-M, 200k", "35.8*", "crow-nest"),
-       ("Qwen3.8-27B", "Qwen3.8-27B CNQ4.5, 128k", "72.3†", "crow-nest"),
+       ("Flash-Next, Linux", "Qwen3.8-Flash-Next CNQ4.5-M, 200k", "50.8‡", "crow-nest"),
+       ("Qwen3.8-27B", "Qwen3.8-27B CNQ4.5, 128k", "98.0†", "crow-nest"),
        ("GLM-5.3-Flash, Windows", "GLM-5.3-Flash MUL1K3, 200k", "14.17‡", "crow-nest"),
        ("Image Stack", "27B CNQ4.5 + Qwen-Image 2.1", "—", "crow-nest"),
        ("Media Stack, Windows", "Qwen3.5-9B Q8_0 + Qwen-Image + LTX-2.5", "—", "llama.cpp")]
 STATS_NOTE = "crow-nest CNQ4.5-M, RTX 5090, Windows 2026-10-06, after the PLE fix: decode in a live Crow session, prefill cold. Source: docs/operating-points.md"
-OPS_NOTE = "‡ live Crow session, 8k 2026-10-06, GLM 2026-10-11. * 122k, 2026-09-24. † crow-nest bench, Linux, 2026-09-27. — not measured."
+OPS_NOTE = "‡ live Crow session, 8k 2026-10-06, Linux 2026-10-22, GLM 2026-10-11. † crow-nest bench with MTP, 2026-09-27. — not measured."
 INTRO_LINES = (
     f"A local model at 200k context with {NTOOLS} tools and MCP, persistent memory, its own skills,",
     "a browser panel, eyes, and subagents it can send out while it keeps working.",
