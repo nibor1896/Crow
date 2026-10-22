@@ -5,9 +5,13 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+## 4.3.0 — 2026-10-22
+
+A stop during a long prompt now reaches the engine, a failure in the middle of an answer shows its reason, and Flash-Next starts a new chat warm when its system prompt is the same. With crow-nest v0.15.0, measured on the Linux box: a new chat prefills 27 ids in 188 ms instead of about 6,800 in about 8.8 s, and a stop frees the engine at the next 2,048-token chunk. Linux assets only so far: the Windows packages of 4.3.0 are built on Windows (Known limitations).
+
 ### Added
 
-- **Flash-Next starts a new chat warm when its head is the same** (2026-10-22, owner decision). `manifests/stack.json` point `flash-next` sets `CROW_PREFIX_ANCHOR=1`, crow-nest's head anchor (crow-nest `docs/architecture.md` 7.17): the engine keeps the state at the first user turn, so a new chat with the same system prompt and tools rolls back onto it instead of prefilling everything. Live on the Linux box: the new chat prefilled 27 ids in 188 ms instead of about 6,800 in about 8.8 s. Needs a crow-nest engine with the head anchor (unreleased on 2026-10-22); the installed v0.14.0 serve logs that it reads no such variable and runs as before. `tools/check_stack.py` 12 of 12, `tools/check_operating_point.py` 10 of 10.
+- **Flash-Next starts a new chat warm when its head is the same** (2026-10-22, owner decision). `manifests/stack.json` point `flash-next` sets `CROW_PREFIX_ANCHOR=1`, crow-nest's head anchor (crow-nest `docs/architecture.md` 7.17): the engine keeps the state at the first user turn, so a new chat with the same system prompt and tools rolls back onto it instead of prefilling everything. Live on the Linux box: the new chat prefilled 27 ids in 188 ms instead of about 6,800 in about 8.8 s. Needs crow-nest v0.15.0 or later; an older serve (v0.14.0) logs that it reads no such variable and runs as before. `tools/check_stack.py` 12 of 12, `tools/check_operating_point.py` 10 of 10.
 - **Linux assets for 4.2.0** (2026-10-22). The v4.2.0 release carries `CrowSetup-linux-x64` (5,382,480 B, sha256 `61712f57…`) and `crow-4.2.0-linux-x64.tar.gz` (60,394,008 B, sha256 `d8aad794…`), the first Linux assets since v3.1.0. Built on the Linux box from the v4.2.0 tree: `sd-server` by `SD_RELEASE=1 tools/build-sd-server.sh` (stable-diffusion.cpp `2f88688`, CUDA 13.3), the package by `tools/pack-release.sh` (44 files, no NVIDIA file, privacy gate clean), the installer by `installer/build.sh` (`--selftest` 12 checks OK, privacy gate clean). It installs crow-nest engine v0.14.0 (`crow-nest-engine-0.14.0-linux-x64.tar.gz`, attached to crow-nest's v0.14.0 release); Windows keeps the v0.13.2 pin. `docs/user-guide/install.md` downloads it instead of building it.
 
 ### Fixed
@@ -22,6 +26,7 @@ The reasoning is in the commit and on the issue.
 
 ### Known limitations
 
+- **No Windows packages yet** (2026-10-22): 4.3.0 was released from the Linux box and carries `crow-4.3.0-linux-x64.tar.gz` and `CrowSetup-linux-x64` only. `crow-4.3.0-win-x64.zip` and `CrowSetup.exe` are built with `tools/pack-release.ps1` and `installer/build.ps1` on Windows; until then the release is not marked latest, so `install.ps1` and the README's `CrowSetup.exe` line keep resolving 4.2.0. The Windows engine pin stays crow-nest 0.13.2, which reads no `CROW_PREFIX_ANCHOR` and runs as before.
 - **Setup gives no feedback in two places** (2026-10-22, the same live check). After the refusal of an install root that held other files, **Retry** did nothing until **Pause** and **Resume**; and while the Crow step prepared the venv and `whisper-small`, the window showed no progress. Neither event reaches `setup/setup.log`, which only records state-file errors (#338).
 - **Settings → About offers no engine update on Linux**, as before: the updater asks for `crow-nest-engine-<v>-linux-x64.zip`, crow-nest packs `.tar.gz` (crow-nest CHANGELOG, v0.13.2).
 
