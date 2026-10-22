@@ -6799,6 +6799,22 @@ def _stream_headers(api_key: str, extra: "dict | None" = None) -> dict:
     return head
 
 
+def _hang_up(resp) -> None:
+    """Shut down the socket under `resp` in both directions; nothing if it
+    has none or is already gone. `http.client` keeps it at `fp.raw._sock`
+    (the SocketIO under the BufferedReader), and there is no public door to
+    it: the close takes the reader's lock, the shutdown does not."""
+    import socket
+
+    sock = getattr(getattr(getattr(resp, "fp", None), "raw", None), "_sock", None)
+    if sock is None:
+        return
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+
+
 def _post_stream(url: str, body: dict, api_key: str, timeout: float,
                  extra: "dict | None" = None):
     """Yield decoded SSE data lines from an OpenAI-compatible endpoint.
@@ -6904,6 +6920,18 @@ def _post_stream(url: str, body: dict, api_key: str, timeout: float,
         # timeout as it stood when the read STARTED, which means the caller's
         # `timeout` and nothing else -- see READ_TIMEOUT_S in cli/crow_gui.py for
         # the value a window may use and why the mockup's 20 s is not it.
+        #
+        # SO THE SERVER IS TOLD FIRST, by a shutdown of the socket itself. It
+        # needs no lock, it puts the FIN on the wire at once, and on Linux it
+        # also wakes the blocked read, so the close below no longer waits.
+        # Measured 2026-10-22 on Linux against a server that sent the SSE head
+        # and then wrote nothing, the shape of a prefill (closeprobe, stop at
+        # 1.0 s): `resp.close()` alone returned after 11.0 s and the server
+        # never saw the client leave; shutdown first, the close returned at
+        # once and the server saw the FIN at 1.0 s. A prefill of a long prompt
+        # is minutes of exactly that silence, and serve stops it at the next
+        # chunk boundary only if it hears the FIN.
+        _hang_up(resp)
         try:
             resp.close()
         except Exception:
