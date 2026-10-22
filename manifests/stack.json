@@ -982,8 +982,10 @@
      "CROW_HOTSETS": "${MODELS}/Qwen3.8-Flash-Next-CNQ4.5-M/hotsets-M-crow0924-n160.json",
      "CROW_TOKENIZER": "${MODELS}/Qwen3.8-Flash-Next-CNQ4.5-M/tokenizer.json",
      "CROW_TOKENIZER_CONFIG": "${MODELS}/Qwen3.8-Flash-Next-CNQ4.5-M/tokenizer_config.json",
-     "CROW_VIT_MMPROJ": "${MODELS}/Qwen3.8-Flash-Next-CNQ4.5-M/mmproj-F16.gguf"
+     "CROW_VIT_MMPROJ": "${MODELS}/Qwen3.8-Flash-Next-CNQ4.5-M/mmproj-F16.gguf",
+     "CROW_PREFIX_ANCHOR": "1"
     },
+    "_env": "CROW_PREFIX_ANCHOR=1: the head anchor (crow-nest docs/architecture.md 7.17; default off in the engine), owner decision of 2026-10-22 after his live check on the Linux box: a new chat with the same system prompt and tools started WARM from the anchor at 6,809 ids and prefilled 27 ids in 188 ms instead of about 6,800 in about 8.8 s. Needs crow-nest v0.15.0 or later; an older serve logs that it reads no such variable and runs as before.",
     "env_engine_default": {
      "CROW_LOCK": "not set: the engine default; crow-nest#131 moves the lock to a per-user state dir"
     },

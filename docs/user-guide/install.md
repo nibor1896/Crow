@@ -10,7 +10,7 @@ the model — that is a separate line, printed at the end of the run.
 | Windows | `install.ps1` — five steps, no elevation, everything under `%LOCALAPPDATA%\Crow` |
 | Windows, one window | `CrowSetup.exe` from the [latest release](https://github.com/nibor1896/Crow/releases/latest): Crow, the crow-nest engine and the operating points you pick, with resume. See [CrowSetup.exe](#crowsetupexe-windows) |
 | Linux | `install.sh` — five steps, no root, everything under `${XDG_DATA_HOME:-~/.local/share}/crow` |
-| Linux, one window | `CrowSetup-linux-x64` from the [v4.2.0 release](https://github.com/nibor1896/Crow/releases/tag/v4.2.0), or built on Linux from this repository ([Build it (Linux)](#build-it-linux)). The same installer as `CrowSetup.exe`, for Linux. See [CrowSetup (Linux)](#crowsetup-linux) |
+| Linux, one window | `CrowSetup-linux-x64` from the [v4.3.0 release](https://github.com/nibor1896/Crow/releases/tag/v4.3.0), or built on Linux from this repository ([Build it (Linux)](#build-it-linux)). The same installer as `CrowSetup.exe`, for Linux. See [CrowSetup (Linux)](#crowsetup-linux) |
 | The model | `hf download`, separately, 73.45 GiB + 0.9 GiB for the projector |
 
 ---
@@ -260,12 +260,12 @@ no Linux release asset. Full page: [Linux](linux.md).
 `CrowSetup-linux-x64` is `CrowSetup.exe` built for Linux: the same window, the same points, the
 same resume, verify and retry rules as [CrowSetup.exe](#crowsetupexe-windows).
 
-The v4.2.0 release carries it (attached 2026-10-22, the first Linux assets since v3.1.0). It
-installs `crow-4.2.0-linux-x64.tar.gz` from that release and the crow-nest engine
-`crow-nest-engine-0.14.0-linux-x64.tar.gz` from crow-nest's v0.14.0 release:
+The v4.3.0 release carries it (v4.2.0 got its Linux assets on 2026-10-22, the first since v3.1.0). It
+installs `crow-4.3.0-linux-x64.tar.gz` from that release and the crow-nest engine
+`crow-nest-engine-0.15.0-linux-x64.tar.gz` from crow-nest's v0.15.0 release:
 
 ```bash
-curl -fLO https://github.com/nibor1896/Crow/releases/download/v4.2.0/CrowSetup-linux-x64
+curl -fLO https://github.com/nibor1896/Crow/releases/download/v4.3.0/CrowSetup-linux-x64
 chmod +x CrowSetup-linux-x64 && ./CrowSetup-linux-x64
 ```
 
