@@ -86,7 +86,7 @@ import crow_platform
 # column 0. Until #187 it stood in cli/crow.py, which handed it over on import;
 # an installation older than this change still carries it there, and that is
 # the only reason the installers look in crow.py at all.
-VERSION = "4.2.0"
+VERSION = "4.3.0"
 
 # The name every reader has used since the split: the session file's `version`
 # field, the User-Agents and the update notice. It used to be "" until the
