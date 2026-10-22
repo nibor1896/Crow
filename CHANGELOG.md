@@ -11,6 +11,7 @@ The reasoning is in the commit and on the issue.
 
 ### Fixed
 
+- **A local serve's failure after its first byte reaches the turn** (2026-10-22, `9e7358d`). When crow-nest refuses a VRAM allocation inside a request after its 200 head, it sends one `error` frame and `[DONE]`. `stream_reply` read that frame for remote endpoints only (#216), so the round ended on `[DONE]` with the frame skipped and its reason never shown. The local server's frame now raises `HTTP <code> mid-stream from <model>: <reason>` like a remote one, in both shapes: the object crow-nest sends since its error-object fix (crow-nest `b4231f4`) and the bare string of an older serve. The judge kept only the status of a bare-string refusal; it keeps the reason now. 5 cases in `TheLocalErrorFrameIsReadTests`, 4 of them red on the old code; the whole suite 3,251 OK (146 skipped). Not checked live: no allocation failure was provoked against a running serve.
 - **The Linux release packer no longer refuses the engine API URL** (2026-10-22). `tools/pack-release.sh` refused the 4.2.0 package on `cli/crow_core.py`'s `ENGINE_RELEASES_API` (`https://api.github.com/repos/<owner>/crow-nest/...`, added with #367): the public-namespace context in `tools/repack-release.py` named `github.com/<owner>` but not the REST API's `github.com/repos/<owner>`. It does now; the new case in `tools/test_repack_release.py` is red without the change, 50 tests OK with it.
 
 ### Measured
