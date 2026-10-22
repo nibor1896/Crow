@@ -336,6 +336,20 @@ class HostNameAndNamespaceTest(unittest.TestCase):
         refused, _ = rr.split_allowed(files, hits, pats, allow=rr.PRIVACY_ALLOW + rr.NAMESPACE_ALLOW)
         self.assertEqual([r[0] for r in refused], ["cli\\notes.py"])
 
+    def test_the_gate_takes_the_namespace_in_a_github_api_url(self):
+        # 2026-10-22: the 4.2.0 Linux pack was refused on crow_core's ENGINE_RELEASES_API (#367)
+        user = "nibor1896"
+        files = {"cli/crow_core.py": b'API = "https://api.github.com/repos/nibor1896/crow-nest/releases/latest"'}
+        pats = rr.private_patterns(profile="/home/" + user, user=user, host=self.HOST)[0]
+        hits = rr.scan_private(files, pats, hosts=rr.host_names(self.HOST))
+        refused, allowed = rr.split_allowed(files, hits, pats, allow=rr.PRIVACY_ALLOW + rr.NAMESPACE_ALLOW)
+        self.assertEqual(refused, [])
+        self.assertEqual(len(allowed), 1)
+        files["cli/crow_core.py"] = b'API = "https://api.github.com/search/nibor1896"'
+        hits = rr.scan_private(files, pats, hosts=rr.host_names(self.HOST))
+        refused, _ = rr.split_allowed(files, hits, pats, allow=rr.PRIVACY_ALLOW + rr.NAMESPACE_ALLOW)
+        self.assertEqual([r[0] for r in refused], ["cli/crow_core.py"])
+
 
 class EndToEndTest(unittest.TestCase):
     def setUp(self):
