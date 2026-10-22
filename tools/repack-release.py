@@ -111,8 +111,11 @@ PRIVACY_ALLOW = (
 # login on robin's box, so on that box the bare name is also allowed in exactly these
 # contexts (robin, 2026-10-02). Globs match either separator. On a machine with another
 # user name these entries match nothing.
+# github\.com/repos is the REST API's spelling (api.github.com/repos/nibor1896/...): #367 put
+# ENGINE_RELEASES_API in cli/crow_core.py, and the 4.2.0 Linux pack was refused on it
+# (robin, 2026-10-22).
 NAMESPACE_ALLOW = (
-    r'* @@ nibor1896 @@ 64 @@ public namespace URL @@ (?:github\.com|githubusercontent\.com|huggingface\.co|ko-fi\.com)/nibor1896(?![a-z0-9_-])',
+    r'* @@ nibor1896 @@ 64 @@ public namespace URL @@ (?:github\.com|github\.com/repos|githubusercontent\.com|huggingface\.co|ko-fi\.com)/nibor1896(?![a-z0-9_-])',
     r'manifests/stack.json @@ nibor1896 @@ 32 @@ model repo id @@ "repo": "nibor1896/',
     r'cli/crow_core.py @@ nibor1896 @@ 1 @@ the GitHub repo constant @@ repo = "nibor1896/crow"',
     r'readme.md @@ nibor1896 @@ 1 @@ the repo link text @@ >nibor1896/crow<',
