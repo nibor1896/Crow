@@ -13,9 +13,13 @@ The reasoning is in the commit and on the issue.
 
 - **The Linux release packer no longer refuses the engine API URL** (2026-10-22). `tools/pack-release.sh` refused the 4.2.0 package on `cli/crow_core.py`'s `ENGINE_RELEASES_API` (`https://api.github.com/repos/<owner>/crow-nest/...`, added with #367): the public-namespace context in `tools/repack-release.py` named `github.com/<owner>` but not the REST API's `github.com/repos/<owner>`. It does now; the new case in `tools/test_repack_release.py` is red without the change, 50 tests OK with it.
 
+### Measured
+
+- **`CrowSetup-linux-x64` installs and runs Flash-Next end to end** (2026-10-22, robin's live check on the Linux box, RTX 5090). Downloaded from the v4.2.0 release with `curl` like a new user, run with its window, point `flash-next`, default install root. The Flash-Next files already under `<root>/models` (copied from the Windows install) were verified by sha256 and not downloaded again; Crow 4.2.0, crow-nest engine v0.14.0, NVRTC and `whisper-small` were fetched. Crow then served from `<root>/bin/serve` (sha256 `d1e3ac42…`, the one in the engine package's `MANIFEST.json`): a multi-step coding task with tool calls ran to the end, its 9 unittest cases passed, and every number in its report reproduced on a re-run.
+
 ### Known limitations
 
-- **Not installed end to end on Linux** (2026-10-22). The Linux box has no models, so no operating point was installed or started from `CrowSetup-linux-x64`. Checked instead: both packages unpacked against their `MANIFEST.json` (44 and 5 files, 0 sha256 mismatches, 0 unlisted), `sd-server --version` with the CUDA runtime, NVRTC fetched by the engine pack's `fetch-nvrtc.sh`, `serve` starting.
+- **Setup gives no feedback in two places** (2026-10-22, the same live check). After the refusal of an install root that held other files, **Retry** did nothing until **Pause** and **Resume**; and while the Crow step prepared the venv and `whisper-small`, the window showed no progress. Neither event reaches `setup/setup.log`, which only records state-file errors (#338).
 - **Settings → About offers no engine update on Linux**, as before: the updater asks for `crow-nest-engine-<v>-linux-x64.zip`, crow-nest packs `.tar.gz` (crow-nest CHANGELOG, v0.13.2).
 
 ## 4.2.0 — 2026-10-18
