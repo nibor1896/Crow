@@ -5,6 +5,10 @@ The reasoning is in the commit and on the issue.
 
 ## Unreleased
 
+### Added
+
+- **Windows assets for 4.3.0** (2026-10-22). The v4.3.0 release carries `crow-4.3.0-win-x64.zip` (248,494,324 B, sha256 `cf3b426e…`) and `CrowSetup.exe` (19,258,368 B, sha256 `8958d532…`) and is marked latest since then, so `install.ps1` and the README's `CrowSetup.exe` line resolve 4.3.0. Built on Windows from the v4.3.0 tree: the package by `tools/repack-release.py --previous crow-4.2.0-win-x64.zip` (llama.cpp and stable-diffusion.cpp are unchanged since 4.2.0, so `bin/` is 4.2.0's, every byte checked against that package's manifest; 61 files, no NVIDIA file, privacy gate clean), the installer by `installer/build.ps1` with the pinned engine `crow-nest-engine-0.13.2-win-x64.zip` (`--selftest` 12 checks OK, privacy gate clean). Downloaded back from the release, both match the local builds byte for byte, the zip verifies against its `MANIFEST.json`, and the downloaded `CrowSetup.exe --selftest` prints 12 checks OK. Windows keeps the crow-nest v0.13.2 pin. Not installed on Windows yet.
+
 ## 4.3.0 — 2026-10-22
 
 A stop during a long prompt now reaches the engine, a failure in the middle of an answer shows its reason, and Flash-Next starts a new chat warm when its system prompt is the same. With crow-nest v0.15.0, measured on the Linux box: a new chat prefills 27 ids in 188 ms instead of about 6,800 in about 8.8 s, and a stop frees the engine at the next 2,048-token chunk. Linux assets only so far: the Windows packages of 4.3.0 are built on Windows (Known limitations).
