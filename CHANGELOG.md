@@ -7,6 +7,7 @@ The reasoning is in the commit and on the issue.
 
 ### Added
 
+- **Flash-Next starts a new chat warm when its head is the same** (2026-10-22, owner decision). `manifests/stack.json` point `flash-next` sets `CROW_PREFIX_ANCHOR=1`, crow-nest's head anchor (crow-nest `docs/architecture.md` 7.17): the engine keeps the state at the first user turn, so a new chat with the same system prompt and tools rolls back onto it instead of prefilling everything. Live on the Linux box: the new chat prefilled 27 ids in 188 ms instead of about 6,800 in about 8.8 s. Needs a crow-nest engine with the head anchor (unreleased on 2026-10-22); the installed v0.14.0 serve logs that it reads no such variable and runs as before. `tools/check_stack.py` 12 of 12, `tools/check_operating_point.py` 10 of 10.
 - **Linux assets for 4.2.0** (2026-10-22). The v4.2.0 release carries `CrowSetup-linux-x64` (5,382,480 B, sha256 `61712f57…`) and `crow-4.2.0-linux-x64.tar.gz` (60,394,008 B, sha256 `d8aad794…`), the first Linux assets since v3.1.0. Built on the Linux box from the v4.2.0 tree: `sd-server` by `SD_RELEASE=1 tools/build-sd-server.sh` (stable-diffusion.cpp `2f88688`, CUDA 13.3), the package by `tools/pack-release.sh` (44 files, no NVIDIA file, privacy gate clean), the installer by `installer/build.sh` (`--selftest` 12 checks OK, privacy gate clean). It installs crow-nest engine v0.14.0 (`crow-nest-engine-0.14.0-linux-x64.tar.gz`, attached to crow-nest's v0.14.0 release); Windows keeps the v0.13.2 pin. `docs/user-guide/install.md` downloads it instead of building it.
 
 ### Fixed
