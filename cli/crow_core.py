@@ -6799,6 +6799,19 @@ def _stream_headers(api_key: str, extra: "dict | None" = None) -> dict:
     return head
 
 
+def error_message(doc) -> str:
+    """The reason an error document gives, whichever shape carries it.
+
+    `{"error":{"message": ...}}` from OpenRouter, llama-server and crow-nest
+    since its error-object fix (2026-10-22); `{"error":"<reason>"}` from an
+    older crow-nest and its own lend routes. "" when the document names none.
+    """
+    problem = doc.get("error") if isinstance(doc, dict) else None
+    if isinstance(problem, dict):
+        return str(problem.get("message") or "")
+    return str(problem or "")
+
+
 def _post_stream(url: str, body: dict, api_key: str, timeout: float,
                  extra: "dict | None" = None):
     """Yield decoded SSE data lines from an OpenAI-compatible endpoint.
@@ -7761,14 +7774,21 @@ def stream_reply(
             # "error", "the HTTP status remains 200 OK". Read as a delta it is
             # an empty reply -- "the model answered nothing" -- and its code
             # and words were gone. Raised in the HTTP shape `_post_stream`
-            # writes, so one classifier reads both doors. Remote only: the
-            # local server's stream is not what OpenRouter documented.
+            # writes, so one classifier reads both doors.
+            #
+            # THE LOCAL SERVER TOO, in both of its shapes. crow-nest sends the
+            # same frame once its 200 head is out -- the 503 of a VRAM
+            # allocation refused inside the request -- as an object since its
+            # error-object fix (2026-10-22), as a bare string before it. This
+            # read was remote-only, so a local failure ended the round as an
+            # empty answer and its reason never reached the turn.
             problem = chunk.get("error")
-            if remote and isinstance(problem, dict):
+            if problem and (isinstance(problem, dict) or not remote):
+                code = problem.get("code") if isinstance(problem, dict) else None
                 raise CrowError("HTTP %s mid-stream from %s: %s"
-                                % (problem.get("code") or "?", model,
+                                % (code or "?", model,
                                    strip_tag_characters(
-                                       str(problem.get("message") or problem))[:500]))
+                                       error_message(chunk) or str(problem))[:500]))
 
             # #217 / crow-nest #99: THE ENGINE'S OWN ACCOUNT OF EVERY CALL IT
             # ABANDONED, on the final chunk and only when there was one. It is
@@ -12184,7 +12204,7 @@ def _render_vram_lend(mib: int, ttl_s: int) -> "dict | None":
     if status != 200:
         log_note("render: no VRAM lend from %s (asked %d MiB, ttl %d s): %s %s"
                  % (root, mib, ttl_s, status or "no answer",
-                    str(doc.get("error") or "")[:200]), "render")
+                    error_message(doc)[:200]), "render")
         if status is None:
             # A lend that timed out may still be served once serve reads
             # it: the return is idempotent (0 MiB when nothing is out), so
@@ -12236,7 +12256,7 @@ def _render_vram_return() -> None:
     log_note("render: return of %.0f MiB not confirmed by %s: %s %s -- serve "
              "gives it back itself at the TTL"
              % (loan["lent_mib"], loan["root"], status or "no answer",
-                str(doc.get("error") or "")[:200]), "render")
+                error_message(doc)[:200]), "render")
 
 
 # #293. THE PRECHECK LINES, fixed in the ticket before any result existed.
@@ -30394,8 +30414,9 @@ def _judge_ask(spot: dict, prompt: str, paths: "list[str]") -> str:
     except urllib.error.HTTPError as exc:
         try:
             said = exc.read().decode("utf-8", "replace")
-            said = str(((json.loads(said) or {}).get("error") or {})
-                       .get("message") or said)
+            # Both shapes: a bare-string `error` raised in here and left the
+            # verdict with nothing but its status.
+            said = error_message(json.loads(said)) or said
         except Exception:                   # noqa: BLE001 - detail only
             said = ""
         finally:
