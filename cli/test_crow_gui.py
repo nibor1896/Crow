@@ -526,10 +526,21 @@ class AbortPathTests(unittest.TestCase):
         return at the same moment; they do not, and the difference IS the read
         timeout doing the work. That is why cli/crow_gui.py ships one instead of
         inheriting the CLI's 1800 s.
+
+        LINUX SINCE THE HANG-UP (2026-10-22): `_post_stream` shuts the socket
+        down before the close, so serve hears the stop during a prefill, and on
+        Linux the shutdown also wakes the blocked read. Both aborts end at once
+        there, and the timeout is only the bound behind it. Windows' read does
+        not wake on a shutdown (measured 2026-08-13, see `_post_stream`), so
+        there the timeout is still what ends it.
         """
         quick = self._abort_after(1.0)
         slow = self._abort_after(4.0)
         self.assertLess(quick, 3.0, "a 1 s read timeout took %.1f s" % quick)
+        if sys.platform.startswith("linux"):
+            self.assertLess(slow, 1.0, "the hang-up did not end the read on Linux: "
+                            "the 4 s read timeout did (%.1f s)" % slow)
+            return
         self.assertGreater(slow, quick + 1.0,
                            "a 4 s read timeout returned as fast as a 1 s one -- "
                            "then something other than the timeout ended the read "

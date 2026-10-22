@@ -529,6 +529,55 @@ class TheLocalErrorFrameIsReadTests(unittest.TestCase):
             self.assertEqual(str(caught.exception), "HTTP 400 " + words)
 
 
+class AStopHangsUpDuringASilentPrefillTests(unittest.TestCase):
+    """crow-nest's prefill stops at the next chunk boundary when its client is
+    gone -- but only if the client's FIN reaches it. During a prefill serve has
+    sent the SSE head and writes nothing, so the reader thread sits in a read
+    and `resp.close()` waits for its lock: measured 2026-10-22, the close
+    returned after 11 s and the server never saw the client leave. A stop now
+    shuts the socket down first."""
+
+    def test_the_server_sees_the_stop_at_once_and_the_close_does_not_wait(self):
+        import select
+        rdhup = getattr(select, "POLLRDHUP", None)
+        if rdhup is None or not hasattr(select, "poll"):
+            self.skipTest("POLLRDHUP is Linux's; serve's probe is Linux only too")
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        seen = {}
+
+        def server():
+            conn, _ = listener.accept()
+            conn.recv(65536)
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+                         b"Connection: close\r\n\r\n")
+            started = time.monotonic()
+            poller = select.poll()
+            poller.register(conn, rdhup)
+            while time.monotonic() - started < 10:
+                if poller.poll(50):
+                    seen["after"] = time.monotonic() - started
+                    break
+            conn.close()
+
+        thread = threading.Thread(target=server)
+        thread.start()
+        url = "http://127.0.0.1:%d/v1/chat/completions" % listener.getsockname()[1]
+        threading.Timer(0.5, crow_core.INTERRUPT.set).start()
+        started = time.monotonic()
+        try:
+            self.assertEqual(list(crow_core._post_stream(url, {}, "k", 30.0)), [])
+        finally:
+            crow_core.INTERRUPT.clear()
+        took = time.monotonic() - started
+        thread.join()
+        listener.close()
+        self.assertLess(took, 3.0, "the stop waited for the server")
+        self.assertIn("after", seen, "the server never saw the client leave")
+        self.assertLess(seen["after"], 3.0)
+
+
 class _BlockRecorder(crow_core.ReplyEvents):
     """Writes down the thought blocks AND the answer, in arrival order.
 
