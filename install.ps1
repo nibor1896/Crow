@@ -1000,8 +1000,8 @@ function Get-PackageBinNames {
         The file names directly under bin\ that a Crow package owns.
     .DESCRIPTION
         bin\ IS SHARED. CrowSetup (#196) and the window's engine button (#367) put
-        crow-nest's serve.exe, its NVRTC, its MANIFEST.json, .crow-engine.json and
-        the *.bak-* copies beside Crow's own files. The rename and the sweep below
+        crow-nest's serve.exe, its MANIFEST.json, .crow-engine.json and the
+        *.bak-* copies beside Crow's own files. The rename and the sweep below
         used to take every file in bin\, and on 2026-10-23 that deleted a whole
         engine while sd-server was holding the directory (#414).
 
@@ -1718,8 +1718,8 @@ function Invoke-Selftest {
     }
 
     # #414: bin\ is shared with crow-nest's engine. Measured 2026-10-23: an update
-    # with sd-server running renamed serve.exe, NVRTC and the engine's marks to
-    # .old and swept them. Only a Crow package's own names may be touched.
+    # with sd-server running renamed serve.exe and the engine's marks to .old
+    # and swept them. Only a Crow package's own names may be touched.
     $pn = Get-PackageBinNames -Paths @("bin/ggml.dll", "BIN\LLAMA-SERVER.EXE", "cli/crow_core.py",
                                        "bin/sub/x.dll", "MANIFEST.json", $null)
     C "#414 package names: bin entries, either separator, any case" (($pn -contains "ggml.dll") -and ($pn -contains "llama-server.exe"))
