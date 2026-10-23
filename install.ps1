@@ -983,26 +983,72 @@ function Get-LockingServer {
     return $null
 }
 
+function Get-ZipPaths {
+    <# Every file the package holds, by its path inside the zip -- the files the
+       extraction is about to write. Read before anything is extracted. #>
+    param([string] $ZipPath)
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        return ,@($zip.Entries | Where-Object { $_.Name } | ForEach-Object { $_.FullName })
+    } finally { $zip.Dispose() }
+}
+
+function Get-PackageBinNames {
+    <#
+    .SYNOPSIS
+        The file names directly under bin\ that a Crow package owns.
+    .DESCRIPTION
+        bin\ IS SHARED. CrowSetup (#196) and the window's engine button (#367) put
+        crow-nest's serve.exe, its MANIFEST.json, .crow-engine.json and the
+        *.bak-* copies beside Crow's own files. The rename and the sweep below
+        used to take every file in bin\, and on 2026-10-23 that deleted a whole
+        engine while sd-server was holding the directory (#414).
+
+        Same direction as Find-DroppedFiles: a name is in only if a package path
+        names it, so nothing another tool put here can be selected. Pure: paths
+        in (either separator, any case), lower-case leaf names out. A path deeper
+        than bin\<name> is not a file of bin\ itself.
+    #>
+    param([string[]] $Paths)
+    $names = @{}
+    foreach ($raw in $Paths) {
+        if (-not $raw) { continue }
+        $parts = ($raw -replace '\\', '/').Split('/')
+        if ($parts.Count -eq 2 -and $parts[0] -ieq 'bin' -and $parts[1]) {
+            $names[$parts[1].ToLowerInvariant()] = $true
+        }
+    }
+    return ,@($names.Keys)
+}
+
 function Move-LockedAside {
     <#
     .SYNOPSIS
-        Rename every file in a directory to *.old so an extraction can write over it.
+        Rename the package's files in a directory to *.old so an extraction can write over them.
     .DESCRIPTION
         Windows locks a running binary against WRITING, not against renaming: the
         process keeps its handle to the file it opened, and the path is freed for
         the new one. Measured 2026-08-10 against a running executable -- the
         rename succeeded.
 
+        Only the names in $Names (Get-PackageBinNames) are touched. Everything else
+        in bin\ belongs to someone else, and a renamed file nobody holds is deleted
+        by Remove-StaleOld at the end of the run (#414).
+
         Moved is counted by asking the filesystem afterwards, and Failed names
         what is still sitting there. A rename that quietly fails would hand the
         original IOException to the extraction with a layer of misdirection in
         front of it, which is worse than the bug it was meant to fix.
     #>
-    param([string] $BinDir)
+    param([string] $BinDir, [string[]] $Names)
+    $own = @{}
+    foreach ($n in $Names) { if ($n) { $own[$n.ToLowerInvariant()] = $true } }
     $moved  = 0
     $failed = @()
     foreach ($f in @(Get-ChildItem -LiteralPath $BinDir -File -ErrorAction SilentlyContinue)) {
         if ($f.Name -like "*.old") { continue }
+        if (-not $own.ContainsKey($f.Name.ToLowerInvariant())) { continue }
         $oldPath = $f.FullName + ".old"
         # An interrupted update may have left one behind; it is in the way now.
         if (Test-Path -LiteralPath $oldPath) {
@@ -1017,24 +1063,30 @@ function Move-LockedAside {
 function Remove-StaleOld {
     <#
     .SYNOPSIS
-        Delete the *.old files left behind, and report what actually went.
+        Delete the package's *.old files left behind, and report what actually went.
     .DESCRIPTION
         A file the running server still has mapped CANNOT be deleted. Measured
         2026-08-10: the rename succeeds, the delete is denied, the file stays.
         And that is the NORMAL case here, because the reason it was renamed is
         that the server is still running.
 
+        Only <name>.old for a name in $Names: a .old of any other file in bin\ is
+        not this installer's to delete (#414).
+
         So Removed is the difference between before and after, taken by looking.
         Counting what was found and calling it "removed" prints a green line in
         exactly the situation where nothing was removed.
     #>
-    param([string] $BinDir)
-    $before = @(Get-ChildItem -LiteralPath $BinDir -Filter "*.old" -File -ErrorAction SilentlyContinue)
+    param([string] $BinDir, [string[]] $Names)
+    $own = @{}
+    foreach ($n in $Names) { if ($n) { $own[$n.ToLowerInvariant()] = $true } }
+    $before = @(Get-ChildItem -LiteralPath $BinDir -Filter "*.old" -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -like "*.old" -and
+                               $own.ContainsKey($_.Name.Substring(0, $_.Name.Length - 4).ToLowerInvariant()) })
     foreach ($f in $before) {
         Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue
     }
-    $kept = @(Get-ChildItem -LiteralPath $BinDir -Filter "*.old" -File -ErrorAction SilentlyContinue |
-              ForEach-Object { $_.Name })
+    $kept = @($before | Where-Object { Test-Path -LiteralPath $_.FullName } | ForEach-Object { $_.Name })
     return [pscustomobject]@{ Removed = ($before.Count - $kept.Count); Kept = $kept }
 }
 
@@ -1649,7 +1701,7 @@ function Invoke-Selftest {
         Set-Content -LiteralPath (Join-Path $tmpDir "held.dll") -Value "x" -Encoding Ascii
         $held = [System.IO.File]::Open((Join-Path $tmpDir "held.dll"), 'Open', 'Read', 'None')
 
-        $aside = Move-LockedAside -BinDir $tmpDir
+        $aside = Move-LockedAside -BinDir $tmpDir -Names @("free.dll", "held.dll")
         C "an unheld file is moved aside"          ($aside.Moved -eq 1)
         C "a held file is REPORTED, not swallowed" ($aside.Failed -contains "held.dll")
 
@@ -1657,11 +1709,49 @@ function Invoke-Selftest {
         Set-Content -LiteralPath (Join-Path $tmpDir "stuck.dll.old") -Value "x" -Encoding Ascii
         $held = [System.IO.File]::Open((Join-Path $tmpDir "stuck.dll.old"), 'Open', 'Read', 'None')
 
-        $swept = Remove-StaleOld -BinDir $tmpDir
+        $swept = Remove-StaleOld -BinDir $tmpDir -Names @("free.dll", "stuck.dll")
         C "a free .old file is really removed"     ($swept.Removed -eq 1)
         C "and one still held is NOT called gone"  ($swept.Kept -contains "stuck.dll.old")
     } finally {
         if ($held) { $held.Close() }
+        Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # #414: bin\ is shared with crow-nest's engine. Measured 2026-10-23: an update
+    # with sd-server running renamed serve.exe and the engine's marks to .old
+    # and swept them. Only a Crow package's own names may be touched.
+    $pn = Get-PackageBinNames -Paths @("bin/ggml.dll", "BIN\LLAMA-SERVER.EXE", "cli/crow_core.py",
+                                       "bin/sub/x.dll", "MANIFEST.json", $null)
+    C "#414 package names: bin entries, either separator, any case" (($pn -contains "ggml.dll") -and ($pn -contains "llama-server.exe"))
+    C "#414 package names: nothing outside bin\ or below it"        ($pn.Count -eq 2)
+
+    $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("crow-selftest-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+    try {
+        $engine = @("serve.exe", "nvrtc64_130_0.dll", "MANIFEST.json", ".crow-engine.json", "serve.exe.bak-1234abcd")
+        foreach ($f in $engine + @("ggml.dll", "sd-server.exe")) {
+            Set-Content -LiteralPath (Join-Path $tmpDir $f) -Value $f -Encoding Ascii
+        }
+        $hashes = @{}
+        foreach ($f in $engine) { $hashes[$f] = (Get-FileHash -LiteralPath (Join-Path $tmpDir $f)).Hash }
+        $pkg = @("ggml.dll", "sd-server.exe")
+
+        $aside = Move-LockedAside -BinDir $tmpDir -Names $pkg
+        C "#414 only the package's files are moved aside" ($aside.Moved -eq 2)
+        C "#414 no engine file is renamed" (@($engine | Where-Object { -not (Test-Path -LiteralPath (Join-Path $tmpDir $_)) }).Count -eq 0)
+
+        # A .old the package did not make, e.g. CrowSetup's of a running serve.exe.
+        Set-Content -LiteralPath (Join-Path $tmpDir "serve.exe.old") -Value "x" -Encoding Ascii
+        $swept = Remove-StaleOld -BinDir $tmpDir -Names $pkg
+        C "#414 the package's .old files are swept"         ($swept.Removed -eq 2)
+        C "#414 another tool's .old is not the package's"   (Test-Path -LiteralPath (Join-Path $tmpDir "serve.exe.old"))
+        C "#414 every engine file keeps its bytes" (@($engine | Where-Object {
+            $p = Join-Path $tmpDir $_
+            -not (Test-Path -LiteralPath $p) -or (Get-FileHash -LiteralPath $p).Hash -ne $hashes[$_] }).Count -eq 0)
+
+        $aside = Move-LockedAside -BinDir $tmpDir -Names @()
+        C "#414 no package names, nothing renamed"          ($aside.Moved -eq 0)
+    } finally {
         Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
@@ -1994,31 +2084,6 @@ try {
 }
 New-Item -ItemType Directory -Force -Path $InstallTo | Out-Null
 
-# Windows locks a running executable and its loaded DLLs. An update started
-# while the server is up -- which is exactly the state the user is in when the
-# client prints the one-liner -- hits a locked file and fails with an
-# IOException that nothing catches. The fix: rename locked files before
-# extraction. Windows allows renaming a running binary; the process keeps its
-# handle to the old name and the path is freed for the new file.
-$binDir = Join-Path $InstallTo "bin"
-$holder = if (Test-Path -LiteralPath $binDir) { Get-LockingServer -BinDir $binDir } else { $null }
-if ($holder) {
-    Write-Item "server running" "$($holder.ProcessName).exe (pid $($holder.Id)) is holding $binDir" "warn"
-    $aside = Move-LockedAside -BinDir $binDir
-    if ($aside.Moved -gt 0) {
-        Write-Item "moved aside" "$($aside.Moved) files renamed -- the running server keeps the old ones" "ok"
-    }
-    # Stopping here rather than letting the extraction discover it: below, the
-    # same condition arrives as an IOException with a filename in it and no idea
-    # why, and the user has already waited for a download by then.
-    if ($aside.Failed.Count -gt 0) {
-        Write-Item "could not move" "$($aside.Failed -join ', ')" "fail"
-        Write-Item "stop $($holder.ProcessName) and run this again" "those files cannot be overwritten while they are held" "fail"
-        Exit-Run 1
-        return
-    }
-}
-
 # Read BEFORE extraction: the archive overwrites MANIFEST.json, and after that
 # there is no record left of what the previous package put here. Without this the
 # removal step below has to guess from the directory contents, which is how it
@@ -2034,6 +2099,43 @@ if (Test-Path -LiteralPath $prevPath) {
         # left. Saying so and removing nothing is the only safe answer.
         Write-Item "previous MANIFEST.json unreadable" "nothing will be removed this run" "warn"
         $previousManifest = @()
+    }
+}
+
+# Whose files in bin\ these are (#414). bin\ also holds crow-nest's engine, put
+# there by CrowSetup or the window's engine button, and the rename and the sweep
+# below take only what is Crow's: what this package writes, what the previous one
+# put here, and NVIDIA's two libraries, which are moved over a held copy below.
+try {
+    $owned = Get-PackageBinNames -Paths (@(Get-ZipPaths -ZipPath $tmp) + $previousManifest + $nvFiles)
+} catch {
+    Write-Item "cannot install:" "the package cannot be read: $($_.Exception.Message)" "fail"
+    Exit-Run 1
+    return
+}
+
+# Windows locks a running executable and its loaded DLLs. An update started
+# while the server is up -- which is exactly the state the user is in when the
+# client prints the one-liner -- hits a locked file and fails with an
+# IOException that nothing catches. The fix: rename locked files before
+# extraction. Windows allows renaming a running binary; the process keeps its
+# handle to the old name and the path is freed for the new file.
+$binDir = Join-Path $InstallTo "bin"
+$holder = if (Test-Path -LiteralPath $binDir) { Get-LockingServer -BinDir $binDir } else { $null }
+if ($holder) {
+    Write-Item "server running" "$($holder.ProcessName).exe (pid $($holder.Id)) is holding $binDir" "warn"
+    $aside = Move-LockedAside -BinDir $binDir -Names $owned
+    if ($aside.Moved -gt 0) {
+        Write-Item "moved aside" "$($aside.Moved) files renamed -- the running server keeps the old ones" "ok"
+    }
+    # Stopping here rather than letting the extraction discover it: below, the
+    # same condition arrives as an IOException with a filename in it and no idea
+    # why, and the user has already waited for a download by then.
+    if ($aside.Failed.Count -gt 0) {
+        Write-Item "could not move" "$($aside.Failed -join ', ')" "fail"
+        Write-Item "stop $($holder.ProcessName) and run this again" "those files cannot be overwritten while they are held" "fail"
+        Exit-Run 1
+        return
     }
 }
 
@@ -2133,7 +2235,7 @@ if ($targets.Count -eq 0) {
 # they were renamed is that it is still running. So the counts come from looking
 # afterwards, and what stays is said out loud rather than counted as removed.
 if (Test-Path -LiteralPath $binDir) {
-    $swept = Remove-StaleOld -BinDir $binDir
+    $swept = Remove-StaleOld -BinDir $binDir -Names $owned
     if ($swept.Removed -gt 0) {
         Write-Item "cleaned" "$($swept.Removed) stale .old files removed" "ok"
     }

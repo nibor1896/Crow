@@ -5675,7 +5675,8 @@ def update_state(timeout: float = 4.0, current: str = "") -> dict:
 
 # ---------------------------------------------------------------------------
 # #367: the crow-nest engine in <install>/bin, against the engine this Crow is
-# pinned to. Crow's own update (install.ps1) never touches bin/, and CrowSetup
+# pinned to. Crow's own update (install.ps1) leaves the engine in bin/ alone
+# (only Crow's own files there are renamed and swept, #414), and CrowSetup
 # writes the engine only on an install, so an existing copy kept whatever engine
 # it was set up with -- the owner's ran a Crow that needs v0.12.0 on the engine of
 # 2026-10-06 and nothing said so. The pin is manifests/stack.json
